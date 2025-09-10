@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 import sys
+import time
+from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -15,7 +17,10 @@ load_dotenv()
 from config.settings import Settings
 
 # Import AWS utilities
-from src.utils.aws_utils import get_s3_client, get_sts_client, get_bedrock_agent_client
+from src.utils.aws_utils import (
+    get_s3_client, get_sts_client, get_bedrock_agent_client, get_cost_explorer_client,
+    get_cost_and_usage, get_cost_by_service, get_bedrock_costs, get_s3_costs
+)
 from src.utils.bedrock_client import BedrockClient
 
 # Basic app configuration
@@ -52,6 +57,9 @@ def initialize_aws_clients(settings):
         # Initialize Bedrock Agent Runtime client for Knowledge Base
         bedrock_agent_client = get_bedrock_agent_client(settings.bedrock_region)
         
+        # Initialize Cost Explorer client
+        cost_explorer_client = get_cost_explorer_client(settings.aws_default_region)
+        
         # Test AWS connectivity
         identity = sts_client.get_caller_identity()
         account_id = identity.get('Account', 'Unknown')
@@ -69,6 +77,7 @@ def initialize_aws_clients(settings):
             'sts_client': sts_client,
             'bedrock_client': bedrock_client,
             'bedrock_agent_client': bedrock_agent_client,
+            'cost_explorer_client': cost_explorer_client,
             'account_id': account_id,
             'user_arn': user_arn,
             's3_status': s3_status
@@ -470,6 +479,21 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
                 st.write(f"**AWS Secret Key:** `{settings.aws_secret_access_key[:8]}...`")
                 st.write(f"**Bedrock Region:** `{settings.bedrock_region}`")
                 st.write(f"**Embedding Model:** `{settings.bedrock_embedding_model_id}`")
+            
+            # Debug mode toggle
+            st.markdown("---")
+            st.subheader("🔧 Debug Settings")
+            debug_mode = st.checkbox(
+                "Enable Debug Mode", 
+                value=st.session_state.get('debug_mode', False),
+                help="Show debug information in the main chat interface"
+            )
+            st.session_state.debug_mode = debug_mode
+            
+            if debug_mode:
+                st.info("🔍 Debug mode enabled - Debug information will be shown in the main chat interface")
+            else:
+                st.info("🔍 Debug mode disabled - Clean interface without debug information")
     
     with tab3:
         st.header("🔗 AWS Connection Details")
@@ -764,13 +788,302 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
             st.session_state.total_tokens_used = 0
             st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
             st.rerun()
+        
+        # AWS Cost Explorer Integration
+        st.markdown("---")
+        st.subheader("💰 **AWS Cost Explorer Integration**")
+        
+        if aws_clients and 'cost_explorer_client' in aws_clients:
+            # Date range selector
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input(
+                    "Start Date",
+                    value=datetime.now().replace(day=1),  # First day of current month
+                    help="Select start date for cost analysis"
+                )
+            with col2:
+                end_date = st.date_input(
+                    "End Date",
+                    value=datetime.now(),  # Today
+                    help="Select end date for cost analysis"
+                )
+            
+            # Format dates for AWS API
+            start_date_str = start_date.strftime('%Y-%m-%d')
+            end_date_str = end_date.strftime('%Y-%m-%d')
+            
+            # Cost Explorer buttons
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("📊 Get Overall Costs", help="Get total AWS costs by service"):
+                    with st.spinner("Fetching cost data from AWS Cost Explorer..."):
+                        cost_data = get_cost_and_usage(start_date_str, end_date_str, settings.aws_default_region)
+                        if cost_data['success']:
+                            st.session_state.aws_cost_data = cost_data['data']
+                            st.success("✅ Cost data retrieved successfully!")
+                        else:
+                            st.error(f"❌ Error: {cost_data['error']}")
+            
+            with col2:
+                if st.button("🤖 Get Bedrock Costs", help="Get specific Bedrock service costs"):
+                    with st.spinner("Fetching Bedrock cost data..."):
+                        bedrock_costs = get_bedrock_costs(start_date_str, end_date_str, settings.aws_default_region)
+                        if bedrock_costs['success']:
+                            st.session_state.bedrock_cost_data = bedrock_costs['data']
+                            st.success("✅ Bedrock cost data retrieved!")
+                        else:
+                            st.error(f"❌ Error: {bedrock_costs['error']}")
+            
+            with col3:
+                if st.button("🪣 Get S3 Costs", help="Get S3 storage costs"):
+                    with st.spinner("Fetching S3 cost data..."):
+                        s3_costs = get_s3_costs(start_date_str, end_date_str, settings.aws_default_region)
+                        if s3_costs['success']:
+                            st.session_state.s3_cost_data = s3_costs['data']
+                            st.success("✅ S3 cost data retrieved!")
+                        else:
+                            st.error(f"❌ Error: {s3_costs['error']}")
+            
+            # Display cost data if available
+            if 'aws_cost_data' in st.session_state:
+                st.subheader("📈 **AWS Cost Breakdown by Service**")
+                display_aws_cost_data(st.session_state.aws_cost_data)
+            
+            if 'bedrock_cost_data' in st.session_state:
+                st.subheader("🤖 **Bedrock Service Costs**")
+                display_bedrock_cost_data(st.session_state.bedrock_cost_data)
+            
+            if 's3_cost_data' in st.session_state:
+                st.subheader("🪣 **S3 Storage Costs**")
+                display_s3_cost_data(st.session_state.s3_cost_data)
+                
+        else:
+            st.warning("⚠️ Cost Explorer client not available. Please check AWS configuration.")
+
+def display_aws_cost_data(cost_data):
+    """Display AWS cost data in a formatted way."""
+    try:
+        results = cost_data.get('ResultsByTime', [])
+        
+        if not results:
+            st.info("No cost data available for the selected period.")
+            return
+        
+        # Calculate total costs
+        total_cost = 0
+        service_costs = {}
+        
+        for result in results:
+            time_period = result.get('TimePeriod', {})
+            groups = result.get('Groups', [])
+            
+            for group in groups:
+                service = group.get('Keys', ['Unknown'])[0]
+                metrics = group.get('Metrics', {})
+                cost = float(metrics.get('BlendedCost', {}).get('Amount', 0))
+                
+                if service not in service_costs:
+                    service_costs[service] = 0
+                service_costs[service] += cost
+                total_cost += cost
+        
+        # Display total cost
+        st.metric("Total AWS Cost", f"${total_cost:.2f}")
+        
+        # Display service breakdown
+        if service_costs:
+            st.write("**Cost by Service:**")
+            for service, cost in sorted(service_costs.items(), key=lambda x: x[1], reverse=True):
+                percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
+                st.write(f"• **{service}:** ${cost:.2f} ({percentage:.1f}%)")
+        
+        # Create a simple chart if pandas is available
+        try:
+            import pandas as pd
+            df = pd.DataFrame(list(service_costs.items()), columns=['Service', 'Cost'])
+            df = df[df['Cost'] > 0]  # Only show services with costs
+            if not df.empty:
+                st.bar_chart(df.set_index('Service'))
+        except ImportError:
+            st.info("Install pandas for cost visualization charts")
+            
+    except Exception as e:
+        st.error(f"Error displaying cost data: {str(e)}")
+
+def display_bedrock_cost_data(cost_data):
+    """Display Bedrock-specific cost data."""
+    try:
+        results = cost_data.get('ResultsByTime', [])
+        
+        if not results:
+            st.info("No Bedrock cost data available for the selected period.")
+            return
+        
+        total_cost = 0
+        usage_costs = {}
+        
+        for result in results:
+            groups = result.get('Groups', [])
+            
+            for group in groups:
+                usage_type = group.get('Keys', ['Unknown'])[0]
+                metrics = group.get('Metrics', {})
+                cost = float(metrics.get('BlendedCost', {}).get('Amount', 0))
+                
+                if usage_type not in usage_costs:
+                    usage_costs[usage_type] = 0
+                usage_costs[usage_type] += cost
+                total_cost += cost
+        
+        # Display total Bedrock cost
+        st.metric("Total Bedrock Cost", f"${total_cost:.2f}")
+        
+        # Display usage type breakdown
+        if usage_costs:
+            st.write("**Cost by Usage Type:**")
+            for usage_type, cost in sorted(usage_costs.items(), key=lambda x: x[1], reverse=True):
+                percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
+                st.write(f"• **{usage_type}:** ${cost:.2f} ({percentage:.1f}%)")
+        
+    except Exception as e:
+        st.error(f"Error displaying Bedrock cost data: {str(e)}")
+
+def display_s3_cost_data(cost_data):
+    """Display S3-specific cost data."""
+    try:
+        results = cost_data.get('ResultsByTime', [])
+        
+        if not results:
+            st.info("No S3 cost data available for the selected period.")
+            return
+        
+        total_cost = 0
+        usage_costs = {}
+        
+        for result in results:
+            groups = result.get('Groups', [])
+            
+            for group in groups:
+                usage_type = group.get('Keys', ['Unknown'])[0]
+                metrics = group.get('Metrics', {})
+                cost = float(metrics.get('BlendedCost', {}).get('Amount', 0))
+                
+                if usage_type not in usage_costs:
+                    usage_costs[usage_type] = 0
+                usage_costs[usage_type] += cost
+                total_cost += cost
+        
+        # Display total S3 cost
+        st.metric("Total S3 Cost", f"${total_cost:.2f}")
+        
+        # Display usage type breakdown
+        if usage_costs:
+            st.write("**Cost by Usage Type:**")
+            for usage_type, cost in sorted(usage_costs.items(), key=lambda x: x[1], reverse=True):
+                percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
+                st.write(f"• **{usage_type}:** ${cost:.2f} ({percentage:.1f}%)")
+        
+    except Exception as e:
+        st.error(f"Error displaying S3 cost data: {str(e)}")
+
+def initialize_chat_history():
+    """Initialize chat history in session state."""
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    if 'current_session_id' not in st.session_state:
+        st.session_state.current_session_id = f"session_{int(time.time())}"
+    if 'saved_sessions' not in st.session_state:
+        st.session_state.saved_sessions = {}
+    if 'favorite_conversations' not in st.session_state:
+        st.session_state.favorite_conversations = set()
+
+def save_chat_message(role, content, metadata=None):
+    """Save a chat message to history."""
+    message = {
+        'id': f"msg_{int(time.time() * 1000)}",
+        'timestamp': datetime.now().isoformat(),
+        'role': role,  # 'user' or 'assistant'
+        'content': content,
+        'metadata': metadata or {}
+    }
+    st.session_state.chat_history.append(message)
+
+# Export functions removed - moved to future enhancements
+
+def render_chat_history_sidebar():
+    """Render chat history sidebar."""
+    with st.sidebar:
+        st.header("💬 Chat History")
+        
+        # Session management
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🆕 New Chat", help="Start a new chat session"):
+                st.session_state.chat_history = []
+                st.session_state.current_session_id = f"session_{int(time.time())}"
+                st.rerun()
+        
+        with col2:
+            if st.button("💾 Save Session", help="Save current chat session"):
+                session_name = f"Chat_{datetime.now().strftime('%Y%m%d_%H%M')}"
+                st.session_state.saved_sessions[session_name] = {
+                    'id': st.session_state.current_session_id,
+                    'history': st.session_state.chat_history.copy(),
+                    'timestamp': datetime.now().isoformat()
+                }
+                st.success(f"Session saved as '{session_name}'")
+        
+        # Load saved sessions
+        if st.session_state.saved_sessions:
+            st.subheader("📁 Saved Sessions")
+            for session_name, session_data in st.session_state.saved_sessions.items():
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    if st.button(f"📂 {session_name}", key=f"load_{session_name}"):
+                        st.session_state.chat_history = session_data['history'].copy()
+                        st.session_state.current_session_id = session_data['id']
+                        st.rerun()
+                with col2:
+                    if st.button("🗑️", key=f"delete_{session_name}", help="Delete session"):
+                        del st.session_state.saved_sessions[session_name]
+                        st.rerun()
+        
+        # Example questions section
+        st.markdown("---")
+        st.subheader("💡 Example Questions")
+        
+        example_questions = [
+            "What is Adobe Analytics?",
+            "How do I create custom events?",
+            "Compare Adobe Analytics vs Google Analytics",
+            "What are the best practices for web analytics?",
+            "How to implement tracking scripts?",
+            "What is Customer Journey Analytics?"
+        ]
+        
+        # Initialize selected question in session state
+        if 'selected_example_question' not in st.session_state:
+            st.session_state.selected_example_question = None
+        
+        for i, question in enumerate(example_questions):
+            if st.button(f"💬 {question}", key=f"example_{i}", help="Click to use this example question", use_container_width=True):
+                st.session_state.selected_example_question = question
+                st.rerun()
 
 def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router):
     """Render the clean main page focused on user experience."""
+    # Initialize chat history
+    initialize_chat_history()
+    
     # Header section
     st.title("📊 Adobe Experience League Chatbot")
     st.markdown("**Intelligent RAG Assistant for Adobe Analytics Documentation**")
     st.markdown("---")
+    
+    # Render chat history sidebar
+    render_chat_history_sidebar()
     
     # Simple status indicator
     if not aws_error and kb_status and smart_router:
@@ -789,28 +1102,89 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
     
     with col1:
         # Query input with example question support
-        default_value = st.session_state.get('selected_example_question', '')
+        # Handle selected example question
+        if st.session_state.get('selected_example_question'):
+            st.session_state.query_input = st.session_state.get('selected_example_question')
+            st.session_state.selected_example_question = None
+        
+        # Create the text input
         query = st.text_input(
             "Enter your question:",
-            value=default_value,
+            value=st.session_state.get('query_input', ''),
             placeholder="e.g., How do I create custom events in Adobe Analytics?",
             key="query_input",
             help="Ask any question about Adobe Analytics, Customer Journey Analytics, or related topics."
         )
-        
-        # Clear the selected example question after it's been used
-        if st.session_state.get('selected_example_question'):
-            st.session_state.selected_example_question = None
     
     with col2:
-        # Submit button
-        submit_button = st.button("🚀 Ask Question", type="primary", use_container_width=True)
+        # Submit and clear buttons
+        col2_1, col2_2 = st.columns(2)
+        with col2_1:
+            submit_button = st.button("🚀 Ask", type="primary", use_container_width=True)
+        with col2_2:
+            clear_button = st.button("🗑️ Clear", help="Clear the input field", use_container_width=True)
+        
+        # Handle clear button
+        if clear_button:
+            st.session_state.query_input = ""
+            st.rerun()
+    
+    # Display chat history
+    if st.session_state.chat_history:
+        st.markdown("---")
+        st.subheader("💬 Chat History")
+        
+        for message in st.session_state.chat_history:
+            with st.container():
+                if message['role'] == 'user':
+                    st.markdown(f"**👤 You:** {message['content']}")
+                else:
+                    st.markdown(f"**🤖 Assistant:** {message['content']}")
+                    
+                    # Show metadata if available
+                    if message.get('metadata'):
+                        metadata = message['metadata']
+                        with st.expander("📊 Message Details", expanded=False):
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                if metadata.get('model_used'):
+                                    st.write(f"**Model:** {metadata['model_used']}")
+                            with col2:
+                                if metadata.get('documents_retrieved'):
+                                    st.write(f"**Documents:** {metadata['documents_retrieved']}")
+                            with col3:
+                                if metadata.get('cost'):
+                                    st.write(f"**Cost:** ${metadata['cost']:.4f}")
+                st.markdown("---")
     
     # Process query when submitted
     if submit_button:
+        # Clean and validate query
+        query = query.strip() if query else ""
+        
+        # Debug information (can be enabled for troubleshooting)
+        if st.session_state.get('debug_mode', False):
+            with st.expander("🔍 Debug Info", expanded=False):
+                st.write(f"**Query value:** '{query}'")
+                st.write(f"**Query length:** {len(query)}")
+                st.write(f"**Session state query_input:** '{st.session_state.get('query_input', 'NOT_SET')}'")
+                st.write(f"**Submit button clicked:** {submit_button}")
+                st.write(f"**AWS clients available:** {aws_clients is not None}")
+                st.write(f"**AWS error:** {aws_error}")
+                st.write(f"**KB status:** {kb_status}")
+                st.write(f"**Smart router:** {smart_router is not None}")
+        
         if not query:
             st.warning("⚠️ Please enter a question first!")
+        elif len(query) < 3:
+            st.warning("⚠️ Please enter a more detailed question (at least 3 characters).")
         elif aws_clients and not aws_error and kb_status and smart_router:
+            # Save user message
+            save_chat_message('user', query)
+            
+            # Track query start time
+            st.session_state.query_start_time = time.time()
+            
             # Show processing status
             with st.spinner("🤖 Processing your question with AI..."):
                 # Process query with smart routing
@@ -852,84 +1226,31 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                     
                     estimated_cost = (estimated_tokens / 1000) * cost_per_1k_tokens.get(model_used, 0.00125)
                     st.session_state.cost_by_model[model_used] += estimated_cost
-            
-            if not result["success"]:
-                st.error(f"❌ **Error:** {result['error']}")
-            else:
-                # Display results
-                st.success(f"✅ **Retrieved {len(result['documents'])} relevant documents**")
-                
-                # Display routing information
-                routing_decision = result["routing_decision"]
-                with st.expander("🧠 Smart Routing Decision", expanded=False):
-                    col_r1, col_r2 = st.columns(2)
-                    with col_r1:
-                        st.write(f"**Selected Model:** {routing_decision['model'].title()}")
-                        st.write(f"**Complexity:** {routing_decision['complexity']}")
-                    with col_r2:
-                        st.write(f"**KB Relevance:** {routing_decision['relevance']:.2f}")
-                        st.write(f"**Reasoning:** {routing_decision['reasoning']}")
                     
-                    # Show model info
-                    model_info = smart_router.get_model_info(routing_decision['model'])
-                    if model_info:
-                        st.write(f"**Model Details:** {model_info['name']}")
-                        st.write(f"**Description:** {model_info['description']}")
-                        st.write(f"**Cost:** {model_info['cost_per_1m_tokens']}")
-                
-                # Display answer
-                st.markdown("### 💡 Answer")
-                st.markdown(result["answer"])
-                
-                # Show source documents
-                if result["documents"]:
-                    with st.expander("📚 Source Documents", expanded=False):
-                        for i, doc in enumerate(result["documents"], 1):
-                            st.markdown(f"**Document {i}** (Score: {doc.get('score', 'N/A')})")
-                            content = doc.get('content', {}).get('text', 'N/A')
-                            st.markdown(f"_{content[:300]}{'...' if len(content) > 300 else ''}_")
-                            st.markdown("---")
-                
-                # Show processing summary
-                with st.expander("📊 Processing Summary", expanded=False):
-                    col_s1, col_s2, col_s3 = st.columns(3)
-                    with col_s1:
-                        st.metric("Model Used", result['model_used'].title())
-                    with col_s2:
-                        st.metric("Documents Retrieved", len(result['documents']))
-                    with col_s3:
-                        st.metric("Answer Length", f"{len(result['answer'])} chars")
+                    # Save assistant response with metadata
+                    assistant_metadata = {
+                        'model_used': model_used,
+                        'documents_retrieved': len(result.get('documents', [])),
+                        'cost': estimated_cost,
+                        'routing_decision': result.get('routing_decision', {}),
+                        'processing_time': time.time() - st.session_state.get('query_start_time', time.time())
+                    }
+                    save_chat_message('assistant', result['answer'], assistant_metadata)
+                    
+                    # Show success message and rerun to display the new message
+                    st.success("✅ **Query processed successfully!** Check the chat history below.")
+                    st.rerun()
+                else:
+                    # Save error message
+                    save_chat_message('assistant', f"❌ Error: {result['error']}")
+                    st.rerun()
         else:
             st.error("❌ **System not ready!** Please check the admin dashboard for system status.")
-    
-    # Example questions section
-    st.markdown("---")
-    st.markdown("### 💡 Example Questions")
-    
-    example_cols = st.columns(3)
-    example_questions = [
-        "What is Adobe Analytics?",
-        "How do I create custom events?",
-        "Compare Adobe Analytics vs Google Analytics",
-        "What are the best practices for web analytics?",
-        "How to implement tracking scripts?",
-        "What is Customer Journey Analytics?"
-    ]
-    
-    # Initialize selected question in session state
-    if 'selected_example_question' not in st.session_state:
-        st.session_state.selected_example_question = None
-    
-    for i, question in enumerate(example_questions):
-        with example_cols[i % 3]:
-            if st.button(f"💬 {question}", key=f"example_{i}", help="Click to use this example question"):
-                st.session_state.selected_example_question = question
-                st.rerun()
-    
     
     # Footer
     st.markdown("---")
     st.markdown("**Adobe Experience League Chatbot** - Powered by AWS Bedrock & Smart Routing")
+
 
 def main():
     """Main Streamlit application entry point."""
