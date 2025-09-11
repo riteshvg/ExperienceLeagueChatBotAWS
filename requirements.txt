@@ -7,6 +7,14 @@ pathlib2>=2.3.7; python_version < "3.4"
 gitpython>=3.1.40
 pandas>=2.1.0
 
+# Database dependencies
+pymysql>=1.1.0
+psycopg2-binary>=2.9.0
+sqlalchemy>=2.0.0
+
+# Railway deployment
+gunicorn>=21.2.0
+
 # Additional useful dependencies for RAG chatbot
 openai>=1.3.0
 langchain>=0.1.0

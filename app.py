@@ -23,6 +23,12 @@ from src.utils.aws_utils import (
 )
 from src.utils.bedrock_client import BedrockClient
 
+# Import analytics components
+from src.integrations.streamlit_analytics import (
+    initialize_analytics_service, StreamlitAnalyticsIntegration
+)
+from src.models.database_models import UserQuery, AIResponse, UserFeedback, QueryComplexity, QueryStatus, FeedbackType
+
 # Basic app configuration
 st.set_page_config(
     page_title="Adobe Experience League Chatbot",
@@ -144,12 +150,15 @@ def test_knowledge_base_connection(knowledge_base_id: str, bedrock_agent_client)
 class SmartRouter:
     """Smart router for selecting appropriate Bedrock models based on query analysis."""
     
-    def __init__(self):
+    def __init__(self, haiku_only_mode=False):
         self.models = {
             "haiku": "us.anthropic.claude-3-haiku-20240307-v1:0",
             "sonnet": "us.anthropic.claude-3-7-sonnet-20250219-v1:0", 
             "opus": "us.anthropic.claude-3-opus-20240229-v1:0"
         }
+        
+        # HAIKU-ONLY MODE: Set to True for one week testing (cost optimization)
+        self.haiku_only_mode = haiku_only_mode
         
         # Query complexity indicators
         self.simple_keywords = ["what", "define", "explain", "how to", "tutorial", "guide"]
@@ -199,23 +208,28 @@ class SmartRouter:
         complexity = self.analyze_query_complexity(query)
         relevance = self.check_kb_relevance(query, documents or [])
         
-        # Model selection logic with fallback for unavailable models
-        if relevance < self.medium_relevance_threshold:
-            # Low KB relevance - prefer Opus, fallback to Sonnet
-            selected_model = "opus"
-            reasoning = f"Low KB relevance ({relevance:.2f}) - using Opus for general knowledge"
-        elif complexity == "simple":
-            # Simple queries - use fast, cost-effective model
+        # HAIKU-ONLY MODE: Force all queries to use Haiku for cost optimization
+        if self.haiku_only_mode:
             selected_model = "haiku"
-            reasoning = f"Simple query - using Haiku for fast response"
-        elif complexity == "complex":
-            # Complex queries - use balanced model
-            selected_model = "sonnet"
-            reasoning = f"Complex query - using Sonnet for detailed analysis"
-        else:  # extremely_complex
-            # Extremely complex queries - prefer Opus, fallback to Sonnet
-            selected_model = "opus"
-            reasoning = f"Extremely complex query - using Opus for maximum capability"
+            reasoning = f"HAIKU-ONLY MODE: Using Haiku for all queries (cost optimization test - 92% cost reduction)"
+        else:
+            # Original model selection logic with fallback for unavailable models
+            if relevance < self.medium_relevance_threshold:
+                # Low KB relevance - prefer Opus, fallback to Sonnet
+                selected_model = "opus"
+                reasoning = f"Low KB relevance ({relevance:.2f}) - using Opus for general knowledge"
+            elif complexity == "simple":
+                # Simple queries - use fast, cost-effective model
+                selected_model = "haiku"
+                reasoning = f"Simple query - using Haiku for fast response"
+            elif complexity == "complex":
+                # Complex queries - use balanced model
+                selected_model = "sonnet"
+                reasoning = f"Complex query - using Sonnet for detailed analysis"
+            else:  # extremely_complex
+                # Extremely complex queries - prefer Opus, fallback to Sonnet
+                selected_model = "opus"
+                reasoning = f"Extremely complex query - using Opus for maximum capability"
         
         return {
             "model": selected_model,
@@ -229,6 +243,10 @@ class SmartRouter:
         """Select appropriate model with fallback to available models."""
         if available_models is None:
             available_models = ["haiku", "sonnet"]  # Default available models
+        
+        # HAIKU-ONLY MODE: Override available models to only include Haiku
+        if self.haiku_only_mode:
+            available_models = ["haiku"]
         
         # Get initial selection
         selection = self.select_model(query, documents)
@@ -330,7 +348,9 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
         
         # Step 2: Smart routing - select appropriate model with fallback
         # Use available models (Haiku and Sonnet are confirmed working)
-        available_models = ["haiku", "sonnet"]
+        # Check current mode from session state for dynamic switching
+        current_haiku_only_mode = st.session_state.get('haiku_only_mode', smart_router.haiku_only_mode)
+        available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet"]
         routing_decision = smart_router.select_available_model(query, documents, available_models)
         
         # Step 3: Prepare context from retrieved documents
@@ -396,29 +416,38 @@ def test_model_invocation(model_id: str, test_query: str, bedrock_client) -> tup
     except Exception as e:
         return False, str(e)
 
-def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results):
+def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results, analytics_service=None):
     """Render the admin page with all technical details."""
     st.title("🔧 Admin Dashboard")
     st.markdown("**System Configuration, Status, and Analytics**")
     st.markdown("---")
     
     # Create tabs for different admin sections
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📊 System Status", 
         "⚙️ Configuration", 
         "🔗 AWS Details", 
         "🧠 Smart Router", 
-        "📈 Analytics"
+        "📈 Analytics",
+        "🤖 Model Management",
+        "📊 Query Analytics"
     ])
     
     with tab1:
         st.header("📊 System Status Overview")
         
         # Overall system status
+        current_haiku_only_mode = st.session_state.get('haiku_only_mode', smart_router.haiku_only_mode if smart_router else False)
         if not aws_error and kb_status and smart_router:
-            st.success("🚀 **System Status: READY** - All components operational")
+            if current_haiku_only_mode:
+                st.success("🚀 **System Status: READY** - All components operational (HAIKU-ONLY MODE ACTIVE)")
+            else:
+                st.success("🚀 **System Status: READY** - All components operational (SMART ROUTING MODE)")
         elif not aws_error and smart_router:
-            st.info("🔧 **System Status: PARTIAL** - Knowledge Base testing in progress")
+            if current_haiku_only_mode:
+                st.info("🔧 **System Status: PARTIAL** - Knowledge Base testing in progress (HAIKU-ONLY MODE ACTIVE)")
+            else:
+                st.info("🔧 **System Status: PARTIAL** - Knowledge Base testing in progress (SMART ROUTING MODE)")
         else:
             st.warning("⚠️ **System Status: SETUP** - System setup in progress")
         
@@ -631,6 +660,13 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
         if smart_router:
             st.success("✅ **Smart Router: Initialized**")
             
+            # Haiku-only mode indicator
+            if smart_router.haiku_only_mode:
+                st.warning("⚠️ **HAIKU-ONLY MODE ACTIVE** - All queries will use Claude 3 Haiku for cost optimization (92% cost reduction)")
+                st.info("💡 This mode is enabled for one week testing. Monitor response quality and user feedback.")
+            else:
+                st.info("ℹ️ **Normal Mode** - Smart routing based on query complexity and context")
+            
             # Available models
             st.subheader("🤖 Available Models")
             for model_name, model_id in smart_router.models.items():
@@ -783,7 +819,7 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
             st.info("Start using the system to get personalized cost optimization recommendations!")
         
         # Reset button for cost tracking
-        if st.button("🔄 Reset Cost Tracking", help="Reset all cost tracking data"):
+        if st.button("🔄 Reset Cost Tracking", help="Reset all cost tracking data", key="reset_cost_tracking_analytics"):
             st.session_state.query_count = 0
             st.session_state.total_tokens_used = 0
             st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
@@ -817,7 +853,7 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                if st.button("📊 Get Overall Costs", help="Get total AWS costs by service"):
+                if st.button("📊 Get Overall Costs", help="Get total AWS costs by service", key="get_overall_costs_analytics"):
                     with st.spinner("Fetching cost data from AWS Cost Explorer..."):
                         cost_data = get_cost_and_usage(start_date_str, end_date_str, settings.aws_default_region)
                         if cost_data['success']:
@@ -827,7 +863,7 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
                             st.error(f"❌ Error: {cost_data['error']}")
             
             with col2:
-                if st.button("🤖 Get Bedrock Costs", help="Get specific Bedrock service costs"):
+                if st.button("🤖 Get Bedrock Costs", help="Get specific Bedrock service costs", key="get_bedrock_costs_analytics"):
                     with st.spinner("Fetching Bedrock cost data..."):
                         bedrock_costs = get_bedrock_costs(start_date_str, end_date_str, settings.aws_default_region)
                         if bedrock_costs['success']:
@@ -837,7 +873,7 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
                             st.error(f"❌ Error: {bedrock_costs['error']}")
             
             with col3:
-                if st.button("🪣 Get S3 Costs", help="Get S3 storage costs"):
+                if st.button("🪣 Get S3 Costs", help="Get S3 storage costs", key="get_s3_costs_analytics"):
                     with st.spinner("Fetching S3 cost data..."):
                         s3_costs = get_s3_costs(start_date_str, end_date_str, settings.aws_default_region)
                         if s3_costs['success']:
@@ -861,6 +897,232 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
                 
         else:
             st.warning("⚠️ Cost Explorer client not available. Please check AWS configuration.")
+    
+    with tab6:
+        st.header("🤖 Model Management & Cost Control")
+        
+        if smart_router:
+            st.success("✅ **Smart Router: Initialized**")
+            
+            # Current mode display
+            st.subheader("🎯 Current Model Selection Mode")
+            if smart_router.haiku_only_mode:
+                st.warning("⚠️ **HAIKU-ONLY MODE ACTIVE**")
+                st.info("💡 All queries will use Claude 3 Haiku for maximum cost savings (92% reduction)")
+            else:
+                st.success("✅ **SMART ROUTING MODE ACTIVE**")
+                st.info("💡 Models are selected based on query complexity and context quality")
+            
+            # Mode toggle section
+            st.markdown("---")
+            st.subheader("🔄 Dynamic Mode Control")
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.write("**Switch between modes based on your cost management needs:**")
+                st.write("• **Smart Routing**: Optimal quality with balanced costs")
+                st.write("• **Haiku-Only**: Maximum cost savings with good quality")
+            
+            with col2:
+                # Toggle button for Haiku-only mode
+                current_mode = smart_router.haiku_only_mode
+                new_mode = st.toggle(
+                    "Enable Haiku-Only Mode",
+                    value=current_mode,
+                    help="Toggle to enable/disable Haiku-only mode for cost optimization"
+                )
+                
+                # Update mode if changed
+                if new_mode != current_mode:
+                    smart_router.haiku_only_mode = new_mode
+                    st.session_state.haiku_only_mode = new_mode
+                    st.rerun()
+            
+            # Mode change confirmation
+            if new_mode != current_mode:
+                if new_mode:
+                    st.success("🔄 **Switched to Haiku-Only Mode** - All queries will now use Claude 3 Haiku")
+                else:
+                    st.success("🔄 **Switched to Smart Routing Mode** - Models will be selected based on query analysis")
+            
+            # Cost impact analysis
+            st.markdown("---")
+            st.subheader("💰 Cost Impact Analysis")
+            
+            cost_col1, cost_col2 = st.columns(2)
+            
+            with cost_col1:
+                st.write("**Current Mode Cost (per 1M tokens):**")
+                if smart_router.haiku_only_mode:
+                    st.metric("Haiku Only", "$1.50", "92% savings vs Sonnet")
+                    st.caption("• Input: $0.25 per 1M tokens")
+                    st.caption("• Output: $1.25 per 1M tokens")
+                else:
+                    st.metric("Smart Routing", "Variable", "Optimized selection")
+                    st.caption("• Haiku: $1.50 per 1M tokens")
+                    st.caption("• Sonnet: $18.00 per 1M tokens")
+                    st.caption("• Opus: $75.00 per 1M tokens")
+            
+            with cost_col2:
+                st.write("**Estimated Monthly Savings:**")
+                if smart_router.haiku_only_mode:
+                    st.metric("Cost Reduction", "80-90%", "vs Smart Routing")
+                    st.caption("• Typical usage: $15-30/month")
+                    st.caption("• High usage: $50-100/month")
+                else:
+                    st.metric("Balanced Cost", "Optimized", "Quality + Efficiency")
+                    st.caption("• Typical usage: $50-150/month")
+                    st.caption("• High usage: $200-400/month")
+            
+            # Usage recommendations
+            st.markdown("---")
+            st.subheader("💡 Usage Recommendations")
+            
+            if smart_router.haiku_only_mode:
+                st.info("""
+                **✅ Haiku-Only Mode is ideal when:**
+                • You want maximum cost savings
+                • Most queries are simple or factual
+                • Response speed is more important than detailed analysis
+                • You're testing cost optimization
+                • Budget constraints are tight
+                """)
+                
+                st.warning("""
+                **⚠️ Consider switching to Smart Routing if:**
+                • Users report insufficient detail in responses
+                • Complex analytical queries are common
+                • Quality feedback shows issues
+                • You need creative problem-solving capabilities
+                """)
+            else:
+                st.success("""
+                **✅ Smart Routing Mode is ideal when:**
+                • You want balanced quality and cost
+                • Queries vary in complexity
+                • Quality is important for user satisfaction
+                • You have moderate budget flexibility
+                • You want optimal performance per query type
+                """)
+                
+                st.info("""
+                **💡 Consider switching to Haiku-Only if:**
+                • Costs are exceeding budget
+                • Most queries are simple
+                • You want to test cost optimization
+                • Response speed is critical
+                • You're in a cost-sensitive phase
+                """)
+            
+            # Real-time cost monitoring
+            st.markdown("---")
+            st.subheader("📊 Real-Time Cost Monitoring")
+            
+            if 'query_count' in st.session_state and st.session_state.query_count > 0:
+                total_cost = sum(st.session_state.cost_by_model.values())
+                haiku_cost = st.session_state.cost_by_model.get('haiku', 0)
+                sonnet_cost = st.session_state.cost_by_model.get('sonnet', 0)
+                opus_cost = st.session_state.cost_by_model.get('opus', 0)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("Total Cost", f"${total_cost:.4f}")
+                with col2:
+                    st.metric("Haiku Cost", f"${haiku_cost:.4f}")
+                with col3:
+                    st.metric("Sonnet Cost", f"${sonnet_cost:.4f}")
+                with col4:
+                    st.metric("Opus Cost", f"${opus_cost:.4f}")
+                
+                # Cost trend analysis
+                if total_cost > 0:
+                    haiku_percentage = (haiku_cost / total_cost) * 100
+                    st.write(f"**Current Haiku Usage:** {haiku_percentage:.1f}% of total cost")
+                    
+                    if haiku_percentage < 50 and not smart_router.haiku_only_mode:
+                        st.warning("⚠️ **High-cost models being used frequently** - Consider switching to Haiku-only mode for cost savings")
+                    elif haiku_percentage > 90 and smart_router.haiku_only_mode:
+                        st.success("✅ **Haiku-only mode working effectively** - Achieving maximum cost savings")
+            else:
+                st.info("No queries processed yet. Start using the system to see real-time cost data.")
+            
+            # Quick actions
+            st.markdown("---")
+            st.subheader("⚡ Quick Actions")
+            
+            action_col1, action_col2, action_col3 = st.columns(3)
+            
+            with action_col1:
+                if st.button("🔄 Reset Cost Tracking", help="Reset all cost tracking data", key="reset_cost_tracking_model_mgmt"):
+                    st.session_state.query_count = 0
+                    st.session_state.total_tokens_used = 0
+                    st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
+                    st.success("Cost tracking reset successfully!")
+                    st.rerun()
+            
+            with action_col2:
+                if st.button("📊 View Cost History", help="View detailed cost breakdown", key="view_cost_history_model_mgmt"):
+                    st.info("Cost history feature coming soon! Currently showing real-time data above.")
+            
+            with action_col3:
+                if st.button("💡 Get Recommendations", help="Get personalized cost optimization recommendations", key="get_recommendations_model_mgmt"):
+                    if smart_router.haiku_only_mode:
+                        st.info("💡 **Current recommendation:** Continue with Haiku-only mode for maximum savings")
+                    else:
+                        st.info("💡 **Current recommendation:** Monitor costs and switch to Haiku-only if budget exceeds limits")
+        else:
+            st.warning("⚠️ Smart Router not initialized")
+    
+    with tab7:
+        st.header("📊 Query Analytics Dashboard")
+        
+        # Check if analytics service is available
+        if st.session_state.get('analytics_available', False):
+            st.success("✅ **Analytics Service: Available**")
+            
+            # Render the analytics dashboard
+            try:
+                analytics_service.render_analytics_dashboard()
+            except Exception as e:
+                st.error(f"❌ **Analytics Dashboard Error:** {str(e)}")
+                st.info("💡 **Troubleshooting:** Check database connection and configuration")
+        else:
+            st.warning("⚠️ **Analytics Service: Not Available**")
+            st.info("""
+            **To enable query analytics:**
+            1. Set up a database (PostgreSQL, MySQL, or SQLite)
+            2. Configure database connection in environment variables
+            3. Run database migration script
+            4. Restart the application
+            
+            **For local testing with SQLite:**
+            ```bash
+            export USE_SQLITE=true
+            export SQLITE_DATABASE=analytics.db
+            ```
+            """)
+            
+            # Show database configuration status
+            st.subheader("🔧 Database Configuration Status")
+            try:
+                from src.utils.database_config import get_database_info
+                db_info = get_database_info()
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**Database Type:** {db_info.get('type', 'Unknown')}")
+                    st.write(f"**Host:** {db_info.get('host', 'Unknown')}")
+                    st.write(f"**Port:** {db_info.get('port', 'Unknown')}")
+                
+                with col2:
+                    st.write(f"**Database:** {db_info.get('database', 'Unknown')}")
+                    st.write(f"**Username:** {db_info.get('username', 'Unknown')}")
+                    st.write(f"**Railway:** {db_info.get('is_railway', False)}")
+                
+            except Exception as e:
+                st.error(f"Database configuration error: {e}")
 
 def display_aws_cost_data(cost_data):
     """Display AWS cost data in a formatted way."""
@@ -1020,13 +1282,13 @@ def render_chat_history_sidebar():
         # Session management
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🆕 New Chat", help="Start a new chat session"):
+            if st.button("🆕 New Chat", help="Start a new chat session", key="new_chat_button"):
                 st.session_state.chat_history = []
                 st.session_state.current_session_id = f"session_{int(time.time())}"
                 st.rerun()
         
         with col2:
-            if st.button("💾 Save Session", help="Save current chat session"):
+            if st.button("💾 Save Session", help="Save current chat session", key="save_session_button"):
                 session_name = f"Chat_{datetime.now().strftime('%Y%m%d_%H%M')}"
                 st.session_state.saved_sessions[session_name] = {
                     'id': st.session_state.current_session_id,
@@ -1072,7 +1334,7 @@ def render_chat_history_sidebar():
                 st.session_state.selected_example_question = question
                 st.rerun()
 
-def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router):
+def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, analytics_service=None):
     """Render the clean main page focused on user experience."""
     # Initialize chat history
     initialize_chat_history()
@@ -1086,10 +1348,17 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
     render_chat_history_sidebar()
     
     # Simple status indicator
+    current_haiku_only_mode = st.session_state.get('haiku_only_mode', smart_router.haiku_only_mode if smart_router else False)
     if not aws_error and kb_status and smart_router:
-        st.success("🚀 **System Ready** - Ask your question below!")
+        if current_haiku_only_mode:
+            st.success("🚀 **System Ready** - Ask your question below! (HAIKU-ONLY MODE - 92% cost savings)")
+        else:
+            st.success("🚀 **System Ready** - Ask your question below! (SMART ROUTING MODE)")
     elif not aws_error and smart_router:
-        st.info("🔧 **System Loading** - Knowledge Base testing in progress...")
+        if current_haiku_only_mode:
+            st.info("🔧 **System Loading** - Knowledge Base testing in progress... (HAIKU-ONLY MODE)")
+        else:
+            st.info("🔧 **System Loading** - Knowledge Base testing in progress... (SMART ROUTING MODE)")
     else:
         st.warning("⚠️ **System Setup** - Please check admin dashboard for details")
     
@@ -1098,63 +1367,99 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
     st.markdown("Ask any question about Adobe Analytics, Customer Journey Analytics, or related topics.")
     
     # Query input section
-    col1, col2 = st.columns([4, 1])
+    # Handle selected example question
+    if st.session_state.get('selected_example_question'):
+        st.session_state.query_input = st.session_state.get('selected_example_question')
+        st.session_state.selected_example_question = None
     
-    with col1:
-        # Query input with example question support
-        # Handle selected example question
-        if st.session_state.get('selected_example_question'):
-            st.session_state.query_input = st.session_state.get('selected_example_question')
-            st.session_state.selected_example_question = None
-        
-        # Create the text input
-        query = st.text_input(
-            "Enter your question:",
-            value=st.session_state.get('query_input', ''),
-            placeholder="e.g., How do I create custom events in Adobe Analytics?",
-            key="query_input",
-            help="Ask any question about Adobe Analytics, Customer Journey Analytics, or related topics."
-        )
+    # Handle clear button before creating the text input
+    clear_button = st.button("🗑️ Clear", help="Clear the input field", use_container_width=True, key="clear_button")
+    if clear_button:
+        # Clear the query input by removing it from session state
+        if 'query_input' in st.session_state:
+            del st.session_state.query_input
+        st.rerun()
     
-    with col2:
-        # Submit and clear buttons
-        col2_1, col2_2 = st.columns(2)
-        with col2_1:
-            submit_button = st.button("🚀 Ask", type="primary", use_container_width=True)
-        with col2_2:
-            clear_button = st.button("🗑️ Clear", help="Clear the input field", use_container_width=True)
-        
-        # Handle clear button
-        if clear_button:
-            st.session_state.query_input = ""
-            st.rerun()
+    # Create the text input
+    query = st.text_input(
+        "Enter your question:",
+        value=st.session_state.get('query_input', ''),
+        placeholder="e.g., How do I create custom events in Adobe Analytics?",
+        key="query_input",
+        help="Ask any question about Adobe Analytics, Customer Journey Analytics, or related topics."
+    )
+    
+    # Submit button below the input
+    submit_button = st.button("🚀 Ask Question", type="primary", use_container_width=True, key="ask_question_button")
     
     # Display chat history
     if st.session_state.chat_history:
         st.markdown("---")
         st.subheader("💬 Chat History")
         
-        for message in st.session_state.chat_history:
+        for i, message in enumerate(st.session_state.chat_history):
             with st.container():
                 if message['role'] == 'user':
                     st.markdown(f"**👤 You:** {message['content']}")
                 else:
                     st.markdown(f"**🤖 Assistant:** {message['content']}")
                     
-                    # Show metadata if available
-                    if message.get('metadata'):
-                        metadata = message['metadata']
-                        with st.expander("📊 Message Details", expanded=False):
-                            col1, col2, col3 = st.columns(3)
-                            with col1:
-                                if metadata.get('model_used'):
-                                    st.write(f"**Model:** {metadata['model_used']}")
-                            with col2:
-                                if metadata.get('documents_retrieved'):
-                                    st.write(f"**Documents:** {metadata['documents_retrieved']}")
-                            with col3:
-                                if metadata.get('cost'):
-                                    st.write(f"**Cost:** ${metadata['cost']:.4f}")
+                    # Add feedback buttons for assistant messages
+                    if message['role'] == 'assistant':
+                        # Check if feedback already given
+                        feedback_given = st.session_state.get('feedback', {}).get(f"message_{i}")
+                        
+                        col1, col2, col3 = st.columns([1, 1, 8])
+                        with col1:
+                            if feedback_given == "positive":
+                                st.success("👍 Feedback received!")
+                            else:
+                                if st.button("👍", key=f"thumbs_up_{i}", help="This response was helpful", use_container_width=True):
+                                    # Store feedback in session state
+                                    if 'feedback' not in st.session_state:
+                                        st.session_state.feedback = {}
+                                    st.session_state.feedback[f"message_{i}"] = "positive"
+                                    
+                                    # Store feedback in analytics if available
+                                    if st.session_state.get('analytics_available', False) and analytics_service:
+                                        try:
+                                            if hasattr(message, 'metadata') and message.get('metadata', {}).get('query_id'):
+                                                analytics_service.track_feedback(
+                                                    query_id=message['metadata']['query_id'],
+                                                    response_id=message['metadata'].get('response_id', 0),
+                                                    feedback_type="positive",
+                                                    additional_notes="User clicked thumbs up"
+                                                )
+                                        except Exception as e:
+                                            print(f"Feedback storage failed: {e}")
+                                    
+                                    st.success("Thank you for your feedback!")
+                                    st.rerun()
+                        with col2:
+                            if feedback_given == "negative":
+                                st.info("👎 Feedback received!")
+                            else:
+                                if st.button("👎", key=f"thumbs_down_{i}", help="This response was not helpful", use_container_width=True):
+                                    # Store feedback in session state
+                                    if 'feedback' not in st.session_state:
+                                        st.session_state.feedback = {}
+                                    st.session_state.feedback[f"message_{i}"] = "negative"
+                                    
+                                    # Store feedback in analytics if available
+                                    if st.session_state.get('analytics_available', False) and analytics_service:
+                                        try:
+                                            if hasattr(message, 'metadata') and message.get('metadata', {}).get('query_id'):
+                                                analytics_service.track_feedback(
+                                                    query_id=message['metadata']['query_id'],
+                                                    response_id=message['metadata'].get('response_id', 0),
+                                                    feedback_type="negative",
+                                                    additional_notes="User clicked thumbs down"
+                                                )
+                                        except Exception as e:
+                                            print(f"Feedback storage failed: {e}")
+                                    
+                                    st.info("Thank you for your feedback. We'll work to improve!")
+                                    st.rerun()
                 st.markdown("---")
     
     # Process query when submitted
@@ -1237,6 +1542,39 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                     }
                     save_chat_message('assistant', result['answer'], assistant_metadata)
                     
+                    # Store analytics data if analytics service is available
+                    if st.session_state.get('analytics_available', False) and analytics_service:
+                        try:
+                            # Track user query using the integration wrapper
+                            query_id = analytics_service.track_query(
+                                session_id=st.session_state.get('current_session_id', 'default'),
+                                query_text=query,
+                                query_complexity=result.get('routing_decision', {}).get('complexity', 'simple'),
+                                processing_time_ms=int((time.time() - st.session_state.get('query_start_time', time.time())) * 1000),
+                                status="success"
+                            )
+                            
+                            if query_id:
+                                # Track AI response using the integration wrapper
+                                response_id = analytics_service.track_response(
+                                    query_id=query_id,
+                                    model_used=model_used,
+                                    model_id=result.get('routing_decision', {}).get('model_id', ''),
+                                    response_text=result['answer'],
+                                    tokens_used=estimated_tokens,
+                                    estimated_cost=estimated_cost,
+                                    documents_retrieved=len(result.get('documents', [])),
+                                    relevance_score=result.get('routing_decision', {}).get('relevance', 0.0)
+                                )
+                                
+                                if response_id:
+                                    st.session_state.last_query_id = query_id
+                                    st.session_state.last_response_id = response_id
+                                    
+                        except Exception as e:
+                            print(f"Analytics storage failed: {e}")
+                            # Don't fail the main query if analytics fails
+                    
                     # Show success message and rerun to display the new message
                     st.success("✅ **Query processed successfully!** Check the chat history below.")
                     st.rerun()
@@ -1265,11 +1603,24 @@ def main():
     smart_router = None
     model_test_results = None
     
+    # Initialize analytics service
+    analytics_service = None
+    try:
+        analytics_service = initialize_analytics_service()
+        if analytics_service:
+            st.session_state.analytics_available = True
+        else:
+            st.session_state.analytics_available = False
+    except Exception as e:
+        st.session_state.analytics_available = False
+        print(f"Analytics service initialization failed: {e}")
+    
     if not config_error:
         aws_clients, aws_error = initialize_aws_clients(settings)
         
-        # Initialize smart router
-        smart_router = SmartRouter()
+        # Initialize smart router - check session state for mode preference
+        haiku_only_mode = st.session_state.get('haiku_only_mode', False)  # Default to False for normal operation
+        smart_router = SmartRouter(haiku_only_mode=haiku_only_mode)
         
         # Test Knowledge Base connection if AWS clients are initialized
         if aws_clients and not aws_error:
@@ -1282,7 +1633,9 @@ def main():
             if kb_status and smart_router:
                 model_test_results = {}
                 # Only test available models to avoid AccessDeniedException during startup
-                available_models = ["haiku", "sonnet"]
+                # Check current mode from session state for dynamic switching
+                current_haiku_only_mode = st.session_state.get('haiku_only_mode', smart_router.haiku_only_mode)
+                available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet"]
                 for model_name in available_models:
                     if model_name in smart_router.models:
                         model_id = smart_router.models[model_name]
@@ -1299,7 +1652,10 @@ def main():
                 # Mark unavailable models as not tested
                 for model_name in smart_router.models:
                     if model_name not in available_models:
-                        model_test_results[model_name] = {"success": False, "message": "Not tested - model not accessible"}
+                        if current_haiku_only_mode and model_name != "haiku":
+                            model_test_results[model_name] = {"success": False, "message": "Not tested - Haiku-only mode enabled"}
+                        else:
+                            model_test_results[model_name] = {"success": False, "message": "Not tested - model not accessible"}
     
     # Page selection
     page = st.sidebar.selectbox(
@@ -1310,9 +1666,9 @@ def main():
     
     # Render appropriate page
     if page == "🏠 Main Chat":
-        render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router)
+        render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, analytics_service)
     else:  # Admin Dashboard
-        render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results)
+        render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results, analytics_service)
 
 if __name__ == "__main__":
     main()
