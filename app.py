@@ -44,6 +44,17 @@ except ImportError as e:
         def render_analytics_dashboard(self): 
             st.error("Analytics not available - database configuration error")
 
+# Import database query components
+try:
+    from src.integrations.database_query import render_database_query_interface
+    DATABASE_QUERY_AVAILABLE = True
+    print("✅ Database query integration loaded successfully")
+except ImportError as e:
+    print(f"⚠️  Database query components not available: {e}")
+    DATABASE_QUERY_AVAILABLE = False
+    def render_database_query_interface():
+        st.error("Database query interface not available - import error")
+
 # Basic app configuration
 st.set_page_config(
     page_title="Adobe Experience League Chatbot",
@@ -460,14 +471,15 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
     st.markdown("---")
     
     # Create tabs for different admin sections
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "📊 System Status", 
         "⚙️ Configuration", 
         "🔗 AWS Details", 
         "🧠 Smart Router", 
         "📈 Analytics",
         "🤖 Model Management",
-        "📊 Query Analytics"
+        "📊 Query Analytics",
+        "🔍 Database Query"
     ])
     
     with tab1:
@@ -1160,6 +1172,33 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
                 
             except Exception as e:
                 st.error(f"Database configuration error: {e}")
+    
+    with tab8:
+        st.header("🔍 Database Query Interface")
+        
+        # Check if database query interface is available
+        if DATABASE_QUERY_AVAILABLE:
+            st.success("✅ **Database Query Interface: Available**")
+            
+            # Render the database query interface
+            try:
+                render_database_query_interface()
+            except Exception as e:
+                st.error(f"❌ **Database Query Interface Error:** {str(e)}")
+                st.info("💡 **Troubleshooting:** Check database connection and configuration")
+        else:
+            st.warning("⚠️ **Database Query Interface: Not Available**")
+            st.info("""
+            **To enable database query interface:**
+            1. Ensure database connection is properly configured
+            2. Check that all required dependencies are installed
+            3. Verify database tables exist and are accessible
+            
+            **Required dependencies:**
+            - psycopg2-binary (for PostgreSQL)
+            - pandas (for data display)
+            - streamlit (for UI components)
+            """)
 
 def display_aws_cost_data(cost_data):
     """Display AWS cost data in a formatted way."""
