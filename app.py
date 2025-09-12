@@ -24,11 +24,25 @@ from src.utils.aws_utils import (
 )
 from src.utils.bedrock_client import BedrockClient
 
-# Import analytics components
-from src.integrations.streamlit_analytics import (
-    initialize_analytics_service, StreamlitAnalyticsIntegration
-)
-from src.models.database_models import UserQuery, AIResponse, UserFeedback, QueryComplexity, QueryStatus, FeedbackType
+# Import analytics components with error handling
+try:
+    from src.integrations.streamlit_analytics import (
+        initialize_analytics_service, StreamlitAnalyticsIntegration
+    )
+    from src.models.database_models import UserQuery, AIResponse, UserFeedback, QueryComplexity, QueryStatus, FeedbackType
+    ANALYTICS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️  Analytics components not available: {e}")
+    ANALYTICS_AVAILABLE = False
+    # Create dummy classes for compatibility
+    class UserQuery: pass
+    class AIResponse: pass
+    class UserFeedback: pass
+    class QueryComplexity: pass
+    class QueryStatus: pass
+    class FeedbackType: pass
+    def initialize_analytics_service(): return None
+    class StreamlitAnalyticsIntegration: pass
 
 # Basic app configuration
 st.set_page_config(
@@ -1628,15 +1642,19 @@ def main():
     
     # Initialize analytics service
     analytics_service = None
-    try:
-        analytics_service = initialize_analytics_service()
-        if analytics_service:
-            st.session_state.analytics_available = True
-        else:
+    if ANALYTICS_AVAILABLE:
+        try:
+            analytics_service = initialize_analytics_service()
+            if analytics_service:
+                st.session_state.analytics_available = True
+            else:
+                st.session_state.analytics_available = False
+        except Exception as e:
             st.session_state.analytics_available = False
-    except Exception as e:
+            print(f"Analytics service initialization failed: {e}")
+    else:
         st.session_state.analytics_available = False
-        print(f"Analytics service initialization failed: {e}")
+        print("Analytics components not available - running without analytics")
     
     if not config_error:
         aws_clients, aws_error = initialize_aws_clients(settings)

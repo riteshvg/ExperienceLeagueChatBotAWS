@@ -9,7 +9,7 @@ export STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
 # Initialize database if needed
 echo "🔧 Initializing database..."
-python init_database.py
+python init_database_simple.py
 
 # Start Streamlit
 echo "🚀 Starting Streamlit app..."
