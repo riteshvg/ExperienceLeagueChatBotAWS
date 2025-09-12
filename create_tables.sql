@@ -1,5 +1,5 @@
--- Database schema for Adobe Analytics RAG Chatbot
--- Run this script to create all required tables
+-- PostgreSQL Table Creation Script for Query Analytics
+-- Run this in your Railway PostgreSQL service console
 
 -- User queries table
 CREATE TABLE IF NOT EXISTS user_queries (
@@ -48,25 +48,21 @@ CREATE INDEX IF NOT EXISTS idx_ai_responses_query_id ON ai_responses(query_id);
 CREATE INDEX IF NOT EXISTS idx_user_feedback_query_id ON user_feedback(query_id);
 CREATE INDEX IF NOT EXISTS idx_user_feedback_response_id ON user_feedback(response_id);
 
--- Insert some sample data for testing
-INSERT INTO user_queries (query_text, session_id, query_complexity) VALUES 
-('What is Adobe Analytics?', 'test-session-1', 'simple'),
-('How do I set up custom events?', 'test-session-1', 'medium'),
-('Explain data retention policies', 'test-session-1', 'complex')
-ON CONFLICT DO NOTHING;
+-- Verify tables were created
+SELECT table_name 
+FROM information_schema.tables 
+WHERE table_schema = 'public'
+AND table_name IN ('user_queries', 'ai_responses', 'user_feedback', 'query_sessions')
+ORDER BY table_name;
 
--- Update the updated_at column trigger
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Create trigger for user_queries table
-DROP TRIGGER IF EXISTS update_user_queries_updated_at ON user_queries;
-CREATE TRIGGER update_user_queries_updated_at
-    BEFORE UPDATE ON user_queries
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
+-- Show table structure
+SELECT 
+    table_name,
+    column_name,
+    data_type,
+    is_nullable,
+    column_default
+FROM information_schema.columns 
+WHERE table_schema = 'public'
+AND table_name IN ('user_queries', 'ai_responses', 'user_feedback', 'query_sessions')
+ORDER BY table_name, ordinal_position;

@@ -7,17 +7,10 @@ export STREAMLIT_SERVER_ADDRESS=0.0.0.0
 export STREAMLIT_SERVER_HEADLESS=true
 export STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
 
-# Initialize database if needed
-echo "🔧 Initializing Railway database..."
-python init_railway_db.py
+# Set Railway database credentials
+export RAILWAY_DATABASE_USER=postgres
+export RAILWAY_DATABASE_PASSWORD=eeEcTALmHMkWxbKGKIEHRnMmYSEjbTDE
 
-# Check if database initialization was successful
-if [ $? -eq 0 ]; then
-    echo "✅ Railway database initialization completed successfully"
-else
-    echo "⚠️  Railway database initialization had issues, but continuing..."
-fi
-
-# Start Streamlit
-echo "🚀 Starting Streamlit app..."
-streamlit run app.py --server.port=$STREAMLIT_SERVER_PORT --server.address=$STREAMLIT_SERVER_ADDRESS --server.headless=true
+# Run Railway startup script (creates tables and starts app)
+echo "🚀 Starting Railway application..."
+python railway_startup.py
