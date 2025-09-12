@@ -75,22 +75,6 @@ def create_tables():
     CREATE INDEX IF NOT EXISTS idx_ai_responses_query_id ON ai_responses(query_id);
     CREATE INDEX IF NOT EXISTS idx_user_feedback_query_id ON user_feedback(query_id);
     CREATE INDEX IF NOT EXISTS idx_user_feedback_response_id ON user_feedback(response_id);
-
-    -- Update the updated_at column trigger
-    CREATE OR REPLACE FUNCTION update_updated_at_column()
-    RETURNS TRIGGER AS $$
-    BEGIN
-        NEW.updated_at = CURRENT_TIMESTAMP;
-        RETURN NEW;
-    END;
-    $$ language 'plpgsql';
-
-    -- Create trigger for user_queries table
-    DROP TRIGGER IF EXISTS update_user_queries_updated_at ON user_queries;
-    CREATE TRIGGER update_user_queries_updated_at
-        BEFORE UPDATE ON user_queries
-        FOR EACH ROW
-        EXECUTE FUNCTION update_updated_at_column();
     """
     
     try:
