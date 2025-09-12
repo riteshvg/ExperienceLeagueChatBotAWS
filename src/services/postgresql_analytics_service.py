@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
 
-from ..models.database_models import (
+from src.models.database_models import (
     UserQuery, AIResponse, UserFeedback, QueryAnalytics,
     QueryComplexity, QueryStatus, FeedbackType
 )

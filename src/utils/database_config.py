@@ -4,7 +4,7 @@ Database configuration utilities for different deployment environments.
 
 import os
 from typing import Optional
-from ..models.database_models import DatabaseConfig
+from src.models.database_models import DatabaseConfig
 
 
 def get_database_config() -> DatabaseConfig:

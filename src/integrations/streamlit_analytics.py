@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import pandas as pd
 
-from ..services.analytics_service import AnalyticsService
-from ..models.database_models import (
+from src.services.analytics_service import AnalyticsService
+from src.models.database_models import (
     DatabaseConfig, UserQuery, AIResponse, UserFeedback,
     QueryComplexity, QueryStatus, FeedbackType
 )
@@ -370,24 +370,24 @@ def initialize_analytics_service() -> Optional[StreamlitAnalyticsIntegration]:
     try:
         # Check if using SQLite for local testing
         if os.getenv("USE_SQLITE", "false").lower() == "true":
-            from ..services.sqlite_analytics_service import SQLiteAnalyticsService
+            from src.services.sqlite_analytics_service import SQLiteAnalyticsService
             database_path = os.getenv("SQLITE_DATABASE", "analytics.db")
             analytics_service = SQLiteAnalyticsService(database_path)
             return StreamlitAnalyticsIntegration(analytics_service)
         elif os.getenv("DATABASE_URL") or os.getenv("RAILWAY_ENVIRONMENT"):
             # Use PostgreSQL for Railway deployment
-            from ..services.postgresql_analytics_service import PostgreSQLAnalyticsService
+            from src.services.postgresql_analytics_service import PostgreSQLAnalyticsService
             database_url = os.getenv("DATABASE_URL")
             if not database_url:
                 # Fallback to constructing URL from individual variables
-                from ..utils.database_config import get_database_config
+                from src.utils.database_config import get_database_config
                 config = get_database_config()
                 database_url = f"postgresql://{config.username}:{config.password}@{config.host}:{config.port}/{config.database}"
             analytics_service = PostgreSQLAnalyticsService(database_url)
             return StreamlitAnalyticsIntegration(analytics_service)
         else:
             # Use regular analytics service for MySQL/PostgreSQL
-            from ..utils.database_config import get_database_config
+            from src.utils.database_config import get_database_config
             config = get_database_config()
             analytics_service = AnalyticsService(config)
             return StreamlitAnalyticsIntegration(analytics_service)

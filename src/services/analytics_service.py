@@ -8,7 +8,7 @@ from typing import List, Optional, Dict, Any, Tuple
 import sqlite3
 from contextlib import contextmanager
 
-from ..models.database_models import (
+from src.models.database_models import (
     User, QuerySession, UserQuery, AIResponse, UserFeedback,
     QueryAnalytics, AnalyticsSummary, DatabaseConfig,
     QueryComplexity, QueryStatus, FeedbackType
