@@ -398,7 +398,7 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
         # Use available models (Haiku and Sonnet are confirmed working)
         # Check current mode from session state for dynamic switching
         current_haiku_only_mode = st.session_state.get('haiku_only_mode', smart_router.haiku_only_mode)
-        available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet"]
+        available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet", "opus"]
         routing_decision = smart_router.select_available_model(query, documents, available_models)
         
         # Step 3: Prepare context from retrieved documents
@@ -1731,7 +1731,7 @@ def main():
                 # Only test available models to avoid AccessDeniedException during startup
                 # Check current mode from session state for dynamic switching
                 current_haiku_only_mode = st.session_state.get('haiku_only_mode', smart_router.haiku_only_mode)
-                available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet"]
+                available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet", "opus"]
                 for model_name in available_models:
                     if model_name in smart_router.models:
                         model_id = smart_router.models[model_name]
