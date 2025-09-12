@@ -41,6 +41,28 @@ def load_configuration():
     """Load and validate configuration settings."""
     try:
         settings = Settings()
+        
+        # Check for required environment variables
+        missing_vars = []
+        if not settings.aws_access_key_id:
+            missing_vars.append("AWS_ACCESS_KEY_ID")
+        if not settings.aws_secret_access_key:
+            missing_vars.append("AWS_SECRET_ACCESS_KEY")
+        if not settings.aws_s3_bucket:
+            missing_vars.append("AWS_S3_BUCKET")
+        if not settings.bedrock_knowledge_base_id:
+            missing_vars.append("BEDROCK_KNOWLEDGE_BASE_ID")
+        if not settings.adobe_client_id:
+            missing_vars.append("ADOBE_CLIENT_ID")
+        if not settings.adobe_client_secret:
+            missing_vars.append("ADOBE_CLIENT_SECRET")
+        if not settings.adobe_organization_id:
+            missing_vars.append("ADOBE_ORGANIZATION_ID")
+        
+        if missing_vars:
+            error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
+            return None, error_msg
+            
         return settings, None
     except Exception as e:
         return None, str(e)

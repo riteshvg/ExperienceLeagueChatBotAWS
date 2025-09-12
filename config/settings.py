@@ -16,15 +16,15 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
     # AWS Configuration
-    aws_access_key_id: str = Field(..., env="AWS_ACCESS_KEY_ID")
-    aws_secret_access_key: str = Field(..., env="AWS_SECRET_ACCESS_KEY")
+    aws_access_key_id: Optional[str] = Field(None, env="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: Optional[str] = Field(None, env="AWS_SECRET_ACCESS_KEY")
     aws_default_region: str = Field(default="us-east-1", env="AWS_DEFAULT_REGION")
-    aws_s3_bucket: str = Field(..., env="AWS_S3_BUCKET")
+    aws_s3_bucket: Optional[str] = Field(None, env="AWS_S3_BUCKET")
     
     # Adobe Analytics API Configuration (OAuth Server-to-Server)
-    adobe_client_id: str = Field(..., env="ADOBE_CLIENT_ID")
-    adobe_client_secret: str = Field(..., env="ADOBE_CLIENT_SECRET")
-    adobe_organization_id: str = Field(..., env="ADOBE_ORGANIZATION_ID")
+    adobe_client_id: Optional[str] = Field(None, env="ADOBE_CLIENT_ID")
+    adobe_client_secret: Optional[str] = Field(None, env="ADOBE_CLIENT_SECRET")
+    adobe_organization_id: Optional[str] = Field(None, env="ADOBE_ORGANIZATION_ID")
     # Note: JWT authentication deprecated, using OAuth Server-to-Server
     
     # AI/LLM Configuration
@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     bedrock_model_id: str = Field(default="us.anthropic.claude-3-7-sonnet-20250219-v1:0", env="BEDROCK_MODEL_ID")
     bedrock_region: str = Field(default="us-east-1", env="BEDROCK_REGION")
     bedrock_embedding_model_id: str = Field(default="amazon.titan-embed-text-v2:0", env="BEDROCK_EMBEDDING_MODEL_ID")
-    bedrock_knowledge_base_id: str = Field(..., env="BEDROCK_KNOWLEDGE_BASE_ID")
+    bedrock_knowledge_base_id: Optional[str] = Field(None, env="BEDROCK_KNOWLEDGE_BASE_ID")
     
     # Application Configuration
     environment: str = Field(default="development", env="ENVIRONMENT")
@@ -67,11 +67,26 @@ class Settings(BaseSettings):
 
 def get_settings() -> Settings:
     """Get application settings instance."""
-    return Settings()
+    try:
+        return Settings()
+    except Exception as e:
+        print(f"⚠️  Warning: Some environment variables are missing: {e}")
+        print("🔧 Using default values for missing configuration")
+        return Settings()
 
 
-# Global settings instance
-settings = get_settings()
+# Global settings instance - load lazily to avoid import-time errors
+_settings_instance = None
+
+def get_settings_instance() -> Settings:
+    """Get or create settings instance."""
+    global _settings_instance
+    if _settings_instance is None:
+        _settings_instance = get_settings()
+    return _settings_instance
+
+# For backward compatibility
+settings = get_settings_instance()
 
 
 def get_project_root() -> Path:
