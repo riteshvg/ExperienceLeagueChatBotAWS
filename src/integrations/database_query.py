@@ -85,12 +85,13 @@ def get_analytics_summary() -> Tuple[bool, Optional[Dict], str]:
         if not count_success:
             return False, None, f"Error getting count: {count_error}"
         
-        # Get feedback breakdown - handle single character reactions
+        # Get feedback breakdown - handle new reaction values
         feedback_query = """
             SELECT 
                 CASE 
-                    WHEN reaction = 'p' THEN 'positive'
-                    WHEN reaction = 'n' THEN 'negative'
+                    WHEN reaction = 'positive' THEN 'positive'
+                    WHEN reaction = 'negative' THEN 'negative'
+                    WHEN reaction = 'none' THEN 'none'
                     ELSE reaction
                 END as reaction_display,
                 COUNT(*) as count
@@ -177,12 +178,12 @@ def render_database_query_interface():
                 conn = psycopg2.connect(database_url)
                 cursor = conn.cursor()
                 
-                # Test insert with shorter values to avoid CHAR length issues
+                # Test insert with new fields
                 cursor.execute("""
-                    INSERT INTO query_analytics (query, userid, date_time, reaction)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO query_analytics (query, userid, date_time, reaction, query_time_seconds, model_used)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id
-                """, ("Test query", "admin", datetime.now(), "p"))
+                """, ("Test query with new fields", "admin", datetime.now(), "positive", 2.5, "claude-3-haiku"))
                 
                 test_id = cursor.fetchone()[0]
                 conn.commit()

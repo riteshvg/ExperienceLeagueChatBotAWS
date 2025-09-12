@@ -1626,11 +1626,16 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                     # Store analytics data if analytics service is available
                     if st.session_state.get('analytics_available', False) and analytics_service:
                         try:
-                            # Track user query using the simplified integration
+                            # Calculate query processing time
+                            query_processing_time = time.time() - st.session_state.get('query_start_time', time.time())
+                            
+                            # Track user query using the simplified integration with timing and model info
                             query_id = analytics_service.track_query(
                                 session_id=st.session_state.get('current_session_id', 'default'),
                                 query_text=query,
-                                query_complexity=result.get('routing_decision', {}).get('complexity', 'simple')
+                                query_complexity=result.get('routing_decision', {}).get('complexity', 'simple'),
+                                query_time_seconds=query_processing_time,
+                                model_used=model_used
                             )
                             
                             if query_id:
@@ -1645,8 +1650,8 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                                     st.session_state.last_query_id = query_id
                                     st.session_state.last_response_id = response_id
                                 
-                                # Show success message in UI
-                                st.success(f"✅ **Query stored in database!** ID: `{query_id}` | File: `query_analytics` table")
+                                # Show success message in UI with timing info
+                                st.success(f"✅ **Query stored in database!** ID: `{query_id}` | Time: `{query_processing_time:.2f}s` | Model: `{model_used}` | File: `query_analytics` table")
                             else:
                                 # Show error message in UI
                                 st.error("❌ **Failed to store query in database** - Analytics service returned no ID")

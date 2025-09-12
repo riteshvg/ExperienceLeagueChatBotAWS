@@ -96,12 +96,14 @@ class SimpleAnalyticsService:
             print(f"❌ Health check error type: {type(e).__name__}")
             return False
     
-    def store_query_with_feedback(self, query: str, userid: str = "anonymous", reaction: str = None) -> int:
-        """Store query and feedback in single table."""
+    def store_query_with_feedback(self, query: str, userid: str = "anonymous", reaction: str = "none", 
+                                 query_time_seconds: float = None, model_used: str = None) -> int:
+        """Store query and feedback in single table with timing and model info."""
         conn = None
         cursor = None
         try:
             print(f"🔍 Attempting to store query: '{query[:50]}...' for user: {userid}")
+            print(f"🔍 Query time: {query_time_seconds}s, Model: {model_used}")
             
             # Test database connection first
             conn = self.get_connection()
@@ -134,16 +136,16 @@ class SimpleAnalyticsService:
             columns = cursor.fetchall()
             print(f"🔍 Table structure: {columns}")
             
-            # Insert the query - handle CHAR length constraints
-            # Truncate reaction to 1 character if it's too long
-            safe_reaction = reaction[:1] if reaction and len(reaction) > 1 else reaction
-            safe_userid = userid[:100] if len(userid) > 100 else userid  # Truncate userid if too long
+            # Insert the query - handle length constraints
+            safe_reaction = reaction[:20] if reaction and len(reaction) > 20 else (reaction or "none")
+            safe_userid = userid[:100] if len(userid) > 100 else userid
+            safe_model = model_used[:50] if model_used and len(model_used) > 50 else model_used
             
             cursor.execute("""
-                INSERT INTO query_analytics (query, userid, date_time, reaction)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO query_analytics (query, userid, date_time, reaction, query_time_seconds, model_used)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (query, safe_userid, datetime.now(), safe_reaction))
+            """, (query, safe_userid, datetime.now(), safe_reaction, query_time_seconds, safe_model))
             
             result = cursor.fetchone()
             if not result:
@@ -187,8 +189,8 @@ class SimpleAnalyticsService:
             conn = self.get_connection()
             cursor = conn.cursor()
             
-            # Truncate reaction to 1 character if it's too long
-            safe_reaction = reaction[:1] if reaction and len(reaction) > 1 else reaction
+            # Truncate reaction to 20 characters if it's too long
+            safe_reaction = reaction[:20] if reaction and len(reaction) > 20 else (reaction or "none")
             
             cursor.execute("""
                 UPDATE query_analytics 
@@ -216,13 +218,15 @@ class SimpleAnalyticsService:
                 date_filter = "WHERE date_time BETWEEN %s AND %s"
                 params = [start_date, end_date]
             
-            # Get summary data - handle single character reactions
+            # Get summary data - handle new reaction values
             cursor.execute(f"""
                 SELECT 
                     COUNT(*) as total_queries,
-                    COUNT(CASE WHEN reaction = 'p' THEN 1 END) as positive_feedback,
-                    COUNT(CASE WHEN reaction = 'n' THEN 1 END) as negative_feedback,
-                    COUNT(CASE WHEN reaction IS NOT NULL THEN 1 END) as total_feedback
+                    COUNT(CASE WHEN reaction = 'positive' THEN 1 END) as positive_feedback,
+                    COUNT(CASE WHEN reaction = 'negative' THEN 1 END) as negative_feedback,
+                    COUNT(CASE WHEN reaction IS NOT NULL AND reaction != 'none' THEN 1 END) as total_feedback,
+                    AVG(query_time_seconds) as avg_query_time,
+                    COUNT(DISTINCT model_used) as unique_models
                 FROM query_analytics
                 {date_filter}
             """, params)
@@ -234,12 +238,16 @@ class SimpleAnalyticsService:
             positive_feedback = result[1] or 0
             negative_feedback = result[2] or 0
             total_feedback = result[3] or 0
+            avg_query_time = result[4] or 0
+            unique_models = result[5] or 0
             
             return {
                 'total_queries': total_queries,
                 'total_feedback': total_feedback,
                 'positive_feedback': positive_feedback,
                 'negative_feedback': negative_feedback,
+                'avg_query_time': round(avg_query_time, 2),
+                'unique_models': unique_models,
                 'satisfaction_rate': (positive_feedback / max(total_feedback, 1)) * 100,
                 'feedback_rate': (total_feedback / max(total_queries, 1)) * 100
             }
@@ -273,7 +281,9 @@ class SimpleAnalyticsService:
                     query,
                     userid,
                     date_time,
-                    reaction
+                    reaction,
+                    query_time_seconds,
+                    model_used
                 FROM query_analytics
                 {date_filter}
                 ORDER BY date_time DESC
@@ -291,7 +301,9 @@ class SimpleAnalyticsService:
                     'query': row[1],
                     'userid': row[2],
                     'date_time': row[3],
-                    'reaction': row[4]
+                    'reaction': row[4],
+                    'query_time_seconds': row[5],
+                    'model_used': row[6]
                 })
             
             return analytics
@@ -325,13 +337,16 @@ class StreamlitAnalyticsIntegration:
     def __init__(self, analytics_service: SimpleAnalyticsService):
         self.analytics_service = analytics_service
     
-    def track_query(self, session_id: str, query_text: str, query_complexity: str = "medium") -> int:
-        """Track a user query."""
+    def track_query(self, session_id: str, query_text: str, query_complexity: str = "medium", 
+                   query_time_seconds: float = None, model_used: str = None) -> int:
+        """Track a user query with timing and model info."""
         try:
             return self.analytics_service.store_query_with_feedback(
                 query=query_text, 
                 userid=session_id, 
-                reaction=None
+                reaction="none",
+                query_time_seconds=query_time_seconds,
+                model_used=model_used
             )
         except Exception as e:
             logger.error(f"Error tracking query: {e}")
@@ -340,6 +355,14 @@ class StreamlitAnalyticsIntegration:
     def track_feedback(self, query_id: int, response_id: int = None, feedback_type: str = None) -> bool:
         """Track user feedback."""
         try:
+            # Map feedback types to proper values
+            if feedback_type == "p":
+                feedback_type = "positive"
+            elif feedback_type == "n":
+                feedback_type = "negative"
+            elif feedback_type is None:
+                feedback_type = "none"
+                
             return self.analytics_service.update_feedback(query_id, feedback_type)
         except Exception as e:
             logger.error(f"Error tracking feedback: {e}")
@@ -394,12 +417,16 @@ class StreamlitAnalyticsIntegration:
                 st.metric("Negative Feedback", summary['negative_feedback'])
             
             # Additional metrics
-            col1, col2 = st.columns(2)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 st.metric("Satisfaction Rate", f"{summary['satisfaction_rate']:.1f}%")
             with col2:
                 st.metric("Feedback Rate", f"{summary['feedback_rate']:.1f}%")
+            with col3:
+                st.metric("Avg Query Time", f"{summary['avg_query_time']:.2f}s")
+            with col4:
+                st.metric("Models Used", summary['unique_models'])
             
         except Exception as e:
             st.error(f"Error loading analytics summary: {e}")
@@ -437,7 +464,9 @@ class StreamlitAnalyticsIntegration:
                         'Query': item['query'][:100] + '...' if len(item['query']) > 100 else item['query'],
                         'User ID': item['userid'],
                         'Date & Time': item['date_time'].strftime('%Y-%m-%d %H:%M:%S') if item['date_time'] else 'N/A',
-                        'Reaction': item['reaction'] or 'No feedback'
+                        'Reaction': item['reaction'] or 'No feedback',
+                        'Query Time': f"{item['query_time_seconds']:.2f}s" if item['query_time_seconds'] else 'N/A',
+                        'Model Used': item['model_used'] or 'N/A'
                     })
                 
                 df = pd.DataFrame(data)
