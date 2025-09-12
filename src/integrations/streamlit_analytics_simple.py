@@ -134,12 +134,16 @@ class SimpleAnalyticsService:
             columns = cursor.fetchall()
             print(f"🔍 Table structure: {columns}")
             
-            # Insert the query
+            # Insert the query - handle CHAR length constraints
+            # Truncate reaction to 1 character if it's too long
+            safe_reaction = reaction[:1] if reaction and len(reaction) > 1 else reaction
+            safe_userid = userid[:100] if len(userid) > 100 else userid  # Truncate userid if too long
+            
             cursor.execute("""
                 INSERT INTO query_analytics (query, userid, date_time, reaction)
                 VALUES (%s, %s, %s, %s)
                 RETURNING id
-            """, (query, userid, datetime.now(), reaction))
+            """, (query, safe_userid, datetime.now(), safe_reaction))
             
             result = cursor.fetchone()
             if not result:
@@ -183,11 +187,14 @@ class SimpleAnalyticsService:
             conn = self.get_connection()
             cursor = conn.cursor()
             
+            # Truncate reaction to 1 character if it's too long
+            safe_reaction = reaction[:1] if reaction and len(reaction) > 1 else reaction
+            
             cursor.execute("""
                 UPDATE query_analytics 
                 SET reaction = %s 
                 WHERE id = %s
-            """, (reaction, query_id))
+            """, (safe_reaction, query_id))
             
             conn.commit()
             cursor.close()
@@ -209,12 +216,12 @@ class SimpleAnalyticsService:
                 date_filter = "WHERE date_time BETWEEN %s AND %s"
                 params = [start_date, end_date]
             
-            # Get summary data
+            # Get summary data - handle single character reactions
             cursor.execute(f"""
                 SELECT 
                     COUNT(*) as total_queries,
-                    COUNT(CASE WHEN reaction = 'positive' THEN 1 END) as positive_feedback,
-                    COUNT(CASE WHEN reaction = 'negative' THEN 1 END) as negative_feedback,
+                    COUNT(CASE WHEN reaction = 'p' THEN 1 END) as positive_feedback,
+                    COUNT(CASE WHEN reaction = 'n' THEN 1 END) as negative_feedback,
                     COUNT(CASE WHEN reaction IS NOT NULL THEN 1 END) as total_feedback
                 FROM query_analytics
                 {date_filter}

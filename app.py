@@ -1510,7 +1510,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                                                 analytics_service.track_feedback(
                                                     query_id=message['metadata']['query_id'],
                                                     response_id=None,  # Simplified - not used
-                                                    feedback_type="positive"
+                                                    feedback_type="p"  # Single character for CHAR(1)
                                                 )
                                         except Exception as e:
                                             print(f"Feedback storage failed: {e}")
@@ -1534,7 +1534,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                                                 analytics_service.track_feedback(
                                                     query_id=message['metadata']['query_id'],
                                                     response_id=None,  # Simplified - not used
-                                                    feedback_type="negative"
+                                                    feedback_type="n"  # Single character for CHAR(1)
                                                 )
                                         except Exception as e:
                                             print(f"Feedback storage failed: {e}")

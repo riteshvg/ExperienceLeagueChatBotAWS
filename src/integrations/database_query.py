@@ -85,10 +85,14 @@ def get_analytics_summary() -> Tuple[bool, Optional[Dict], str]:
         if not count_success:
             return False, None, f"Error getting count: {count_error}"
         
-        # Get feedback breakdown
+        # Get feedback breakdown - handle single character reactions
         feedback_query = """
             SELECT 
-                reaction,
+                CASE 
+                    WHEN reaction = 'p' THEN 'positive'
+                    WHEN reaction = 'n' THEN 'negative'
+                    ELSE reaction
+                END as reaction_display,
                 COUNT(*) as count
             FROM query_analytics 
             WHERE reaction IS NOT NULL
@@ -99,7 +103,7 @@ def get_analytics_summary() -> Tuple[bool, Optional[Dict], str]:
         
         feedback_breakdown = {}
         if success and not feedback_df.empty:
-            feedback_breakdown = dict(zip(feedback_df['reaction'], feedback_df['count']))
+            feedback_breakdown = dict(zip(feedback_df['reaction_display'], feedback_df['count']))
         
         # Get daily activity
         daily_query = """
@@ -173,12 +177,12 @@ def render_database_query_interface():
                 conn = psycopg2.connect(database_url)
                 cursor = conn.cursor()
                 
-                # Test insert
+                # Test insert with shorter values to avoid CHAR length issues
                 cursor.execute("""
                     INSERT INTO query_analytics (query, userid, date_time, reaction)
                     VALUES (%s, %s, %s, %s)
                     RETURNING id
-                """, ("Test query from admin panel", "admin_test", datetime.now(), "test"))
+                """, ("Test query", "admin", datetime.now(), "p"))
                 
                 test_id = cursor.fetchone()[0]
                 conn.commit()
