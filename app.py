@@ -6,9 +6,10 @@ from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Add project root to path
+# Add project root and src to path
 project_root = Path(__file__).parent
 sys.path.append(str(project_root))
+sys.path.append(str(project_root / "src"))
 
 # Load environment variables
 load_dotenv()
