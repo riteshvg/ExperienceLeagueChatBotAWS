@@ -26,23 +26,23 @@ from src.utils.bedrock_client import BedrockClient
 
 # Import analytics components with error handling
 try:
-    from src.integrations.streamlit_analytics import (
+    from src.integrations.streamlit_analytics_simple import (
         initialize_analytics_service, StreamlitAnalyticsIntegration
     )
-    from src.models.database_models import UserQuery, AIResponse, UserFeedback, QueryComplexity, QueryStatus, FeedbackType
     ANALYTICS_AVAILABLE = True
+    print("✅ Analytics integration loaded successfully")
 except ImportError as e:
     print(f"⚠️  Analytics components not available: {e}")
     ANALYTICS_AVAILABLE = False
     # Create dummy classes for compatibility
-    class UserQuery: pass
-    class AIResponse: pass
-    class UserFeedback: pass
-    class QueryComplexity: pass
-    class QueryStatus: pass
-    class FeedbackType: pass
     def initialize_analytics_service(): return None
-    class StreamlitAnalyticsIntegration: pass
+    class StreamlitAnalyticsIntegration: 
+        def __init__(self, *args, **kwargs): pass
+        def track_query(self, *args, **kwargs): return None
+        def track_response(self, *args, **kwargs): return None
+        def track_feedback(self, *args, **kwargs): return None
+        def render_analytics_dashboard(self): 
+            st.error("Analytics not available - database configuration error")
 
 # Basic app configuration
 st.set_page_config(
@@ -1464,8 +1464,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                                                 analytics_service.track_feedback(
                                                     query_id=message['metadata']['query_id'],
                                                     response_id=message['metadata'].get('response_id', 0),
-                                                    feedback_type="positive",
-                                                    additional_notes="User clicked thumbs up"
+                                                    feedback_type="positive"
                                                 )
                                         except Exception as e:
                                             print(f"Feedback storage failed: {e}")
@@ -1489,8 +1488,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                                                 analytics_service.track_feedback(
                                                     query_id=message['metadata']['query_id'],
                                                     response_id=message['metadata'].get('response_id', 0),
-                                                    feedback_type="negative",
-                                                    additional_notes="User clicked thumbs down"
+                                                    feedback_type="negative"
                                                 )
                                         except Exception as e:
                                             print(f"Feedback storage failed: {e}")
@@ -1582,26 +1580,19 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                     # Store analytics data if analytics service is available
                     if st.session_state.get('analytics_available', False) and analytics_service:
                         try:
-                            # Track user query using the integration wrapper
+                            # Track user query using the simplified integration
                             query_id = analytics_service.track_query(
                                 session_id=st.session_state.get('current_session_id', 'default'),
                                 query_text=query,
-                                query_complexity=result.get('routing_decision', {}).get('complexity', 'simple'),
-                                processing_time_ms=int((time.time() - st.session_state.get('query_start_time', time.time())) * 1000),
-                                status="success"
+                                query_complexity=result.get('routing_decision', {}).get('complexity', 'simple')
                             )
                             
                             if query_id:
-                                # Track AI response using the integration wrapper
+                                # Track AI response using the simplified integration
                                 response_id = analytics_service.track_response(
                                     query_id=query_id,
-                                    model_used=model_used,
-                                    model_id=result.get('routing_decision', {}).get('model_id', ''),
                                     response_text=result['answer'],
-                                    tokens_used=estimated_tokens,
-                                    estimated_cost=estimated_cost,
-                                    documents_retrieved=len(result.get('documents', [])),
-                                    relevance_score=result.get('routing_decision', {}).get('relevance', 0.0)
+                                    model_used=model_used
                                 )
                                 
                                 if response_id:
