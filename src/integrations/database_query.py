@@ -162,6 +162,63 @@ def render_database_query_interface():
     
     st.success(f"✅ **Database Connected:** {message}")
     
+    # Add manual test section
+    st.markdown("---")
+    st.subheader("🧪 Database Test")
+    
+    if st.button("🔍 Test Database Insert", key="test_db_insert"):
+        with st.spinner("Testing database insert..."):
+            try:
+                database_url = get_database_connection()
+                conn = psycopg2.connect(database_url)
+                cursor = conn.cursor()
+                
+                # Test insert
+                cursor.execute("""
+                    INSERT INTO query_analytics (query, userid, date_time, reaction)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id
+                """, ("Test query from admin panel", "admin_test", datetime.now(), "test"))
+                
+                test_id = cursor.fetchone()[0]
+                conn.commit()
+                cursor.close()
+                conn.close()
+                
+                st.success(f"✅ **Test Insert Successful!** ID: `{test_id}`")
+                
+            except Exception as e:
+                st.error(f"❌ **Test Insert Failed:** {str(e)}")
+                st.error(f"Error type: {type(e).__name__}")
+    
+    if st.button("🔍 Check Table Structure", key="check_table_structure"):
+        with st.spinner("Checking table structure..."):
+            try:
+                database_url = get_database_connection()
+                conn = psycopg2.connect(database_url)
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT column_name, data_type, is_nullable, column_default
+                    FROM information_schema.columns 
+                    WHERE table_name = 'query_analytics'
+                    ORDER BY ordinal_position;
+                """)
+                columns = cursor.fetchall()
+                
+                if columns:
+                    st.success("✅ **Table Structure Found:**")
+                    df = pd.DataFrame(columns, columns=['Column', 'Type', 'Nullable', 'Default'])
+                    st.dataframe(df, use_container_width=True)
+                else:
+                    st.error("❌ **No columns found** - Table might not exist")
+                
+                cursor.close()
+                conn.close()
+                
+            except Exception as e:
+                st.error(f"❌ **Structure Check Failed:** {str(e)}")
+    
     # Get table information
     table_info = get_table_info()
     table_name = "query_analytics"  # Single table

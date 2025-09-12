@@ -20,34 +20,162 @@ class SimpleAnalyticsService:
     
     def get_connection(self):
         """Get database connection."""
-        if self._connection is None:
-            import psycopg2
-            self._connection = psycopg2.connect(self.database_url)
-        return self._connection
+        try:
+            if self._connection is None:
+                import psycopg2
+                print(f"🔍 Connecting to database with URL: {self.database_url[:50]}...")
+                self._connection = psycopg2.connect(self.database_url)
+                print("✅ Database connection established")
+            return self._connection
+        except Exception as e:
+            print(f"❌ Database connection failed: {e}")
+            print(f"❌ Connection error type: {type(e).__name__}")
+            return None
+    
+    def health_check(self):
+        """Perform comprehensive database health check."""
+        try:
+            print("🔍 Performing database health check...")
+            
+            # Test connection
+            conn = self.get_connection()
+            if not conn:
+                print("❌ Health check failed: No database connection")
+                return False
+                
+            cursor = conn.cursor()
+            
+            # Test basic query
+            cursor.execute("SELECT 1")
+            result = cursor.fetchone()
+            if result[0] != 1:
+                print("❌ Health check failed: Basic query test failed")
+                return False
+                
+            # Test if table exists
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'query_analytics'
+                );
+            """)
+            table_exists = cursor.fetchone()[0]
+            
+            if not table_exists:
+                print("❌ Health check failed: Table 'query_analytics' does not exist")
+                return False
+                
+            # Test table structure
+            cursor.execute("""
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns 
+                WHERE table_name = 'query_analytics'
+                ORDER BY ordinal_position;
+            """)
+            columns = cursor.fetchall()
+            print(f"✅ Table structure: {columns}")
+            
+            # Test insert permission
+            cursor.execute("""
+                INSERT INTO query_analytics (query, userid, date_time, reaction)
+                VALUES ('health_check_test', 'system', NOW(), NULL)
+                RETURNING id
+            """)
+            test_id = cursor.fetchone()[0]
+            
+            # Clean up test record
+            cursor.execute("DELETE FROM query_analytics WHERE id = %s", (test_id,))
+            conn.commit()
+            
+            cursor.close()
+            print("✅ Health check passed: Database is ready")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Health check failed: {e}")
+            print(f"❌ Health check error type: {type(e).__name__}")
+            return False
     
     def store_query_with_feedback(self, query: str, userid: str = "anonymous", reaction: str = None) -> int:
         """Store query and feedback in single table."""
+        conn = None
+        cursor = None
         try:
             print(f"🔍 Attempting to store query: '{query[:50]}...' for user: {userid}")
+            
+            # Test database connection first
             conn = self.get_connection()
+            if not conn:
+                print("❌ Failed to get database connection")
+                return None
+                
             cursor = conn.cursor()
             
+            # Test if table exists
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_name = 'query_analytics'
+                );
+            """)
+            table_exists = cursor.fetchone()[0]
+            
+            if not table_exists:
+                print("❌ Table 'query_analytics' does not exist")
+                return None
+            
+            # Test table structure
+            cursor.execute("""
+                SELECT column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_name = 'query_analytics'
+                ORDER BY ordinal_position;
+            """)
+            columns = cursor.fetchall()
+            print(f"🔍 Table structure: {columns}")
+            
+            # Insert the query
             cursor.execute("""
                 INSERT INTO query_analytics (query, userid, date_time, reaction)
                 VALUES (%s, %s, %s, %s)
                 RETURNING id
             """, (query, userid, datetime.now(), reaction))
             
-            query_id = cursor.fetchone()[0]
+            result = cursor.fetchone()
+            if not result:
+                print("❌ INSERT query returned no result")
+                return None
+                
+            query_id = result[0]
             conn.commit()
-            cursor.close()
             
             print(f"✅ Successfully stored query with ID: {query_id}")
             return query_id
+            
         except Exception as e:
             print(f"❌ Error storing query: {e}")
+            print(f"❌ Error type: {type(e).__name__}")
             logger.error(f"Error storing query: {e}")
+            
+            # Rollback on error
+            if conn:
+                try:
+                    conn.rollback()
+                except:
+                    pass
             return None
+        finally:
+            # Ensure cleanup
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
     
     def update_feedback(self, query_id: int, reaction: str) -> bool:
         """Update feedback for existing query."""
@@ -365,10 +493,15 @@ def initialize_analytics_service() -> Optional[StreamlitAnalyticsIntegration]:
         
         # Create simplified analytics service
         analytics_service = SimpleAnalyticsService(database_url)
-        integration = StreamlitAnalyticsIntegration(analytics_service)
         
-        print("✅ Analytics service initialized successfully")
-        return integration
+        # Run health check
+        if analytics_service.health_check():
+            integration = StreamlitAnalyticsIntegration(analytics_service)
+            print("✅ Analytics service initialized successfully")
+            return integration
+        else:
+            print("❌ Analytics service health check failed")
+            return None
         
     except Exception as e:
         print(f"❌ Error initializing analytics service: {e}")
