@@ -28,6 +28,7 @@ class SimpleAnalyticsService:
     def store_query_with_feedback(self, query: str, userid: str = "anonymous", reaction: str = None) -> int:
         """Store query and feedback in single table."""
         try:
+            print(f"🔍 Attempting to store query: '{query[:50]}...' for user: {userid}")
             conn = self.get_connection()
             cursor = conn.cursor()
             
@@ -41,8 +42,10 @@ class SimpleAnalyticsService:
             conn.commit()
             cursor.close()
             
+            print(f"✅ Successfully stored query with ID: {query_id}")
             return query_id
         except Exception as e:
+            print(f"❌ Error storing query: {e}")
             logger.error(f"Error storing query: {e}")
             return None
     
@@ -354,13 +357,20 @@ def initialize_analytics_service() -> Optional[StreamlitAnalyticsIntegration]:
         # Get database URL
         database_url = os.getenv("DATABASE_URL")
         if not database_url:
+            print("❌ DATABASE_URL not found in environment variables")
             logger.error("DATABASE_URL not found in environment variables")
             return None
         
+        print(f"🔍 Found DATABASE_URL: {database_url[:50]}...")
+        
         # Create simplified analytics service
         analytics_service = SimpleAnalyticsService(database_url)
-        return StreamlitAnalyticsIntegration(analytics_service)
+        integration = StreamlitAnalyticsIntegration(analytics_service)
+        
+        print("✅ Analytics service initialized successfully")
+        return integration
         
     except Exception as e:
+        print(f"❌ Error initializing analytics service: {e}")
         logger.error(f"Error initializing analytics service: {e}")
         return None

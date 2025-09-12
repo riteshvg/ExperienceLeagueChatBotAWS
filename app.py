@@ -1418,6 +1418,13 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
     # Header section
     st.title("📊 Adobe Experience League Chatbot")
     st.markdown("**Intelligent RAG Assistant for Adobe Analytics Documentation**")
+    
+    # Analytics status debug info
+    if st.session_state.get('analytics_available', False):
+        st.success("✅ **Analytics Active** - Queries will be stored in database")
+    else:
+        st.warning("⚠️ **Analytics Inactive** - Queries will not be stored in database")
+    
     st.markdown("---")
     
     # Render chat history sidebar
@@ -1637,10 +1644,21 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                                 if response_id:
                                     st.session_state.last_query_id = query_id
                                     st.session_state.last_response_id = response_id
+                                
+                                # Show success message in UI
+                                st.success(f"✅ **Query stored in database!** ID: `{query_id}` | File: `query_analytics` table")
+                            else:
+                                # Show error message in UI
+                                st.error("❌ **Failed to store query in database** - Analytics service returned no ID")
                                     
                         except Exception as e:
                             print(f"Analytics storage failed: {e}")
+                            # Show error message in UI
+                            st.error(f"❌ **Database insertion failed:** {str(e)}")
                             # Don't fail the main query if analytics fails
+                    else:
+                        # Show warning if analytics not available
+                        st.warning("⚠️ **Analytics not available** - Query not stored in database")
                     
                     # Show success message and rerun to display the new message
                     st.success("✅ **Query processed successfully!** Check the chat history below.")
@@ -1677,14 +1695,16 @@ def main():
             analytics_service = initialize_analytics_service()
             if analytics_service:
                 st.session_state.analytics_available = True
+                print("✅ Analytics service initialized successfully")
             else:
                 st.session_state.analytics_available = False
+                print("❌ Analytics service initialization returned None")
         except Exception as e:
             st.session_state.analytics_available = False
             print(f"Analytics service initialization failed: {e}")
     else:
         st.session_state.analytics_available = False
-        print("Analytics components not available - running without analytics")
+        print("❌ Analytics not available - ANALYTICS_AVAILABLE is False")
     
     if not config_error:
         aws_clients, aws_error = initialize_aws_clients(settings)
