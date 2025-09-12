@@ -1502,7 +1502,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                                             if hasattr(message, 'metadata') and message.get('metadata', {}).get('query_id'):
                                                 analytics_service.track_feedback(
                                                     query_id=message['metadata']['query_id'],
-                                                    response_id=message['metadata'].get('response_id', 0),
+                                                    response_id=None,  # Simplified - not used
                                                     feedback_type="positive"
                                                 )
                                         except Exception as e:
@@ -1526,7 +1526,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                                             if hasattr(message, 'metadata') and message.get('metadata', {}).get('query_id'):
                                                 analytics_service.track_feedback(
                                                     query_id=message['metadata']['query_id'],
-                                                    response_id=message['metadata'].get('response_id', 0),
+                                                    response_id=None,  # Simplified - not used
                                                     feedback_type="negative"
                                                 )
                                         except Exception as e:
