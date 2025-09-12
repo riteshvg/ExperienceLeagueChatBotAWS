@@ -1,8 +1,11 @@
 [phases.setup]
-nixPkgs = ["python311", "pip"]
+nixPkgs = ["python311"]
 
 [phases.install]
-cmds = ["pip install --no-cache-dir -r requirements-minimal.txt"]
+cmds = [
+  "python -m pip install --upgrade pip",
+  "python -m pip install --no-cache-dir -r requirements-minimal.txt"
+]
 
 [phases.build]
 cmds = ["echo 'Build complete'"]
