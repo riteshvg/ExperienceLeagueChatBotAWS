@@ -1707,8 +1707,14 @@ def main():
     
     # Render appropriate page
     if page == "🏠 Main Chat":
+        if settings is None:
+            st.error("❌ Configuration not loaded. Please check your environment variables.")
+            st.stop()
         render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, analytics_service)
     else:  # Admin Dashboard
+        if settings is None:
+            st.error("❌ Configuration not loaded. Please check your environment variables.")
+            st.stop()
         render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results, analytics_service)
 
 if __name__ == "__main__":
