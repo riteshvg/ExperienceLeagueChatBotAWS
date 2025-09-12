@@ -19,23 +19,18 @@ def run_table_creation():
     logger.info("🔧 Running table creation script...")
     
     try:
-        # Run the table creation script
-        result = subprocess.run([
-            sys.executable, "railway_create_tables.py"
-        ], capture_output=True, text=True, timeout=60)
+        # Import and run the table creation function directly
+        from railway_table_creator import create_analytics_tables
         
-        if result.returncode == 0:
+        success = create_analytics_tables()
+        
+        if success:
             logger.info("✅ Table creation completed successfully")
-            logger.info(result.stdout)
             return True
         else:
             logger.error("❌ Table creation failed")
-            logger.error(result.stderr)
             return False
             
-    except subprocess.TimeoutExpired:
-        logger.error("❌ Table creation timed out")
-        return False
     except Exception as e:
         logger.error(f"❌ Error running table creation: {e}")
         return False
