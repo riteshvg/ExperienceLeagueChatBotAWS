@@ -309,7 +309,6 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
             with st.spinner("Fetching repository information..."):
                 try:
                     import requests
-                    from datetime import datetime
                     
                     st.success("✅ Repository details fetched successfully!")
                     
