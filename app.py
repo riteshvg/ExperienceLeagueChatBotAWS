@@ -835,7 +835,7 @@ def test_model_invocation(model_id: str, test_query: str, bedrock_client) -> tup
         return False, str(e)
 
 def check_query_relevance(query: str) -> bool:
-    """Check if the query is relevant to Adobe Analytics, AEP, CJA, or related topics."""
+    """Check if the query is relevant to Adobe Analytics, CJA, or related topics."""
     # Convert query to lowercase for case-insensitive matching
     query_lower = query.lower()
     
@@ -851,9 +851,6 @@ def check_query_relevance(query: str) -> bool:
         'customer journey analytics', 'cja', 'cross-channel', 'cross channel', 'journey',
         'customer journey', 'stitching', 'identity', 'person', 'person id',
         
-        # Adobe Experience Platform
-        'adobe experience platform', 'aep', 'experience platform', 'xdm', 'schema',
-        'datasets', 'data lake', 'profile', 'identity service', 'segmentation',
         'destinations', 'sources', 'data prep', 'query service',
         
         # Adobe Experience Cloud
@@ -904,12 +901,11 @@ def check_query_relevance(query: str) -> bool:
 
 def get_irrelevant_question_response() -> str:
     """Return a standard response for irrelevant questions."""
-    return """I'm sorry, but your question doesn't appear to be related to Adobe Analytics, Adobe Experience Platform, Customer Journey Analytics, or other Adobe Experience Cloud products.
+    return """I'm sorry, but your question doesn't appear to be related to Adobe Analytics, Customer Journey Analytics, or other Adobe Experience Cloud products.
 
 I'm specifically designed to help with questions about:
 • **Adobe Analytics** - Reports, segments, calculated metrics, implementation
 • **Customer Journey Analytics (CJA)** - Cross-channel analysis, customer journeys
-• **Adobe Experience Platform (AEP)** - Data management, profiles, segmentation
 • **Adobe Experience Cloud** - Marketing automation, personalization, content management
 
 Please ask questions about these topics, and I'll be happy to help! For example:
@@ -1022,8 +1018,8 @@ def render_about_page():
     # Application Overview
     st.markdown("### 🎯 What is this application?")
     st.markdown("""
-    This is an **intelligent chatbot** designed specifically to help you with Adobe Analytics, 
-    Adobe Experience Platform (AEP), and Customer Journey Analytics (CJA) questions. 
+    This is an **intelligent chatbot** designed specifically to help you with Adobe Analytics 
+    and Customer Journey Analytics (CJA) questions. 
     Think of it as your personal Adobe expert that's available 24/7!
     """)
     
@@ -1068,12 +1064,6 @@ def render_about_page():
     - How do I set up conversion tracking?
     - How do I use Analysis Workspace?
     
-    **Adobe Experience Platform (AEP) Questions:**
-    - How do I create a schema in AEP?
-    - What are datasets and how do I use them?
-    - How do I set up data ingestion?
-    - How do I create audiences in AEP?
-    
     **Customer Journey Analytics (CJA) Questions:**
     - How do I analyze cross-channel customer journeys?
     - What's the difference between Analytics and CJA?
@@ -1108,7 +1098,6 @@ def render_about_page():
         st.markdown("""
         **📊 Adobe Integration**
         - Adobe Analytics
-        - Adobe Experience Platform
         - Customer Journey Analytics
         """)
     
@@ -1153,7 +1142,7 @@ def render_about_page():
     <div style='text-align: center; color: #666; font-size: 14px;'>
         <p>🤖 <strong>Adobe Experience League Chatbot</strong></p>
         <p>Powered by AWS Bedrock & Smart Routing Technology</p>
-        <p>Built to help you succeed with Adobe Analytics, AEP, and CJA</p>
+        <p>Built to help you succeed with Adobe Analytics and CJA</p>
     </div>
     """, unsafe_allow_html=True)
     if 'saved_sessions' not in st.session_state:
@@ -1343,7 +1332,7 @@ def render_main_page_minimal():
     if submit_button or st.session_state.get('enter_pressed', False):
         # Basic validation only (no UI messages to prevent CLS)
         if query and len(query) >= 3:
-            # Check if query is relevant to Adobe Analytics, AEP, CJA, etc.
+            # Check if query is relevant to Adobe Analytics, CJA, etc.
             if not check_query_relevance(query):
                 # Save user message
                 save_chat_message('user', query)
@@ -1715,7 +1704,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 st.write(f"**Smart router:** {smart_router is not None}")
         
         if query and len(query) >= 3 and aws_clients and not aws_error and kb_status and smart_router:
-            # Check if query is relevant to Adobe Analytics, AEP, CJA, etc.
+            # Check if query is relevant to Adobe Analytics, CJA, etc.
             if not check_query_relevance(query):
                 # Save user message
                 save_chat_message('user', query)
