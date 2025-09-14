@@ -1401,15 +1401,19 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
     
     # Save user message
     save_chat_message('user', query)
+    print(f"🔍 [PROCESS] User message saved")
     
     # Set processing state
     st.session_state.processing_query = True
     st.session_state.processing_step = 0
+    print(f"🔍 [PROCESS] Processing state set")
     
     # Track query start time
     st.session_state.query_start_time = time.time()
+    print(f"🔍 [PROCESS] Query start time set")
     
     # Process query with streaming UI
+    print(f"🔍 [PROCESS] About to call process_query_with_smart_routing_stream")
     start_time = time.time()
     
     # Reserve space for result messages to prevent CLS
