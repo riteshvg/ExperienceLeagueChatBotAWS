@@ -347,6 +347,14 @@ class StreamlitAnalyticsIntegration:
                    tagging_result: dict = None) -> int:
         """Track a user query with timing, model info, and tagging data."""
         try:
+            print(f"🔍 [TRACK_QUERY] Starting query tracking...")
+            print(f"🔍 [TRACK_QUERY] Session ID: {session_id}")
+            print(f"🔍 [TRACK_QUERY] Query: {query_text[:100]}...")
+            print(f"🔍 [TRACK_QUERY] Complexity: {query_complexity}")
+            print(f"🔍 [TRACK_QUERY] Query time: {query_time_seconds}s")
+            print(f"🔍 [TRACK_QUERY] Model: {model_used}")
+            print(f"🔍 [TRACK_QUERY] Tagging result: {tagging_result}")
+            
             # Extract tagging information if available
             products = "[]"
             question_type = "unknown"
@@ -364,8 +372,10 @@ class StreamlitAnalyticsIntegration:
                     topics = json.dumps(tagging_data.get('topics', []))
                     urgency = tagging_data.get('urgency', 'low')
                     confidence_score = tagging_data.get('confidence_score', 0.0)
+                    print(f"🔍 [TRACK_QUERY] Extracted tagging data: products={products}, type={question_type}")
             
-            return self.analytics_service.store_query_with_feedback(
+            print(f"🔍 [TRACK_QUERY] Calling store_query_with_feedback...")
+            result = self.analytics_service.store_query_with_feedback(
                 query=query_text, 
                 userid=session_id, 
                 reaction="none",
@@ -378,7 +388,19 @@ class StreamlitAnalyticsIntegration:
                 urgency=urgency,
                 confidence_score=confidence_score
             )
+            
+            if result:
+                print(f"✅ [TRACK_QUERY] Query tracked successfully with ID: {result}")
+            else:
+                print(f"❌ [TRACK_QUERY] Query tracking failed - no ID returned")
+            
+            return result
+            
         except Exception as e:
+            print(f"❌ [TRACK_QUERY] Error tracking query: {e}")
+            print(f"❌ [TRACK_QUERY] Error type: {type(e).__name__}")
+            import traceback
+            print(f"❌ [TRACK_QUERY] Traceback: {traceback.format_exc()}")
             logger.error(f"Error tracking query: {e}")
             return None
     

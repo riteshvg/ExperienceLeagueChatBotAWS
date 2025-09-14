@@ -1517,6 +1517,10 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
                         query_processing_time = time.time() - st.session_state.get('query_start_time', time.time())
                         
                         # Track user query using the simplified integration with timing and model info
+                        print(f"🔍 [APP] About to track query: {query[:50]}...")
+                        print(f"🔍 [APP] Analytics service available: {analytics_service is not None}")
+                        print(f"🔍 [APP] Session ID: {st.session_state.get('current_session_id', 'default')}")
+                        
                         query_id = analytics_service.track_query(
                             session_id=st.session_state.get('current_session_id', 'default'),
                             query_text=query,
@@ -1524,6 +1528,8 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
                             query_time_seconds=query_processing_time,
                             model_used=model_used
                         )
+                        
+                        print(f"🔍 [APP] Query tracking result: {query_id}")
                         
                         if query_id:
                             # Track AI response using the simplified integration
@@ -1792,6 +1798,10 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                             query_processing_time = time.time() - st.session_state.get('query_start_time', time.time())
                             
                             # Track user query using the simplified integration with timing and model info
+                            print(f"🔍 [APP-BG] About to track query: {query[:50]}...")
+                            print(f"🔍 [APP-BG] Analytics service available: {analytics_service is not None}")
+                            print(f"🔍 [APP-BG] Session ID: {st.session_state.get('current_session_id', 'default')}")
+                            
                             query_id = analytics_service.track_query(
                                 session_id=st.session_state.get('current_session_id', 'default'),
                                 query_text=query,
@@ -1799,6 +1809,8 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                                 query_time_seconds=query_processing_time,
                                 model_used=model_used
                             )
+                            
+                            print(f"🔍 [APP-BG] Query tracking result: {query_id}")
                             
                             if query_id:
                                 # Track AI response using the simplified integration
