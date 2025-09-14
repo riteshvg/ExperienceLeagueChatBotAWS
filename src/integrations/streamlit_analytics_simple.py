@@ -22,10 +22,15 @@ class SimpleAnalyticsService:
         """Get database connection."""
         try:
             if self._connection is None:
-                import psycopg2
-                print(f"🔍 Connecting to database with URL: {self.database_url[:50]}...")
-                self._connection = psycopg2.connect(self.database_url)
-                print("✅ Database connection established")
+                try:
+                    import psycopg2
+                    print(f"🔍 Connecting to database with URL: {self.database_url[:50]}...")
+                    self._connection = psycopg2.connect(self.database_url)
+                    print("✅ Database connection established")
+                except ImportError:
+                    print("❌ psycopg2 module not available - database connection failed")
+                    print("❌ This is likely a deployment issue - psycopg2-binary not installed")
+                    return None
             return self._connection
         except Exception as e:
             print(f"❌ Database connection failed: {e}")

@@ -1,0 +1,13 @@
+# Railway-specific requirements
+# This ensures psycopg2-binary is properly installed
+
+streamlit>=1.28.0
+boto3>=1.34.0
+python-dotenv>=1.0.0
+pandas>=2.1.0
+psycopg2-binary>=2.9.0
+pydantic>=2.5.0
+pydantic-settings>=2.0.0
+
+# Additional dependencies that might be missing
+psycopg2>=2.9.0
