@@ -97,7 +97,10 @@ class SimpleAnalyticsService:
             return False
     
     def store_query_with_feedback(self, query: str, userid: str = "anonymous", reaction: str = "none", 
-                                 query_time_seconds: float = None, model_used: str = None) -> int:
+                                 query_time_seconds: float = None, model_used: str = None,
+                                 products: str = "[]", question_type: str = "unknown", 
+                                 technical_level: str = "unknown", topics: str = "[]", 
+                                 urgency: str = "low", confidence_score: float = 0.0) -> int:
         """Store query and feedback in single table with timing and model info."""
         conn = None
         cursor = None
@@ -142,10 +145,12 @@ class SimpleAnalyticsService:
             safe_model = model_used[:50] if model_used and len(model_used) > 50 else model_used
             
             cursor.execute("""
-                INSERT INTO query_analytics (query, userid, date_time, reaction, query_time_seconds, model_used)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO query_analytics (query, userid, date_time, reaction, query_time_seconds, model_used,
+                                           products, question_type, technical_level, topics, urgency, confidence_score)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (query, safe_userid, datetime.now(), safe_reaction, query_time_seconds, safe_model))
+            """, (query, safe_userid, datetime.now(), safe_reaction, query_time_seconds, safe_model,
+                  products, question_type, technical_level, topics, urgency, confidence_score))
             
             result = cursor.fetchone()
             if not result:
@@ -338,15 +343,40 @@ class StreamlitAnalyticsIntegration:
         self.analytics_service = analytics_service
     
     def track_query(self, session_id: str, query_text: str, query_complexity: str = "medium", 
-                   query_time_seconds: float = None, model_used: str = None) -> int:
-        """Track a user query with timing and model info."""
+                   query_time_seconds: float = None, model_used: str = None, 
+                   tagging_result: dict = None) -> int:
+        """Track a user query with timing, model info, and tagging data."""
         try:
+            # Extract tagging information if available
+            products = "[]"
+            question_type = "unknown"
+            technical_level = "unknown"
+            topics = "[]"
+            urgency = "low"
+            confidence_score = 0.0
+            
+            if tagging_result and not tagging_result.get('error'):
+                tagging_data = tagging_result.get('tagging_result', {})
+                if tagging_data:
+                    products = json.dumps(tagging_data.get('products', []))
+                    question_type = tagging_data.get('question_type', 'unknown')
+                    technical_level = tagging_data.get('technical_level', 'unknown')
+                    topics = json.dumps(tagging_data.get('topics', []))
+                    urgency = tagging_data.get('urgency', 'low')
+                    confidence_score = tagging_data.get('confidence_score', 0.0)
+            
             return self.analytics_service.store_query_with_feedback(
                 query=query_text, 
                 userid=session_id, 
                 reaction="none",
                 query_time_seconds=query_time_seconds,
-                model_used=model_used
+                model_used=model_used,
+                products=products,
+                question_type=question_type,
+                technical_level=technical_level,
+                topics=topics,
+                urgency=urgency,
+                confidence_score=confidence_score
             )
         except Exception as e:
             logger.error(f"Error tracking query: {e}")

@@ -30,13 +30,29 @@ def get_database_connection():
     return database_url
 
 def get_table_info() -> Dict[str, Dict]:
-    """Get information about the query_analytics table."""
+    """Get information about all available tables."""
     return {
         "query_analytics": {
             "name": "Query Analytics",
-            "description": "Stores user queries and feedback in a single table",
+            "description": "Stores user queries and feedback with tagging information",
             "columns": [
-                "id", "query", "userid", "date_time", "reaction"
+                "id", "query", "userid", "date_time", "reaction", "query_time_seconds", "model_used",
+                "products", "question_type", "technical_level", "topics", "urgency", "confidence_score"
+            ]
+        },
+        "questions": {
+            "name": "Questions",
+            "description": "Stores user questions with metadata for tagging system",
+            "columns": [
+                "id", "question", "user_id", "session_id", "timestamp", "context", "created_at"
+            ]
+        },
+        "tags": {
+            "name": "Tags",
+            "description": "Stores question tags and classifications",
+            "columns": [
+                "id", "question_id", "products", "question_type", "technical_level", 
+                "topics", "urgency", "confidence_score", "raw_analysis", "created_at"
             ]
         }
     }
@@ -56,10 +72,40 @@ def execute_query(query: str, params: Optional[List] = None) -> Tuple[bool, Opti
         return False, None, str(e)
 
 def get_table_data(table_name: str, limit: int = 100, offset: int = 0) -> Tuple[bool, Optional[pd.DataFrame], str]:
-    """Get data from the query_analytics table with pagination."""
+    """Get data from any table with pagination."""
     try:
-        query = f"SELECT * FROM {table_name} ORDER BY date_time DESC LIMIT %s OFFSET %s"
-        return execute_query(query, [limit, offset])
+        # Determine the appropriate ORDER BY column based on table
+        if table_name == "query_analytics":
+            # For query_analytics, join with tags table to get tagging information
+            query = """
+                SELECT 
+                    qa.id, qa.query, qa.userid, qa.date_time, qa.reaction, 
+                    qa.query_time_seconds, qa.model_used,
+                    COALESCE(t.products, '[]') as products,
+                    COALESCE(t.question_type, 'unknown') as question_type,
+                    COALESCE(t.technical_level, 'unknown') as technical_level,
+                    COALESCE(t.topics, '[]') as topics,
+                    COALESCE(t.urgency, 'low') as urgency,
+                    COALESCE(t.confidence_score, 0.0) as confidence_score
+                FROM query_analytics qa
+                LEFT JOIN questions q ON qa.query = q.question
+                LEFT JOIN tags t ON q.id = t.question_id
+                ORDER BY qa.date_time DESC 
+                LIMIT %s OFFSET %s
+            """
+            return execute_query(query, [limit, offset])
+        elif table_name == "questions":
+            order_by = "created_at DESC"
+            query = f"SELECT * FROM {table_name} ORDER BY {order_by} LIMIT %s OFFSET %s"
+            return execute_query(query, [limit, offset])
+        elif table_name == "tags":
+            order_by = "created_at DESC"
+            query = f"SELECT * FROM {table_name} ORDER BY {order_by} LIMIT %s OFFSET %s"
+            return execute_query(query, [limit, offset])
+        else:
+            order_by = "id DESC"
+            query = f"SELECT * FROM {table_name} ORDER BY {order_by} LIMIT %s OFFSET %s"
+            return execute_query(query, [limit, offset])
     except Exception as e:
         return False, None, str(e)
 
@@ -76,57 +122,131 @@ def get_table_count(table_name: str) -> Tuple[bool, int, str]:
     except Exception as e:
         return False, 0, str(e)
 
-def get_analytics_summary() -> Tuple[bool, Optional[Dict], str]:
-    """Get analytics summary data."""
+def get_analytics_summary(table_name: str = "query_analytics") -> Tuple[bool, Optional[Dict], str]:
+    """Get analytics summary data for a specific table."""
     try:
         # Get total count
-        count_success, total_count, count_error = get_table_count("query_analytics")
+        count_success, total_count, count_error = get_table_count(table_name)
         
         if not count_success:
             return False, None, f"Error getting count: {count_error}"
         
-        # Get feedback breakdown - handle new reaction values
-        feedback_query = """
-            SELECT 
-                CASE 
-                    WHEN reaction = 'positive' THEN 'positive'
-                    WHEN reaction = 'negative' THEN 'negative'
-                    WHEN reaction = 'none' THEN 'none'
-                    ELSE reaction
-                END as reaction_display,
-                COUNT(*) as count
-            FROM query_analytics 
-            WHERE reaction IS NOT NULL
-            GROUP BY reaction
-            ORDER BY count DESC
-        """
-        success, feedback_df, error = execute_query(feedback_query)
+        summary = {"total_records": total_count}
         
-        feedback_breakdown = {}
-        if success and not feedback_df.empty:
-            feedback_breakdown = dict(zip(feedback_df['reaction_display'], feedback_df['count']))
+        # Add table-specific analytics
+        if table_name == "query_analytics":
+            # Get feedback breakdown - handle new reaction values
+            feedback_query = """
+                SELECT 
+                    CASE 
+                        WHEN reaction = 'positive' THEN 'positive'
+                        WHEN reaction = 'negative' THEN 'negative'
+                        WHEN reaction = 'none' THEN 'none'
+                        ELSE reaction
+                    END as reaction_display,
+                    COUNT(*) as count
+                FROM query_analytics 
+                WHERE reaction IS NOT NULL
+                GROUP BY reaction
+                ORDER BY count DESC
+            """
+            success, feedback_df, error = execute_query(feedback_query)
+            
+            feedback_breakdown = {}
+            if success and not feedback_df.empty:
+                feedback_breakdown = dict(zip(feedback_df['reaction_display'], feedback_df['count']))
+            
+            # Get daily activity
+            daily_query = """
+                SELECT 
+                    DATE(date_time) as date,
+                    COUNT(*) as queries
+                FROM query_analytics 
+                GROUP BY DATE(date_time)
+                ORDER BY date DESC
+                LIMIT 7
+            """
+            success, daily_df, error = execute_query(daily_query)
+            
+            daily_activity = {}
+            if success and not daily_df.empty:
+                daily_activity = dict(zip(daily_df['date'], daily_df['queries']))
+            
+            # Get tagging analytics for query_analytics
+            tagging_query = """
+                SELECT 
+                    COALESCE(t.question_type, 'unknown') as question_type,
+                    COALESCE(t.technical_level, 'unknown') as technical_level,
+                    COALESCE(t.urgency, 'low') as urgency,
+                    COUNT(*) as count
+                FROM query_analytics qa
+                LEFT JOIN questions q ON qa.query = q.question
+                LEFT JOIN tags t ON q.id = t.question_id
+                GROUP BY t.question_type, t.technical_level, t.urgency
+                ORDER BY count DESC
+            """
+            success, tagging_df, error = execute_query(tagging_query)
+            
+            tagging_breakdown = {}
+            if success and not tagging_df.empty:
+                # Group by question type
+                question_types = tagging_df.groupby('question_type')['count'].sum().to_dict()
+                technical_levels = tagging_df.groupby('technical_level')['count'].sum().to_dict()
+                urgency_levels = tagging_df.groupby('urgency')['count'].sum().to_dict()
+                
+                tagging_breakdown = {
+                    "question_types": question_types,
+                    "technical_levels": technical_levels,
+                    "urgency_levels": urgency_levels
+                }
+            
+            summary.update({
+                "feedback_breakdown": feedback_breakdown,
+                "daily_activity": daily_activity,
+                "tagging_breakdown": tagging_breakdown
+            })
         
-        # Get daily activity
-        daily_query = """
-            SELECT 
-                DATE(date_time) as date,
-                COUNT(*) as queries
-            FROM query_analytics 
-            GROUP BY DATE(date_time)
-            ORDER BY date DESC
-            LIMIT 7
-        """
-        success, daily_df, error = execute_query(daily_query)
+        elif table_name == "questions":
+            # Get questions by user
+            user_query = """
+                SELECT user_id, COUNT(*) as question_count
+                FROM questions 
+                GROUP BY user_id
+                ORDER BY question_count DESC
+                LIMIT 10
+            """
+            success, user_df, error = execute_query(user_query)
+            if success and not user_df.empty:
+                summary["top_users"] = user_df.to_dict('records')
         
-        daily_activity = {}
-        if success and not daily_df.empty:
-            daily_activity = dict(zip(daily_df['date'], daily_df['queries']))
-        
-        summary = {
-            "total_queries": total_count,
-            "feedback_breakdown": feedback_breakdown,
-            "daily_activity": daily_activity
-        }
+        elif table_name == "tags":
+            # Get tags by question type
+            type_query = """
+                SELECT question_type, COUNT(*) as count
+                FROM tags 
+                GROUP BY question_type
+                ORDER BY count DESC
+            """
+            success, type_df, error = execute_query(type_query)
+            if success and not type_df.empty:
+                summary["question_types"] = type_df.to_dict('records')
+            
+            # Get confidence distribution
+            confidence_query = """
+                SELECT 
+                    CASE 
+                        WHEN confidence_score >= 0.8 THEN 'high'
+                        WHEN confidence_score >= 0.6 THEN 'medium'
+                        ELSE 'low'
+                    END as confidence_level,
+                    COUNT(*) as count
+                FROM tags 
+                GROUP BY confidence_level
+                ORDER BY count DESC
+            """
+            success, conf_df, error = execute_query(confidence_query)
+            if success and not conf_df.empty:
+                summary["confidence_distribution"] = conf_df.to_dict('records')
         
         return True, summary, "Summary retrieved successfully"
         
@@ -153,9 +273,9 @@ def test_database_connection() -> Tuple[bool, str]:
         return False, f"Connection failed: {str(e)}"
 
 def render_database_query_interface():
-    """Render the simplified database query interface in Streamlit."""
+    """Render the database query interface in Streamlit."""
     st.subheader("🔍 Database Query Interface")
-    st.markdown("Query and explore your analytics data from the simplified single table.")
+    st.markdown("Query and explore your analytics data from all available tables.")
     
     # Test database connection
     with st.spinner("Testing database connection..."):
@@ -166,6 +286,26 @@ def render_database_query_interface():
         return
     
     st.success(f"✅ **Database Connected:** {message}")
+    
+    # Get table information
+    table_info = get_table_info()
+    
+    # Table selection
+    st.markdown("---")
+    st.subheader("📊 Select Table to Query")
+    
+    table_options = {name: info["name"] for name, info in table_info.items()}
+    selected_table = st.selectbox(
+        "Choose a table to explore:",
+        options=list(table_options.keys()),
+        format_func=lambda x: f"{table_options[x]} - {table_info[x]['description']}"
+    )
+    
+    # Display table information
+    table_details = table_info[selected_table]
+    st.write(f"**Table:** {table_details['name']}")
+    st.write(f"**Description:** {table_details['description']}")
+    st.write(f"**Columns:** {', '.join(table_details['columns'])}")
     
     # Add manual test section
     st.markdown("---")
@@ -226,15 +366,14 @@ def render_database_query_interface():
     
     # Get table information
     table_info = get_table_info()
-    table_name = "query_analytics"  # Single table
     
     # Display table information
-    table_details = table_info[table_name]
+    table_details = table_info[selected_table]
     st.info(f"**Table:** {table_details['name']} | **Description:** {table_details['description']}")
     
     # Get table count
     with st.spinner("Getting table count..."):
-        count_success, total_count, count_error = get_table_count(table_name)
+        count_success, total_count, count_error = get_table_count(selected_table)
     
     if count_success:
         st.metric("Total Records", total_count)
@@ -256,9 +395,9 @@ def render_database_query_interface():
         st.write(f"**Offset:** {offset}")
     
     # Query button
-    if st.button("🔍 Query Analytics Data", key="query_analytics"):
+    if st.button("🔍 Query Table Data", key="query_table"):
         with st.spinner(f"Querying {table_details['name']}..."):
-            success, df, error = get_table_data(table_name, limit, offset)
+            success, df, error = get_table_data(selected_table, limit, offset)
         
         if success:
             if not df.empty:
@@ -311,7 +450,7 @@ def render_database_query_interface():
     
     if st.button("📈 Get Analytics Summary", key="analytics_summary"):
         with st.spinner("Generating analytics summary..."):
-            success, summary, error = get_analytics_summary()
+            success, summary, error = get_analytics_summary(selected_table)
         
         if success:
             st.success("✅ Analytics summary generated successfully!")
@@ -343,5 +482,30 @@ def render_database_query_interface():
                 daily_df = pd.DataFrame(list(summary['daily_activity'].items()), 
                                       columns=['Date', 'Queries'])
                 st.line_chart(daily_df.set_index('Date'))
+            
+            # Display tagging breakdown
+            if summary.get('tagging_breakdown'):
+                st.subheader("🏷️ Tagging Breakdown")
+                tagging_data = summary['tagging_breakdown']
+                
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if tagging_data.get('question_types'):
+                        st.write("**Question Types:**")
+                        for qtype, count in tagging_data['question_types'].items():
+                            st.write(f"• {qtype}: {count}")
+                
+                with col2:
+                    if tagging_data.get('technical_levels'):
+                        st.write("**Technical Levels:**")
+                        for level, count in tagging_data['technical_levels'].items():
+                            st.write(f"• {level}: {count}")
+                
+                with col3:
+                    if tagging_data.get('urgency_levels'):
+                        st.write("**Urgency Levels:**")
+                        for urgency, count in tagging_data['urgency_levels'].items():
+                            st.write(f"• {urgency}: {count}")
         else:
             st.error(f"❌ **Analytics Summary Failed:** {error}")
