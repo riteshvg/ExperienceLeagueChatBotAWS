@@ -1399,6 +1399,15 @@ def render_main_page_minimal():
                             except Exception as e:
                                 st.session_state.analytics_available = False
                         
+                        # Initialize tagging service
+                        tagging_service = None
+                        if TAGGING_AVAILABLE:
+                            try:
+                                tagging_service = TaggingService()
+                                st.session_state.tagging_available = True
+                            except Exception as e:
+                                st.session_state.tagging_available = False
+                        
                         # Process the query
                         process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service, tagging_service)
 
