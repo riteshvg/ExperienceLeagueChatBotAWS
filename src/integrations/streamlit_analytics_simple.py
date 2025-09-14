@@ -150,12 +150,10 @@ class SimpleAnalyticsService:
             safe_model = model_used[:50] if model_used and len(model_used) > 50 else model_used
             
             cursor.execute("""
-                INSERT INTO query_analytics (query, userid, date_time, reaction, query_time_seconds, model_used,
-                                           products, question_type, technical_level, topics, urgency, confidence_score)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO query_analytics (query, userid, date_time, reaction, query_time_seconds, model_used)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
-            """, (query, safe_userid, datetime.now(), safe_reaction, query_time_seconds, safe_model,
-                  products, question_type, technical_level, topics, urgency, confidence_score))
+            """, (query, safe_userid, datetime.now(), safe_reaction, query_time_seconds, safe_model))
             
             result = cursor.fetchone()
             if not result:
