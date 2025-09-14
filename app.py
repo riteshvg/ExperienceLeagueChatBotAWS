@@ -341,8 +341,40 @@ def initialize_aws_clients(settings):
         return None, str(e)
 
 def retrieve_documents_from_kb(query: str, knowledge_base_id: str, bedrock_agent_client, max_results: int = 3):
-    """Retrieve relevant documents from Knowledge Base."""
+    """Retrieve relevant documents from Knowledge Base with input validation."""
     try:
+        # Input validation: Check query length (AWS Bedrock limit is 20,000 characters)
+        MAX_QUERY_LENGTH = 20000
+        
+        if not query or not query.strip():
+            return [], "Query cannot be empty"
+        
+        # Check for extremely long queries (potential buffer overflow attempts)
+        if len(query) > MAX_QUERY_LENGTH:
+            # Truncate query to safe length and add warning
+            truncated_query = query[:MAX_QUERY_LENGTH - 100] + "... [truncated]"
+            logger.warning(f"Query truncated from {len(query)} to {len(truncated_query)} characters due to AWS Bedrock limit")
+            
+            # For extremely long queries (like buffer overflow tests), return a helpful error
+            if len(query) > MAX_QUERY_LENGTH * 2:  # More than 40,000 characters
+                return [], f"Query too long ({len(query)} characters). Maximum allowed: {MAX_QUERY_LENGTH} characters. Please provide a more specific question."
+            
+            # Use truncated query for moderately long queries
+            query = truncated_query
+        
+        # Check for suspicious patterns (repeated characters, gibberish, etc.)
+        if len(set(query)) < 5 and len(query) > 100:  # Very low character diversity
+            return [], "Query appears to be invalid or spam. Please provide a meaningful question about Adobe Analytics."
+        
+        # Check for excessive repetition
+        if len(query) > 500:
+            # Check for repeated patterns
+            words = query.split()
+            if len(words) > 10:
+                unique_words = set(words)
+                if len(unique_words) < len(words) * 0.1:  # Less than 10% unique words
+                    return [], "Query contains excessive repetition. Please provide a clear, specific question."
+        
         response = bedrock_agent_client.retrieve(
             knowledgeBaseId=knowledge_base_id,
             retrievalQuery={
@@ -356,7 +388,14 @@ def retrieve_documents_from_kb(query: str, knowledge_base_id: str, bedrock_agent
         )
         return response.get('retrievalResults', []), None
     except Exception as e:
-        return [], str(e)
+        # Enhanced error handling for specific AWS errors
+        error_msg = str(e)
+        if "ValidationException" in error_msg and "length less than or equal to 20000" in error_msg:
+            return [], f"Query too long for processing. Maximum allowed: {MAX_QUERY_LENGTH} characters. Please provide a more specific question."
+        elif "ValidationException" in error_msg:
+            return [], f"Invalid query format: {error_msg}"
+        else:
+            return [], f"Retrieval error: {error_msg}"
 
 def generate_answer_from_kb(query: str, knowledge_base_id: str, model_id: str, bedrock_agent_client):
     """Generate answer using Knowledge Base."""
@@ -643,6 +682,29 @@ def process_query_optimized(query: str, knowledge_base_id: str, smart_router, aw
 def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_router, aws_clients) -> dict:
     """Process query using smart routing and return comprehensive results."""
     try:
+        # Input validation before processing
+        if not query or not query.strip():
+            return {
+                "success": False,
+                "error": "Please enter a valid question about Adobe Analytics.",
+                "documents": [],
+                "routing_decision": None,
+                "answer": "",
+                "model_used": None
+            }
+        
+        # Check for extremely long queries early
+        MAX_QUERY_LENGTH = 20000
+        if len(query) > MAX_QUERY_LENGTH * 2:  # More than 40,000 characters
+            return {
+                "success": False,
+                "error": f"Query too long ({len(query)} characters). Maximum allowed: {MAX_QUERY_LENGTH} characters. Please provide a more specific question about Adobe Analytics.",
+                "documents": [],
+                "routing_decision": None,
+                "answer": "",
+                "model_used": None
+            }
+        
         # Step 1: Retrieve documents from Knowledge Base
         documents, retrieval_error = retrieve_documents_from_kb(
             query, 
@@ -717,6 +779,31 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
 def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, smart_router, aws_clients):
     """Process query using smart routing with streaming response."""
     try:
+        # Input validation before processing
+        if not query or not query.strip():
+            yield {
+                "success": False,
+                "error": "Please enter a valid question about Adobe Analytics.",
+                "documents": [],
+                "routing_decision": None,
+                "answer": "",
+                "model_used": None
+            }
+            return
+        
+        # Check for extremely long queries early
+        MAX_QUERY_LENGTH = 20000
+        if len(query) > MAX_QUERY_LENGTH * 2:  # More than 40,000 characters
+            yield {
+                "success": False,
+                "error": f"Query too long ({len(query)} characters). Maximum allowed: {MAX_QUERY_LENGTH} characters. Please provide a more specific question about Adobe Analytics.",
+                "documents": [],
+                "routing_decision": None,
+                "answer": "",
+                "model_used": None
+            }
+            return
+        
         # Update processing step: Analyzing question
         st.session_state.processing_step = 0
         
@@ -1245,9 +1332,20 @@ def render_main_page_minimal():
             "Ask your question about Adobe Analytics, Customer Journey Analytics, or related topics:",
             placeholder="e.g., How do I set up Adobe Analytics tracking?",
             key="query_input",
-            help="For better response, keep your question concise and to the point",
+            help="Maximum 20,000 characters. Be specific and clear for best results.",
             on_change=lambda: st.session_state.update(enter_pressed=True)
         )
+        
+        # Character counter
+        if query:
+            char_count = len(query)
+            max_chars = 20000
+            if char_count > max_chars:
+                st.error(f"⚠️ Query too long: {char_count:,} characters (max: {max_chars:,})")
+            elif char_count > max_chars * 0.8:  # 80% of limit
+                st.warning(f"📝 Query length: {char_count:,} characters (approaching limit)")
+            else:
+                st.caption(f"📝 Query length: {char_count:,} characters")
     
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)  # Add some vertical spacing
@@ -1610,10 +1708,21 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             "Ask your question about Adobe Analytics, Customer Journey Analytics, or related topics:",
             value=st.session_state.get('query_input', ''),
             placeholder="e.g., How do I create custom events in Adobe Analytics?",
+            help="Maximum 20,000 characters. Be specific and clear for best results.",
             key="query_input",
-            help="For better response, keep your question concise and to the point",
             on_change=lambda: st.session_state.update(enter_pressed=True)
         )
+        
+        # Character counter
+        if query:
+            char_count = len(query)
+            max_chars = 20000
+            if char_count > max_chars:
+                st.error(f"⚠️ Query too long: {char_count:,} characters (max: {max_chars:,})")
+            elif char_count > max_chars * 0.8:  # 80% of limit
+                st.warning(f"📝 Query length: {char_count:,} characters (approaching limit)")
+            else:
+                st.caption(f"📝 Query length: {char_count:,} characters")
     
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)  # Add some vertical spacing
