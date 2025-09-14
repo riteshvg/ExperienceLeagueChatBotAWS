@@ -1512,7 +1512,14 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
             # Store analytics data directly (synchronous)
             query_id = None
             response_id = None
-            if st.session_state.get('analytics_available', False) and analytics_service:
+            
+            # Debug analytics conditions
+            analytics_available = st.session_state.get('analytics_available', False)
+            print(f"🔍 [DEBUG] Analytics available: {analytics_available}")
+            print(f"🔍 [DEBUG] Analytics service: {analytics_service is not None}")
+            print(f"🔍 [DEBUG] Analytics service type: {type(analytics_service)}")
+            
+            if analytics_available and analytics_service:
                 try:
                     print(f"🔍 [APP] About to track query: {query[:50]}...")
                     print(f"🔍 [APP] Analytics service available: {analytics_service is not None}")
@@ -1807,7 +1814,14 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 # Store analytics data directly (synchronous)
                 query_id = None
                 response_id = None
-                if st.session_state.get('analytics_available', False) and analytics_service:
+                
+                # Debug analytics conditions
+                analytics_available = st.session_state.get('analytics_available', False)
+                print(f"🔍 [DEBUG-2] Analytics available: {analytics_available}")
+                print(f"🔍 [DEBUG-2] Analytics service: {analytics_service is not None}")
+                print(f"🔍 [DEBUG-2] Analytics service type: {type(analytics_service)}")
+                
+                if analytics_available and analytics_service:
                     try:
                         print(f"🔍 [APP-2] About to track query: {query[:50]}...")
                         print(f"🔍 [APP-2] Analytics service available: {analytics_service is not None}")
