@@ -1,0 +1,17 @@
+# Optional performance dependencies for enhanced monitoring
+# Install with: pip install -r requirements-performance.txt
+
+# Memory monitoring
+psutil>=5.9.0
+
+# Advanced caching (optional)
+redis>=4.5.0
+
+# Performance monitoring (optional)
+prometheus-client>=0.16.0
+
+# Database connection pooling (optional)
+sqlalchemy>=2.0.0
+
+# Async operations (optional)
+asyncio-mqtt>=0.13.0
