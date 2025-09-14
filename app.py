@@ -1511,6 +1511,9 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
             
             # Store analytics data in background (non-blocking)
             def store_analytics_background():
+                print(f"🔍 [APP-BG] Background function called")
+                print(f"🔍 [APP-BG] Analytics available: {st.session_state.get('analytics_available', False)}")
+                print(f"🔍 [APP-BG] Analytics service: {analytics_service is not None}")
                 if st.session_state.get('analytics_available', False) and analytics_service:
                     try:
                         # Calculate query processing time
@@ -1547,9 +1550,11 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
                         print(f"Analytics storage failed: {e}")
             
             # Start analytics processing in background thread
+            print(f"🔍 [APP] Starting analytics background thread...")
             analytics_thread = threading.Thread(target=store_analytics_background)
             analytics_thread.daemon = True
             analytics_thread.start()
+            print(f"🔍 [APP] Analytics background thread started")
 
 def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, analytics_service=None):
     """Render the clean main page focused on user experience."""
@@ -1792,6 +1797,9 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 
                 # Store analytics data in background (non-blocking)
                 def store_analytics_background():
+                    print(f"🔍 [APP-BG-2] Background function called")
+                    print(f"🔍 [APP-BG-2] Analytics available: {st.session_state.get('analytics_available', False)}")
+                    print(f"🔍 [APP-BG-2] Analytics service: {analytics_service is not None}")
                     if st.session_state.get('analytics_available', False) and analytics_service:
                         try:
                             # Calculate query processing time
@@ -1829,9 +1837,11 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 
                 # Start analytics processing in background thread
                 import threading
+                print(f"🔍 [APP-2] Starting analytics background thread...")
                 analytics_thread = threading.Thread(target=store_analytics_background)
                 analytics_thread.daemon = True
                 analytics_thread.start()
+                print(f"🔍 [APP-2] Analytics background thread started")
                 
                 # Clear processing state
                 st.session_state.processing_query = False
