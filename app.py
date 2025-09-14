@@ -1506,23 +1506,7 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
             # Clear the streaming response placeholder since it will be shown in chat history
             response_placeholder.empty()
             
-            # Show success message
-            st.success("✅ **Query processed successfully!**")
-            
-            # Clear processing state
-            st.session_state.processing_query = False
-            st.session_state.processing_step = 0
-            
-            # Clear the query input and enter_pressed flag after successful processing
-            if 'query_input' in st.session_state:
-                del st.session_state.query_input
-            if 'enter_pressed' in st.session_state:
-                del st.session_state.enter_pressed
-            
-            # Rerun to display the new message in chat history IMMEDIATELY
-            st.rerun()
-            
-            # Store analytics data directly (synchronous)
+            # Store analytics data directly (synchronous) - BEFORE st.rerun()
             query_id = None
             response_id = None
             
@@ -1584,6 +1568,22 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
                 st.info(processing_message)
             else:
                 st.warning("⚠️ Query tracking failed - check logs for details")
+            
+            # Show success message
+            st.success("✅ **Query processed successfully!**")
+            
+            # Clear processing state
+            st.session_state.processing_query = False
+            st.session_state.processing_step = 0
+            
+            # Clear the query input and enter_pressed flag after successful processing
+            if 'query_input' in st.session_state:
+                del st.session_state.query_input
+            if 'enter_pressed' in st.session_state:
+                del st.session_state.enter_pressed
+            
+            # Rerun to display the new message in chat history IMMEDIATELY
+            st.rerun()
 
 def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, analytics_service=None):
     """Render the clean main page focused on user experience."""
