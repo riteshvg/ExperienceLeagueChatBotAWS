@@ -231,6 +231,17 @@ except ImportError as e:
         def render_analytics_dashboard(self): 
             st.error("Analytics not available - database configuration error")
 
+# Import admin panel components
+try:
+    from src.admin.admin_panel import render_admin_page, display_aws_cost_data, display_bedrock_cost_data, display_s3_cost_data
+    ADMIN_PANEL_AVAILABLE = True
+    print("✅ Admin panel loaded successfully")
+except ImportError as e:
+    print(f"⚠️  Admin panel not available: {e}")
+    ADMIN_PANEL_AVAILABLE = False
+    def render_admin_page(*args, **kwargs):
+        st.error("Admin panel not available - import error")
+
 # Import database query components
 try:
     from src.integrations.database_query import render_database_query_interface
@@ -704,6 +715,9 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
 def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, smart_router, aws_clients):
     """Process query using smart routing with streaming response."""
     try:
+        # Update processing step: Analyzing question
+        st.session_state.processing_step = 0
+        
         # Step 1: Retrieve documents from Knowledge Base
         documents, retrieval_error = retrieve_documents_from_kb(
             query, 
@@ -722,10 +736,16 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
             }
             return
         
+        # Update processing step: Searching knowledge base
+        st.session_state.processing_step = 1
+        
         # Step 2: Smart routing - select appropriate model with fallback
         current_haiku_only_mode = st.session_state.get('haiku_only_mode', smart_router.haiku_only_mode)
         available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet", "opus"]
         routing_decision = smart_router.select_available_model(query, documents, available_models)
+        
+        # Update processing step: Querying AI model
+        st.session_state.processing_step = 2
         
         # Step 3: Prepare context from retrieved documents
         context = ""
@@ -737,8 +757,14 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
                     context_parts.append(f"Document {i}: {content[:500]}...")
             context = "\n\n".join(context_parts)
         
+        # Update processing step: Synthesizing response
+        st.session_state.processing_step = 3
+        
         # Step 4: Invoke selected model with streaming
         full_answer = ""
+        # Update processing step: Generating final answer
+        st.session_state.processing_step = 4
+        
         for chunk, generation_error in invoke_bedrock_model_stream(
             routing_decision['model_id'],
             query,
@@ -806,415 +832,144 @@ def test_model_invocation(model_id: str, test_query: str, bedrock_client) -> tup
     except Exception as e:
         return False, str(e)
 
-def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results, analytics_service=None):
-    """Render the admin page with all technical details."""
-    st.title("🔧 Admin Dashboard")
-    st.markdown("**System Configuration, Status, and Analytics**")
-    st.markdown("---")
+def check_query_relevance(query: str) -> bool:
+    """Check if the query is relevant to Adobe Analytics, AEP, CJA, or related topics."""
+    # Convert query to lowercase for case-insensitive matching
+    query_lower = query.lower()
     
-    # Create tabs for different admin sections (optimized - reduced from 9 to 4 tabs)
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 System Status", 
-        "⚙️ Settings", 
-        "📊 Query Analytics",
-        "🔍 Database Query"
-    ])
+    # Define relevant keywords and topics
+    relevant_keywords = [
+        # Adobe Analytics
+        'adobe analytics', 'aa', 'analytics', 'workspace', 'reports', 'segments', 'calculated metrics',
+        'virtual report suites', 'vrs', 'data warehouse', 'data feeds', 'attribution', 'conversion',
+        'funnel', 'cohort', 'flow', 'fallout', 'pathing', 'real-time', 'realtime',
+        'metrics', 'dimensions', 'breakdown', 'trend', 'overview', 'summary',
+        
+        # Customer Journey Analytics
+        'customer journey analytics', 'cja', 'cross-channel', 'cross channel', 'journey',
+        'customer journey', 'stitching', 'identity', 'person', 'person id',
+        
+        # Adobe Experience Platform
+        'adobe experience platform', 'aep', 'experience platform', 'xdm', 'schema',
+        'datasets', 'data lake', 'profile', 'identity service', 'segmentation',
+        'destinations', 'sources', 'data prep', 'query service',
+        
+        # Adobe Experience Cloud
+        'adobe experience cloud', 'experience cloud', 'adobe', 'marketing cloud',
+        'campaign', 'target', 'audience manager', 'adobe io', 'adobe io',
+        
+        # Technical terms
+        'implementation', 'tracking', 'sdk', 'api', 'javascript', 'mobile sdk',
+        'server-side', 'client-side', 'data collection', 'beacon', 'hit',
+        'visitor', 'visit', 'page view', 'event', 'custom events', 'props', 'evar',
+        's.t', 's.tl', 's.clearVars', 's.link', 's.track', 's.visitorID',
+        'code', 'script', 'tag', 'tagging', 'measurement', 'measure',
+        
+        # Business terms
+        'marketing', 'digital marketing', 'web analytics', 'conversion tracking',
+        'ecommerce', 'e-commerce', 'revenue', 'orders', 'products', 'cart',
+        'checkout', 'purchase', 'transaction', 'bounce rate', 'time on site',
+        'business', 'website', 'app', 'mobile', 'digital', 'online',
+        
+        # Adobe-specific tools
+        'analysis workspace', 'report builder', 'ad hoc analysis', 'adobe connect',
+        'adobe launch', 'dynamic tag manager', 'dtm', 'adobe tag manager',
+        'adobe audience manager', 'adobe target', 'adobe campaign'
+    ]
     
-    with tab1:
-        st.header("📊 System Status Overview")
-        
-        # Overall system status
-        current_haiku_only_mode = st.session_state.get('haiku_only_mode', smart_router.haiku_only_mode if smart_router else False)
-        if not aws_error and kb_status and smart_router:
-            if current_haiku_only_mode:
-                st.success("🚀 **System Status: READY** - All components operational (HAIKU-ONLY MODE ACTIVE)")
-            else:
-                st.success("🚀 **System Status: READY** - All components operational (SMART ROUTING MODE)")
-        elif not aws_error and smart_router:
-            if current_haiku_only_mode:
-                st.info("🔧 **System Status: PARTIAL** - Knowledge Base testing in progress (HAIKU-ONLY MODE ACTIVE)")
-            else:
-                st.info("🔧 **System Status: PARTIAL** - Knowledge Base testing in progress (SMART ROUTING MODE)")
-        else:
-            st.warning("⚠️ **System Status: SETUP** - System setup in progress")
-        
-        # Component status grid
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            if aws_error:
-                st.error("❌ **AWS**\nConnection Failed")
-            elif aws_clients:
-                st.success("✅ **AWS**\nConnected")
-            else:
-                st.warning("⚠️ **AWS**\nNot Initialized")
-        
-        with col2:
-            if kb_error:
-                st.error("❌ **Knowledge Base**\nError")
-            elif kb_status:
-                st.success("✅ **Knowledge Base**\nReady")
-            else:
-                st.info("ℹ️ **Knowledge Base**\nPending")
-        
-        with col3:
-            if smart_router:
-                st.success("✅ **Smart Router**\nInitialized")
-            else:
-                st.warning("⚠️ **Smart Router**\nNot Initialized")
-        
-        with col4:
-            if model_test_results:
-                tested_models = sum(1 for result in model_test_results.values() if result["success"])
-                total_models = len(model_test_results)
-                st.success(f"✅ **Models**\n{tested_models}/{total_models} Working")
-            else:
-                st.info("ℹ️ **Models**\nTesting Pending")
-        
-        # Account Information section (merged from AWS Details tab)
-        st.markdown("---")
-        st.subheader("🏢 Account Information")
-        
-        if aws_error:
-            st.error(f"❌ **AWS Error:** {aws_error}")
-        elif aws_clients:
-            st.success("✅ **AWS clients initialized successfully**")
-            
-            # Account details in organized sections
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.write(f"**Account ID:** `{aws_clients['account_id']}`")
-                st.write(f"**User ARN:** `{aws_clients['user_arn']}`")
-                st.write(f"**Region:** `{settings.aws_default_region}`")
-            
-            with col2:
-                st.write(f"**S3 Bucket:** `{aws_clients['s3_status']}`")
-                st.write("**Bedrock Client:** ✅ Initialized")
-                st.write("**STS Client:** ✅ Initialized")
-        else:
-            st.warning("⚠️ AWS clients not initialized")
+    # Check if query contains any relevant keywords
+    for keyword in relevant_keywords:
+        if keyword in query_lower:
+            return True
     
-    with tab2:
-        st.header("⚙️ Settings & Configuration")
-        
-        if aws_error:
-            st.error(f"❌ **Configuration Error:** {aws_error}")
-        else:
-            st.success("✅ **Configuration loaded successfully**")
-            
-            # Configuration details in a nice format
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("🔧 Core Settings")
-                st.write(f"**AWS Region:** `{settings.aws_default_region}`")
-                st.write(f"**S3 Bucket:** `{settings.aws_s3_bucket}`")
-                st.write(f"**Bedrock Model:** `{settings.bedrock_model_id}`")
-                st.write(f"**Knowledge Base ID:** `{settings.bedrock_knowledge_base_id}`")
-            
-            with col2:
-                st.subheader("🔑 Authentication")
-                st.write(f"**AWS Access Key:** `{settings.aws_access_key_id[:8]}...`")
-                st.write(f"**AWS Secret Key:** `{settings.aws_secret_access_key[:8]}...`")
-                st.write(f"**Bedrock Region:** `{settings.bedrock_region}`")
-                st.write(f"**Embedding Model:** `{settings.bedrock_embedding_model_id}`")
-            
-            # Debug mode toggle
-            st.markdown("---")
-            st.subheader("🔧 Debug Settings")
-            debug_mode = st.checkbox(
-                "Enable Debug Mode", 
-                value=st.session_state.get('debug_mode', False),
-                help="Show debug information in the main chat interface"
-            )
-            st.session_state.debug_mode = debug_mode
-            
-            if debug_mode:
-                st.info("🔍 Debug mode enabled - Debug information will be shown in the main chat interface")
-            else:
-                st.info("🔍 Debug mode disabled - Clean interface without debug information")
-            
-            # Enable Haiku Only Mode (merged from Performance tab)
-            st.markdown("---")
-            st.subheader("🤖 Model Configuration")
-            
-            if smart_router:
-                st.success("✅ **Smart Router: Initialized**")
-                
-                # Haiku-only mode indicator
-                if smart_router.haiku_only_mode:
-                    st.warning("⚠️ **HAIKU-ONLY MODE ACTIVE** - All queries will use Claude 3 Haiku for cost optimization (92% cost reduction)")
-                    st.info("💡 This mode is enabled for one week testing. Monitor response quality and user feedback.")
-                else:
-                    st.info("ℹ️ **Normal Mode** - Smart routing based on query complexity and context")
-                
-                # Mode toggle section
-                st.markdown("---")
-                st.subheader("🔄 Dynamic Mode Control")
-                
-                col1, col2 = st.columns([2, 1])
-                
-                with col1:
-                    st.write("**Switch between modes based on your cost management needs:**")
-                    st.write("• **Smart Routing**: Optimal quality with balanced costs")
-                    st.write("• **Haiku-Only**: Maximum cost savings with good quality")
-                
-                with col2:
-                    # Toggle button for Haiku-only mode
-                    current_mode = smart_router.haiku_only_mode
-                    new_mode = st.toggle(
-                        "Enable Haiku-Only Mode",
-                        value=current_mode,
-                        help="Toggle to enable/disable Haiku-only mode for cost optimization"
-                    )
-                    
-                    # Update mode if changed
-                    if new_mode != current_mode:
-                        smart_router.haiku_only_mode = new_mode
-                        st.session_state.haiku_only_mode = new_mode
-                        st.rerun()
-                
-                # Mode change confirmation
-                if new_mode != current_mode:
-                    if new_mode:
-                        st.success("🔄 **Switched to Haiku-Only Mode** - All queries will now use Claude 3 Haiku")
-                    else:
-                        st.success("🔄 **Switched to Smart Routing Mode** - Models will be selected based on query analysis")
-                
-                # Cost impact analysis
-                st.markdown("---")
-                st.subheader("💰 Cost Impact Analysis")
-                
-                cost_col1, cost_col2 = st.columns(2)
-                
-                with cost_col1:
-                    st.write("**Current Mode Cost (per 1M tokens):**")
-                    if smart_router.haiku_only_mode:
-                        st.metric("Haiku Only", "$1.50", "92% savings vs Sonnet")
-                        st.caption("• Input: $0.25 per 1M tokens")
-                        st.caption("• Output: $1.25 per 1M tokens")
-                    else:
-                        st.metric("Smart Routing", "Variable", "Optimized selection")
-                        st.caption("• Haiku: $1.50 per 1M tokens")
-                        st.caption("• Sonnet: $18.00 per 1M tokens")
-                        st.caption("• Opus: $75.00 per 1M tokens")
-                
-                with cost_col2:
-                    st.write("**Estimated Monthly Savings:**")
-                    if smart_router.haiku_only_mode:
-                        st.metric("Cost Reduction", "80-90%", "vs Smart Routing")
-                        st.caption("• Typical usage: $15-30/month")
-                        st.caption("• High usage: $50-100/month")
-                    else:
-                        st.metric("Balanced Cost", "Optimized", "Quality + Efficiency")
-                        st.caption("• Typical usage: $50-150/month")
-                        st.caption("• High usage: $200-400/month")
-            else:
-                st.warning("⚠️ Smart Router not initialized")
+    # Additional check for question patterns that might be relevant
+    question_patterns = [
+        'how to', 'how do i', 'what is', 'what are', 'how can', 'how does',
+        'why', 'when', 'where', 'which', 'who', 'explain', 'tutorial',
+        'guide', 'setup', 'configure', 'implement', 'track', 'measure',
+        'analyze', 'report', 'dashboard', 'visualization'
+    ]
     
-    with tab3:
-        st.header("📊 Query Analytics Dashboard")
-        
-        # Check if analytics service is available
-        if st.session_state.get('analytics_available', False):
-            st.success("✅ **Analytics Service: Available**")
-            
-            # Render the analytics dashboard
-            try:
-                analytics_service.render_analytics_dashboard()
-            except Exception as e:
-                st.error(f"❌ **Analytics Dashboard Error:** {str(e)}")
-                st.info("💡 **Troubleshooting:** Check database connection and configuration")
-        else:
-            st.warning("⚠️ **Analytics Service: Not Available**")
-            st.info("""
-            **To enable query analytics:**
-            1. Set up a database (PostgreSQL, MySQL, or SQLite)
-            2. Configure database connection in environment variables
-            3. Run database migration script
-            4. Restart the application
-            
-            **For local testing with SQLite:**
-            ```bash
-            export USE_SQLITE=true
-            export SQLITE_DATABASE=analytics.db
-            ```
-            """)
-            
-            # Show database configuration status
-            st.subheader("🔧 Database Configuration Status")
-            try:
-                from src.utils.database_config import get_database_info
-                db_info = get_database_info()
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write(f"**Database Type:** {db_info.get('type', 'Unknown')}")
-                    st.write(f"**Host:** {db_info.get('host', 'Unknown')}")
-                    st.write(f"**Port:** {db_info.get('port', 'Unknown')}")
-                
-                with col2:
-                    st.write(f"**Database:** {db_info.get('database', 'Unknown')}")
-                    st.write(f"**Username:** {db_info.get('username', 'Unknown')}")
-                    st.write(f"**Railway:** {db_info.get('is_railway', False)}")
-                
-            except Exception as e:
-                st.error(f"Database configuration error: {e}")
+    # If query contains question patterns, it might be relevant even without keywords
+    for pattern in question_patterns:
+        if pattern in query_lower:
+            # Check if it's asking about analytics, data, or business topics
+            business_terms = ['data', 'analytics', 'marketing', 'business', 'website', 'app', 'mobile', 'digital', 'online', 'web', 'ecommerce', 'e-commerce', 'revenue', 'conversion', 'tracking', 'measurement', 'report', 'dashboard', 'visualization']
+            if any(term in query_lower for term in business_terms):
+                return True
     
-    with tab4:
-        st.header("🔍 Database Query Interface")
-        
-        # Check if database query interface is available
-        if DATABASE_QUERY_AVAILABLE:
-            st.success("✅ **Database Query Interface: Available**")
-            
-            # Render the database query interface
-            try:
-                render_database_query_interface()
-            except Exception as e:
-                st.error(f"❌ **Database Query Interface Error:** {str(e)}")
-                st.info("💡 **Troubleshooting:** Check database connection and configuration")
-        else:
-            st.warning("⚠️ **Database Query Interface: Not Available**")
-            st.info("""
-            **To enable database query interface:**
-            1. Ensure database connection is properly configured
-            2. Check that all required dependencies are installed
-            3. Verify database tables exist and are accessible
-            
-            **Required dependencies:**
-            - psycopg2-binary (for PostgreSQL)
-            - pandas (for data display)
-            - streamlit (for UI components)
-            """)
+    return False
 
-def display_aws_cost_data(cost_data):
-    """Display AWS cost data in a formatted way."""
-    try:
-        results = cost_data.get('ResultsByTime', [])
-        
-        if not results:
-            st.info("No cost data available for the selected period.")
-            return
-        
-        # Calculate total costs
-        total_cost = 0
-        service_costs = {}
-        
-        for result in results:
-            time_period = result.get('TimePeriod', {})
-            groups = result.get('Groups', [])
-            
-            for group in groups:
-                service = group.get('Keys', ['Unknown'])[0]
-                metrics = group.get('Metrics', {})
-                cost = float(metrics.get('BlendedCost', {}).get('Amount', 0))
-                
-                if service not in service_costs:
-                    service_costs[service] = 0
-                service_costs[service] += cost
-                total_cost += cost
-        
-        # Display total cost
-        st.metric("Total AWS Cost", f"${total_cost:.2f}")
-        
-        # Display service breakdown
-        if service_costs:
-            st.write("**Cost by Service:**")
-            for service, cost in sorted(service_costs.items(), key=lambda x: x[1], reverse=True):
-                percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
-                st.write(f"• **{service}:** ${cost:.2f} ({percentage:.1f}%)")
-        
-        # Create a simple chart if pandas is available
-        try:
-            import pandas as pd
-            df = pd.DataFrame(list(service_costs.items()), columns=['Service', 'Cost'])
-            df = df[df['Cost'] > 0]  # Only show services with costs
-            if not df.empty:
-                st.bar_chart(df.set_index('Service'))
-        except ImportError:
-            st.info("Install pandas for cost visualization charts")
-            
-    except Exception as e:
-        st.error(f"Error displaying cost data: {str(e)}")
+def get_irrelevant_question_response() -> str:
+    """Return a standard response for irrelevant questions."""
+    return """I'm sorry, but your question doesn't appear to be related to Adobe Analytics, Adobe Experience Platform, Customer Journey Analytics, or other Adobe Experience Cloud products.
 
-def display_bedrock_cost_data(cost_data):
-    """Display Bedrock-specific cost data."""
-    try:
-        results = cost_data.get('ResultsByTime', [])
-        
-        if not results:
-            st.info("No Bedrock cost data available for the selected period.")
-            return
-        
-        total_cost = 0
-        usage_costs = {}
-        
-        for result in results:
-            groups = result.get('Groups', [])
-            
-            for group in groups:
-                usage_type = group.get('Keys', ['Unknown'])[0]
-                metrics = group.get('Metrics', {})
-                cost = float(metrics.get('BlendedCost', {}).get('Amount', 0))
-                
-                if usage_type not in usage_costs:
-                    usage_costs[usage_type] = 0
-                usage_costs[usage_type] += cost
-                total_cost += cost
-        
-        # Display total Bedrock cost
-        st.metric("Total Bedrock Cost", f"${total_cost:.2f}")
-        
-        # Display usage type breakdown
-        if usage_costs:
-            st.write("**Cost by Usage Type:**")
-            for usage_type, cost in sorted(usage_costs.items(), key=lambda x: x[1], reverse=True):
-                percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
-                st.write(f"• **{usage_type}:** ${cost:.2f} ({percentage:.1f}%)")
-        
-    except Exception as e:
-        st.error(f"Error displaying Bedrock cost data: {str(e)}")
+I'm specifically designed to help with questions about:
+• **Adobe Analytics** - Reports, segments, calculated metrics, implementation
+• **Customer Journey Analytics (CJA)** - Cross-channel analysis, customer journeys
+• **Adobe Experience Platform (AEP)** - Data management, profiles, segmentation
+• **Adobe Experience Cloud** - Marketing automation, personalization, content management
 
-def display_s3_cost_data(cost_data):
-    """Display S3-specific cost data."""
-    try:
-        results = cost_data.get('ResultsByTime', [])
-        
-        if not results:
-            st.info("No S3 cost data available for the selected period.")
-            return
-        
-        total_cost = 0
-        usage_costs = {}
-        
-        for result in results:
-            groups = result.get('Groups', [])
-            
-            for group in groups:
-                usage_type = group.get('Keys', ['Unknown'])[0]
-                metrics = group.get('Metrics', {})
-                cost = float(metrics.get('BlendedCost', {}).get('Amount', 0))
-                
-                if usage_type not in usage_costs:
-                    usage_costs[usage_type] = 0
-                usage_costs[usage_type] += cost
-                total_cost += cost
-        
-        # Display total S3 cost
-        st.metric("Total S3 Cost", f"${total_cost:.2f}")
-        
-        # Display usage type breakdown
-        if usage_costs:
-            st.write("**Cost by Usage Type:**")
-            for usage_type, cost in sorted(usage_costs.items(), key=lambda x: x[1], reverse=True):
-                percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
-                st.write(f"• **{usage_type}:** ${cost:.2f} ({percentage:.1f}%)")
-        
-    except Exception as e:
-        st.error(f"Error displaying S3 cost data: {str(e)}")
+Please ask questions about these topics, and I'll be happy to help! For example:
+- "How do I create a segment in Adobe Analytics?"
+- "What is Analysis Workspace?"
+- "How do I implement Adobe Analytics tracking?"
+- "What is Customer Journey Analytics?" """
+
+def render_processing_loader(step: int = 0):
+    """Render a thin processing loader with steps."""
+    steps = [
+        "🔍 Analyzing your question...",
+        "📚 Searching knowledge base...",
+        "🤖 Querying AI model...",
+        "⚡ Synthesizing response...",
+        "✨ Generating final answer..."
+    ]
+    
+    # Create a thin progress bar
+    progress = (step + 1) / len(steps)
+    
+    # Add CSS for the loader
+    st.markdown("""
+    <style>
+    .processing-loader {
+        background: linear-gradient(90deg, #e0e0e0 0%, #1f77b4 50%, #e0e0e0 100%);
+        height: 3px;
+        border-radius: 2px;
+        margin: 10px 0;
+        position: relative;
+        overflow: hidden;
+    }
+    .processing-loader::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent);
+        animation: shimmer 2s infinite;
+    }
+    @keyframes shimmer {
+        0% { left: -100%; }
+        100% { left: 100%; }
+    }
+    .processing-step {
+        text-align: center;
+        font-size: 14px;
+        color: #666;
+        margin: 5px 0;
+        font-weight: 500;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Render the loader
+    st.markdown(f'<div class="processing-loader"></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="processing-step">{steps[step]}</div>', unsafe_allow_html=True)
+    
+    return step + 1 if step < len(steps) - 1 else 0
+
 
 def initialize_chat_history():
     """Initialize chat history in session state."""
@@ -1222,6 +977,183 @@ def initialize_chat_history():
         st.session_state.chat_history = []
     if 'current_session_id' not in st.session_state:
         st.session_state.current_session_id = f"session_{int(time.time())}"
+
+def check_admin_access():
+    """Check if user has admin access."""
+    # Check if already authenticated
+    if st.session_state.get('admin_authenticated', False):
+        return True
+    
+    # Show authentication form
+    st.markdown("### 🔐 Admin Access Required")
+    st.markdown("Please enter the admin password to access the dashboard.")
+    
+    # Create a form for password input
+    with st.form("admin_auth_form"):
+        password = st.text_input("Admin Password", type="password", placeholder="Enter admin password")
+        submit_button = st.form_submit_button("🔓 Access Admin Panel")
+        
+        if submit_button:
+            # Check password (you can change this to your preferred password)
+            admin_password = st.secrets.get("ADMIN_PASSWORD", "admin123")  # Default password
+            if password == admin_password:
+                st.session_state.admin_authenticated = True
+                st.success("✅ Access granted! Redirecting to admin panel...")
+                st.rerun()
+            else:
+                st.error("❌ Invalid password. Please try again.")
+    
+    return False
+
+def logout_admin():
+    """Logout from admin panel."""
+    if 'admin_authenticated' in st.session_state:
+        del st.session_state.admin_authenticated
+    st.success("👋 Logged out successfully!")
+    st.rerun()
+
+def render_about_page():
+    """Render the About page with application information."""
+    st.title("ℹ️ About This Application")
+    st.markdown("---")
+    
+    # Application Overview
+    st.markdown("### 🎯 What is this application?")
+    st.markdown("""
+    This is an **intelligent chatbot** designed specifically to help you with Adobe Analytics, 
+    Adobe Experience Platform (AEP), and Customer Journey Analytics (CJA) questions. 
+    Think of it as your personal Adobe expert that's available 24/7!
+    """)
+    
+    # Key Features
+    st.markdown("### ✨ Key Features")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("""
+        **🤖 Smart AI Assistant**
+        - Powered by advanced AI technology
+        - Understands Adobe-specific terminology
+        - Provides accurate, helpful answers
+        
+        **📚 Knowledge Base**
+        - Access to comprehensive Adobe documentation
+        - Up-to-date information and best practices
+        - Real-world examples and use cases
+        """)
+    
+    with col2:
+        st.markdown("""
+        **💬 Natural Conversations**
+        - Ask questions in plain English
+        - Get detailed, step-by-step guidance
+        - Follow-up questions welcome
+        
+        **⚡ Fast & Reliable**
+        - Quick response times
+        - Always available when you need help
+        - No need to search through documentation
+        """)
+    
+    # What You Can Ask
+    st.markdown("### 💡 What can you ask?")
+    
+    st.markdown("""
+    **Adobe Analytics Questions:**
+    - How do I create segments and calculated metrics?
+    - What's the difference between eVars and props?
+    - How do I set up conversion tracking?
+    - How do I use Analysis Workspace?
+    
+    **Adobe Experience Platform (AEP) Questions:**
+    - How do I create a schema in AEP?
+    - What are datasets and how do I use them?
+    - How do I set up data ingestion?
+    - How do I create audiences in AEP?
+    
+    **Customer Journey Analytics (CJA) Questions:**
+    - How do I analyze cross-channel customer journeys?
+    - What's the difference between Analytics and CJA?
+    - How do I create connections in CJA?
+    - How do I use the CJA workspace?
+    """)
+    
+    # How It Works
+    st.markdown("### 🔧 How does it work?")
+    
+    st.markdown("""
+    1. **Ask Your Question**: Type your Adobe-related question in the chat box
+    2. **AI Processing**: Our smart AI searches through Adobe documentation and knowledge
+    3. **Get Your Answer**: Receive a detailed, helpful response tailored to your question
+    4. **Follow Up**: Ask follow-up questions or dive deeper into any topic
+    """)
+    
+    # Technology Stack
+    st.markdown("### 🛠️ Built With")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        **🤖 AI Technology**
+        - AWS Bedrock
+        - Claude AI Models
+        - Smart Routing
+        """)
+    
+    with col2:
+        st.markdown("""
+        **📊 Adobe Integration**
+        - Adobe Analytics
+        - Adobe Experience Platform
+        - Customer Journey Analytics
+        """)
+    
+    with col3:
+        st.markdown("""
+        **💻 Modern Web Tech**
+        - Streamlit
+        - Python
+        - Real-time Processing
+        """)
+    
+    # Getting Started
+    st.markdown("### 🚀 Getting Started")
+    
+    st.markdown("""
+    **Ready to get help with Adobe? Here's how to start:**
+    
+    1. **Go to the Main Chat** page using the navigation menu
+    2. **Type your question** in the chat box
+    3. **Press Enter** or click the "Ask" button
+    4. **Get your answer** and ask follow-up questions as needed
+    
+    **💡 Pro Tips:**
+    - Be specific with your questions for better answers
+    - Ask follow-up questions to dive deeper
+    - Try different ways of asking the same question
+    - The more context you provide, the better the answer
+    """)
+    
+    # Support & Contact
+    st.markdown("### 📞 Need Help?")
+    
+    st.markdown("""
+    **📧 Contact Support:**
+    - **Email**: ritesh@thelearningproject.in
+    - **Website**: [www.thelearningproject.in](https://www.thelearningproject.in)
+    """)
+    
+    # Footer
+    st.markdown("---")
+    st.markdown("""
+    <div style='text-align: center; color: #666; font-size: 14px;'>
+        <p>🤖 <strong>Adobe Experience League Chatbot</strong></p>
+        <p>Powered by AWS Bedrock & Smart Routing Technology</p>
+        <p>Built to help you succeed with Adobe Analytics, AEP, and CJA</p>
+    </div>
+    """, unsafe_allow_html=True)
     if 'saved_sessions' not in st.session_state:
         st.session_state.saved_sessions = {}
     if 'favorite_conversations' not in st.session_state:
@@ -1312,19 +1244,53 @@ def render_main_page_minimal():
     # No status messages to prevent CLS (matching optimized app)
     
     # Main content area
-    st.header("💬 Ask Your Question")
-    st.markdown("Ask any question about Adobe Analytics, Customer Journey Analytics, or related topics.")
+    st.markdown("---")
     
-    # Query input
-    query = st.text_input(
-        "Enter your question:",
-        placeholder="e.g., How do I set up Adobe Analytics tracking?",
-        key="query_input",
-        help="Type your question about Adobe Analytics, CJA, or related topics"
-    )
+    # Query input and submit button in a row
+    col1, col2 = st.columns([4, 1])
     
-    # Submit button
-    submit_button = st.button("🚀 Ask Question", type="primary", use_container_width=True, key="ask_question_button")
+    with col1:
+        query = st.text_input(
+            "Ask your question about Adobe Analytics, Customer Journey Analytics, or related topics:",
+            placeholder="e.g., How do I set up Adobe Analytics tracking?",
+            key="query_input",
+            help="For better response, keep your question concise and to the point",
+            on_change=lambda: st.session_state.update(enter_pressed=True)
+        )
+    
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)  # Add some vertical spacing
+        submit_button = st.button("🚀 Ask", type="primary", key="ask_question_button")
+    
+    # Add custom CSS for question box border, hover glow effect, and larger label font
+    st.markdown("""
+    <style>
+    .stTextInput > div > div > input {
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        outline: none !important;
+    }
+    .stTextInput > div > div > input:focus {
+        border-color: #1f77b4;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        outline: none !important;
+    }
+    .stTextInput > div > div > input:hover {
+        border-color: #1f77b4;
+        box-shadow: 0 0 15px rgba(31, 119, 180, 0.3);
+    }
+    .stTextInput > label {
+        font-size: 18px !important;
+        font-weight: 600 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Processing loader (shown during query processing)
+    if st.session_state.get('processing_query', False):
+        render_processing_loader(st.session_state.get('processing_step', 0))
     
     # Reserve space for chat history to prevent CLS
     chat_container = st.container()
@@ -1347,11 +1313,7 @@ def render_main_page_minimal():
                         st.markdown(f"**👤 You:** {user_message['content']}")
                         st.markdown(f"**🤖 Assistant:** {message['content']}")
                         
-                        # Show timing info if available (simplified)
-                        if 'metadata' in message and message['metadata']:
-                            metadata = message['metadata']
-                            if 'processing_time' in metadata:
-                                st.caption(f"⏱️ Processing Time: {metadata['processing_time']:.2f}s | 🤖 Model: {metadata.get('model_used', 'Unknown')} | 📄 Documents: {metadata.get('documents_retrieved', 0)}")
+                        # Metadata display removed for cleaner interface
                         
                         # Skip both messages since we've displayed them
                         i += 2
@@ -1359,11 +1321,7 @@ def render_main_page_minimal():
                         # Orphaned assistant message, display it
                         st.markdown(f"**🤖 Assistant:** {message['content']}")
                         
-                        # Show timing info if available
-                        if 'metadata' in message and message['metadata']:
-                            metadata = message['metadata']
-                            if 'processing_time' in metadata:
-                                st.caption(f"⏱️ Processing Time: {metadata['processing_time']:.2f}s | 🤖 Model: {metadata.get('model_used', 'Unknown')} | 📄 Documents: {metadata.get('documents_retrieved', 0)}")
+                        # Metadata display removed for cleaner interface
                         
                         i += 1
                 else:
@@ -1379,10 +1337,27 @@ def render_main_page_minimal():
             st.markdown("*No messages yet. Ask a question to start the conversation!*")
             st.markdown("---")
     
-    # Process query when submitted (lazy initialization)
-    if submit_button:
+    # Process query when submitted (button click or Enter key)
+    if submit_button or st.session_state.get('enter_pressed', False):
         # Basic validation only (no UI messages to prevent CLS)
         if query and len(query) >= 3:
+            # Check if query is relevant to Adobe Analytics, AEP, CJA, etc.
+            if not check_query_relevance(query):
+                # Save user message
+                save_chat_message('user', query)
+                
+                # Save irrelevant response
+                irrelevant_response = get_irrelevant_question_response()
+                save_chat_message('assistant', irrelevant_response)
+                
+                # Clear the query input and enter_pressed flag
+                if 'query_input' in st.session_state:
+                    del st.session_state.query_input
+                if 'enter_pressed' in st.session_state:
+                    del st.session_state.enter_pressed
+                
+                st.rerun()
+                return
             # Lazy initialization - only when needed
             settings = get_cached_settings()
             if settings:
@@ -1415,6 +1390,10 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
     """Process query with full initialization (called only when needed)."""
     # Save user message
     save_chat_message('user', query)
+    
+    # Set processing state
+    st.session_state.processing_query = True
+    st.session_state.processing_step = 0
     
     # Track query start time
     st.session_state.query_start_time = time.time()
@@ -1512,8 +1491,18 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
             # Clear the streaming response placeholder since it will be shown in chat history
             response_placeholder.empty()
             
-            # Show success message with timing info
-            st.success(f"✅ **Query processed successfully in {processing_time:.2f} seconds!**")
+            # Show success message
+            st.success("✅ **Query processed successfully!**")
+            
+            # Clear processing state
+            st.session_state.processing_query = False
+            st.session_state.processing_step = 0
+            
+            # Clear the query input and enter_pressed flag after successful processing
+            if 'query_input' in st.session_state:
+                del st.session_state.query_input
+            if 'enter_pressed' in st.session_state:
+                del st.session_state.enter_pressed
             
             # Rerun to display the new message in chat history IMMEDIATELY
             st.rerun()
@@ -1566,8 +1555,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
     # No status messages to prevent CLS (matching optimized app)
     
     # Main content area
-    st.header("💬 Ask Your Question")
-    st.markdown("Ask any question about Adobe Analytics, Customer Journey Analytics, or related topics.")
+    st.markdown("---")
     
     # Query input section
     # Handle selected example question
@@ -1583,17 +1571,52 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             del st.session_state.query_input
         st.rerun()
     
-    # Create the text input
-    query = st.text_input(
-        "Enter your question:",
-        value=st.session_state.get('query_input', ''),
-        placeholder="e.g., How do I create custom events in Adobe Analytics?",
-        key="query_input",
-        help="Ask any question about Adobe Analytics, Customer Journey Analytics, or related topics."
-    )
+    # Create the text input and submit button in a row
+    col1, col2 = st.columns([4, 1])
     
-    # Submit button below the input
-    submit_button = st.button("🚀 Ask Question", type="primary", use_container_width=True, key="ask_question_button")
+    with col1:
+        query = st.text_input(
+            "Ask your question about Adobe Analytics, Customer Journey Analytics, or related topics:",
+            value=st.session_state.get('query_input', ''),
+            placeholder="e.g., How do I create custom events in Adobe Analytics?",
+            key="query_input",
+            help="For better response, keep your question concise and to the point",
+            on_change=lambda: st.session_state.update(enter_pressed=True)
+        )
+    
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)  # Add some vertical spacing
+        submit_button = st.button("🚀 Ask", type="primary", key="ask_question_button")
+    
+    # Add custom CSS for question box border, hover glow effect, and larger label font
+    st.markdown("""
+    <style>
+    .stTextInput > div > div > input {
+        border: 2px solid #e0e0e0;
+        border-radius: 8px;
+        transition: all 0.3s ease;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        outline: none !important;
+    }
+    .stTextInput > div > div > input:focus {
+        border-color: #1f77b4;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        outline: none !important;
+    }
+    .stTextInput > div > div > input:hover {
+        border-color: #1f77b4;
+        box-shadow: 0 0 15px rgba(31, 119, 180, 0.3);
+    }
+    .stTextInput > label {
+        font-size: 18px !important;
+        font-weight: 600 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Processing loader (shown during query processing)
+    if st.session_state.get('processing_query', False):
+        render_processing_loader(st.session_state.get('processing_step', 0))
     
     # Display chat history (simplified for performance)
     if st.session_state.chat_history:
@@ -1614,11 +1637,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                     st.markdown(f"**👤 You:** {user_message['content']}")
                     st.markdown(f"**🤖 Assistant:** {message['content']}")
                     
-                    # Show timing info if available (simplified)
-                    if 'metadata' in message and message['metadata']:
-                        metadata = message['metadata']
-                        if 'processing_time' in metadata:
-                            st.caption(f"⏱️ Processing Time: {metadata['processing_time']:.2f}s | 🤖 Model: {metadata.get('model_used', 'Unknown')} | 📄 Documents: {metadata.get('documents_retrieved', 0)}")
+                    # Metadata display removed for cleaner interface
                     
                     # Skip both messages since we've displayed them
                     i += 2
@@ -1626,11 +1645,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                     # Orphaned assistant message, display it
                     st.markdown(f"**🤖 Assistant:** {message['content']}")
                     
-                    # Show timing info if available
-                    if 'metadata' in message and message['metadata']:
-                        metadata = message['metadata']
-                        if 'processing_time' in metadata:
-                            st.caption(f"⏱️ Processing Time: {metadata['processing_time']:.2f}s | 🤖 Model: {metadata.get('model_used', 'Unknown')} | 📄 Documents: {metadata.get('documents_retrieved', 0)}")
+                    # Metadata display removed for cleaner interface
                     
                     i += 1
             else:
@@ -1640,8 +1655,8 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             
             st.markdown("---")
     
-    # Process query when submitted
-    if submit_button:
+    # Process query when submitted (button click or Enter key)
+    if submit_button or st.session_state.get('enter_pressed', False):
         # Clean and validate query
         query = query.strip() if query else ""
         
@@ -1658,8 +1673,30 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 st.write(f"**Smart router:** {smart_router is not None}")
         
         if query and len(query) >= 3 and aws_clients and not aws_error and kb_status and smart_router:
+            # Check if query is relevant to Adobe Analytics, AEP, CJA, etc.
+            if not check_query_relevance(query):
+                # Save user message
+                save_chat_message('user', query)
+                
+                # Save irrelevant response
+                irrelevant_response = get_irrelevant_question_response()
+                save_chat_message('assistant', irrelevant_response)
+                
+                # Clear the query input and enter_pressed flag
+                if 'query_input' in st.session_state:
+                    del st.session_state.query_input
+                if 'enter_pressed' in st.session_state:
+                    del st.session_state.enter_pressed
+                
+                st.rerun()
+                return
+            
             # Save user message
             save_chat_message('user', query)
+            
+            # Set processing state
+            st.session_state.processing_query = True
+            st.session_state.processing_step = 0
             
             # Track query start time
             st.session_state.query_start_time = time.time()
@@ -1671,11 +1708,11 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 with col1:
                     spinner_placeholder = st.empty()
                 with col2:
-                    timer_placeholder = st.empty()
+                    # Timer placeholder removed
+                    pass
             
-            # Start timer display
+            # Start processing
             start_time = time.time()
-            timer_placeholder.metric("⏱️ Processing Time", "0.0s")
             
             # Create a progress bar for visual feedback
             progress_bar = st.progress(0)
@@ -1692,9 +1729,8 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                         user_id=st.session_state.get('user_id', 'anonymous')
                     )
             
-            # Calculate and display final processing time
+            # Calculate processing time (for internal use only)
             processing_time = time.time() - start_time
-            timer_placeholder.metric("⏱️ Processing Time", f"{processing_time:.2f}s")
             
             # Update progress bar and status
             progress_bar.progress(100)
@@ -1742,8 +1778,8 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 }
                 save_chat_message('assistant', result['answer'], assistant_metadata)
                 
-                # Show success message with timing info (matching optimized app)
-                st.success(f"✅ **Query processed successfully in {processing_time:.2f} seconds!**")
+                # Show success message
+                st.success("✅ **Query processed successfully!**")
                 
                 
                 # Store analytics data in background (non-blocking)
@@ -1783,6 +1819,16 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 analytics_thread.daemon = True
                 analytics_thread.start()
                 
+                # Clear processing state
+                st.session_state.processing_query = False
+                st.session_state.processing_step = 0
+                
+                # Clear the query input and enter_pressed flag after successful processing
+                if 'query_input' in st.session_state:
+                    del st.session_state.query_input
+                if 'enter_pressed' in st.session_state:
+                    del st.session_state.enter_pressed
+                
                 # Rerun to display the new message in chat history IMMEDIATELY
                 st.rerun()
             else:
@@ -1802,7 +1848,7 @@ def main():
     # Page selection - render immediately for fast LCP
     page = st.sidebar.selectbox(
         "Navigate to:",
-        ["🏠 Main Chat", "🔧 Admin Dashboard"],
+        ["🏠 Main Chat", "ℹ️ About", "🔧 Admin Dashboard"],
         index=0
     )
     
@@ -1811,7 +1857,15 @@ def main():
         # Render main page immediately with minimal initialization
         render_main_page_minimal()
     
+    elif page == "ℹ️ About":
+        # Render About page - no initialization needed
+        render_about_page()
+    
     else:  # Admin Dashboard - full initialization
+        # Check admin access first
+        if not check_admin_access():
+            st.stop()
+        
         # Load configuration with caching
         settings = get_cached_settings()
         config_error = None if settings else "Failed to load settings"
