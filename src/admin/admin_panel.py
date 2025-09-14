@@ -19,7 +19,7 @@ except ImportError as e:
         st.error("Database query interface not available - import error")
 
 
-def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results, analytics_service=None, tagging_service=None):
+def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results, analytics_service=None):
     """Render the admin page with all technical details."""
     # Add logout button at the top
     col1, col2 = st.columns([4, 1])
@@ -286,28 +286,7 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
             except Exception as e:
                 st.error(f"Database configuration error: {e}")
         
-        # Add tagging analytics section
-        st.markdown("---")
-        st.subheader("🏷️ Tagging Analytics")
-        
-        if tagging_service and st.session_state.get('tagging_available', False):
-            st.success("✅ **Tagging Service: Available**")
-            
-            # Render tagging analytics
-            try:
-                tagging_service.render_analytics_dashboard()
-            except Exception as e:
-                st.error(f"❌ **Tagging Analytics Error:** {str(e)}")
-                st.info("💡 **Troubleshooting:** Check tagging service configuration")
-        else:
-            st.warning("⚠️ **Tagging Service: Not Available**")
-            st.info("""
-            **To enable tagging analytics:**
-            1. Ensure tagging service is properly initialized
-            2. Check that all tagging dependencies are installed
-            3. Verify database connection for tagging data
-            4. Restart the application
-            """)
+        # Tagging analytics removed for now
     
     with tab4:
         st.header("🔍 Database Query Interface")

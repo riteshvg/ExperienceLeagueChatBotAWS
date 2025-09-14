@@ -242,21 +242,7 @@ except ImportError as e:
     def render_admin_page(*args, **kwargs):
         st.error("Admin panel not available - import error")
 
-# Import tagging components with error handling
-try:
-    from src.tagging.tagging_service import TaggingService
-    TAGGING_AVAILABLE = True
-    print("✅ Tagging system loaded successfully")
-except ImportError as e:
-    print(f"⚠️  Tagging components not available: {e}")
-    TAGGING_AVAILABLE = False
-    # Create dummy class for compatibility
-    class TaggingService:
-        def __init__(self, *args, **kwargs): pass
-        def tag_question(self, *args, **kwargs): return {}
-        def get_analytics(self, *args, **kwargs): return {}
-        def render_analytics_dashboard(self, *args, **kwargs): 
-            st.error("Tagging analytics not available - import error")
+# Tagging functionality removed for now - keeping simple query_analytics table
 
 # Import database query components
 try:
@@ -1399,31 +1385,13 @@ def render_main_page_minimal():
                             except Exception as e:
                                 st.session_state.analytics_available = False
                         
-                        # Initialize tagging service
-                        tagging_service = None
-                        if TAGGING_AVAILABLE:
-                            try:
-                                tagging_service = TaggingService()
-                                st.session_state.tagging_available = True
-                            except Exception as e:
-                                st.session_state.tagging_available = False
-                        
                         # Process the query
-                        process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service, tagging_service)
+                        process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service)
 
-def process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service, tagging_service=None):
+def process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service):
     """Process query with full initialization (called only when needed)."""
     # Save user message
     save_chat_message('user', query)
-    
-    # Process tagging if available
-    if tagging_service and TAGGING_AVAILABLE:
-        try:
-            tagging_result = tagging_service.tag_question(query)
-            if tagging_result:
-                print(f"✅ Question tagged: {tagging_result}")
-        except Exception as e:
-            print(f"⚠️ Tagging failed: {e}")
     
     # Set processing state
     st.session_state.processing_query = True
@@ -1577,7 +1545,7 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
             analytics_thread.daemon = True
             analytics_thread.start()
 
-def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, analytics_service=None, tagging_service=None):
+def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, analytics_service=None):
     """Render the clean main page focused on user experience."""
     # Initialize chat history
     initialize_chat_history()
@@ -1934,19 +1902,7 @@ def main():
             st.session_state.analytics_available = False
             print("❌ Analytics not available - ANALYTICS_AVAILABLE is False")
         
-        # Initialize tagging service
-        tagging_service = None
-        if TAGGING_AVAILABLE:
-            try:
-                tagging_service = TaggingService()
-                st.session_state.tagging_available = True
-                print("✅ Tagging service initialized successfully")
-            except Exception as e:
-                st.session_state.tagging_available = False
-                print(f"❌ Tagging service initialization failed: {e}")
-        else:
-            st.session_state.tagging_available = False
-            print("⚠️ Tagging service not available")
+        # Tagging service removed for now
         
         if not config_error:
             # Initialize smart router
@@ -1989,7 +1945,7 @@ def main():
         if settings is None:
             st.error("❌ Configuration not loaded. Please check your environment variables.")
             st.stop()
-        render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results, analytics_service, tagging_service)
+        render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results, analytics_service)
 
 if __name__ == "__main__":
     main()
