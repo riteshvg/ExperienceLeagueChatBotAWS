@@ -341,39 +341,36 @@ def initialize_aws_clients(settings):
         return None, str(e)
 
 def retrieve_documents_from_kb(query: str, knowledge_base_id: str, bedrock_agent_client, max_results: int = 3):
-    """Retrieve relevant documents from Knowledge Base with input validation."""
+    """Retrieve relevant documents from Knowledge Base with comprehensive security validation."""
     try:
-        # Input validation: Check query length (AWS Bedrock limit is 20,000 characters)
+        # Import security validator
+        from src.security.input_validator import security_validator
+        from src.security.security_monitor import security_monitor
+        
+        # Comprehensive security validation
+        is_valid, sanitized_query, threats_detected = security_validator.validate_chat_query(query)
+        
+        # Monitor the validation attempt
+        security_monitor.monitor_input_validation(
+            user_input=query,
+            threats_detected=threats_detected,
+            blocked=not is_valid
+        )
+        
+        # Block malicious queries
+        if not is_valid:
+            error_msg = f"Security validation failed. Detected threats: {', '.join(threats_detected)}"
+            logger.warning(f"Blocked malicious query: {error_msg}")
+            return [], "Invalid query detected. Please provide a legitimate question about Adobe Analytics."
+        
+        # Use sanitized query for processing
+        query = sanitized_query
+        
+        # Additional legacy validation for AWS Bedrock limits
         MAX_QUERY_LENGTH = 20000
-        
-        if not query or not query.strip():
-            return [], "Query cannot be empty"
-        
-        # Check for extremely long queries (potential buffer overflow attempts)
         if len(query) > MAX_QUERY_LENGTH:
-            # Truncate query to safe length and add warning
-            truncated_query = query[:MAX_QUERY_LENGTH - 100] + "... [truncated]"
-            logger.warning(f"Query truncated from {len(query)} to {len(truncated_query)} characters due to AWS Bedrock limit")
-            
-            # For extremely long queries (like buffer overflow tests), return a helpful error
-            if len(query) > MAX_QUERY_LENGTH * 2:  # More than 40,000 characters
-                return [], f"Query too long ({len(query)} characters). Maximum allowed: {MAX_QUERY_LENGTH} characters. Please provide a more specific question."
-            
-            # Use truncated query for moderately long queries
-            query = truncated_query
-        
-        # Check for suspicious patterns (repeated characters, gibberish, etc.)
-        if len(set(query)) < 5 and len(query) > 100:  # Very low character diversity
-            return [], "Query appears to be invalid or spam. Please provide a meaningful question about Adobe Analytics."
-        
-        # Check for excessive repetition
-        if len(query) > 500:
-            # Check for repeated patterns
-            words = query.split()
-            if len(words) > 10:
-                unique_words = set(words)
-                if len(unique_words) < len(words) * 0.1:  # Less than 10% unique words
-                    return [], "Query contains excessive repetition. Please provide a clear, specific question."
+            query = query[:MAX_QUERY_LENGTH - 100] + "... [truncated]"
+            logger.info(f"Query truncated to {len(query)} characters for AWS Bedrock compatibility")
         
         response = bedrock_agent_client.retrieve(
             knowledgeBaseId=knowledge_base_id,

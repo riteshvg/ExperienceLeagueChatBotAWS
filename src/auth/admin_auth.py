@@ -57,21 +57,69 @@ class AdminAuth:
         if self.last_attempt_key in st.session_state:
             del st.session_state[self.last_attempt_key]
     
-    def login(self, password):
-        """Attempt to login with password."""
+    def login(self, password, source_ip: str = "unknown", user_agent: str = "unknown"):
+        """Attempt to login with password with security monitoring."""
+        # Import security components
+        try:
+            from src.security.input_validator import security_validator
+            from src.security.security_monitor import security_monitor
+        except ImportError:
+            # Fallback if security module not available
+            pass
+        
         if self.is_locked_out():
             return False, "Account locked due to too many failed attempts. Please try again later."
+        
+        # Validate password input for security threats
+        try:
+            is_valid, sanitized_password, threats = security_validator.validate_admin_input(password)
+            if not is_valid:
+                logger.warning(f"Malicious admin login attempt detected: {threats}")
+                security_monitor.monitor_authentication_attempt(
+                    username="admin", 
+                    success=False, 
+                    source_ip=source_ip,
+                    user_agent=user_agent
+                )
+                return False, "Invalid login attempt detected."
+        except:
+            # Continue with original validation if security module fails
+            pass
         
         # Get admin password from secrets
         admin_password = st.secrets.get("ADMIN_PASSWORD", "admin123")
         
         if password == admin_password:
+            # Monitor successful authentication
+            try:
+                allowed = security_monitor.monitor_authentication_attempt(
+                    username="admin",
+                    success=True,
+                    source_ip=source_ip,
+                    user_agent=user_agent
+                )
+                if not allowed:
+                    return False, "Authentication blocked due to suspicious activity."
+            except:
+                pass
+            
             # Successful login
             st.session_state.admin_authenticated = True
             st.session_state[self.session_start_key] = time.time()
             self.reset_attempts()
             return True, "Login successful!"
         else:
+            # Monitor failed authentication
+            try:
+                security_monitor.monitor_authentication_attempt(
+                    username="admin",
+                    success=False,
+                    source_ip=source_ip,
+                    user_agent=user_agent
+                )
+            except:
+                pass
+            
             # Failed login
             self.record_failed_attempt()
             remaining = self.max_attempts - st.session_state.get(self.attempts_key, 0)
