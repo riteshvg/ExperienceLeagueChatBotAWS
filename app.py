@@ -1385,6 +1385,11 @@ def render_main_page_minimal():
                             except Exception as e:
                                 st.session_state.analytics_available = False
                         
+                        # Debug analytics before processing
+                        print(f"🔍 [MAIN] About to process query: {query[:50]}...")
+                        print(f"🔍 [MAIN] Analytics available: {st.session_state.get('analytics_available', False)}")
+                        print(f"🔍 [MAIN] Analytics service: {analytics_service is not None}")
+                        
                         # Process the query
                         process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service)
 
