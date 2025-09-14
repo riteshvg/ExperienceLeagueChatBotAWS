@@ -555,12 +555,12 @@ def initialize_analytics_service() -> Optional[StreamlitAnalyticsIntegration]:
         if not database_url or database_url.startswith("sqlite"):
             print("🔍 DATABASE_URL is SQLite or not set, trying Railway PostgreSQL...")
             
-            # Try to construct Railway database URL
-            railway_db_host = os.getenv("RAILWAY_DATABASE_HOST", "containers-us-west-1.railway.app")
-            railway_db_port = os.getenv("RAILWAY_DATABASE_PORT", "5432")
+            # Try to construct Railway database URL using actual Railway environment variables
+            railway_db_host = os.getenv("PGHOST", "postgres.railway.internal")
+            railway_db_port = os.getenv("PGPORT", "5432")
             railway_db_name = os.getenv("RAILWAY_DATABASE_NAME", "railway")
             railway_db_user = os.getenv("RAILWAY_DATABASE_USER", "postgres")
-            railway_db_password = os.getenv("RAILWAY_DATABASE_PASSWORD", "eeEcTALmHMkWxbKGKIEHRnMmYSEjbTDE")
+            railway_db_password = os.getenv("RAILWAY_DATABASE_PASSWORD", "qGEbKXpzCeRFqFTdrBIhcSbxvGQBtexn")
             
             database_url = f"postgresql://{railway_db_user}:{railway_db_password}@{railway_db_host}:{railway_db_port}/{railway_db_name}"
             print(f"🔍 Using Railway database URL: {database_url[:50]}...")
