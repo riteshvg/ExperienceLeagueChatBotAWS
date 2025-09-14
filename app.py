@@ -1395,6 +1395,10 @@ def render_main_page_minimal():
 
 def process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service):
     """Process query with full initialization (called only when needed)."""
+    print(f"🔍 [PROCESS] Function called with query: {query[:50]}...")
+    print(f"🔍 [PROCESS] Analytics service: {analytics_service is not None}")
+    print(f"🔍 [PROCESS] Analytics available: {st.session_state.get('analytics_available', False)}")
+    
     # Save user message
     save_chat_message('user', query)
     
