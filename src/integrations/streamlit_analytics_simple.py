@@ -550,12 +550,22 @@ def initialize_analytics_service() -> Optional[StreamlitAnalyticsIntegration]:
     try:
         # Get database URL
         database_url = os.getenv("DATABASE_URL")
-        if not database_url:
-            print("❌ DATABASE_URL not found in environment variables")
-            logger.error("DATABASE_URL not found in environment variables")
-            return None
         
-        print(f"🔍 Found DATABASE_URL: {database_url[:50]}...")
+        # If DATABASE_URL is SQLite or not set, try Railway PostgreSQL
+        if not database_url or database_url.startswith("sqlite"):
+            print("🔍 DATABASE_URL is SQLite or not set, trying Railway PostgreSQL...")
+            
+            # Try to construct Railway database URL
+            railway_db_host = os.getenv("RAILWAY_DATABASE_HOST", "containers-us-west-1.railway.app")
+            railway_db_port = os.getenv("RAILWAY_DATABASE_PORT", "5432")
+            railway_db_name = os.getenv("RAILWAY_DATABASE_NAME", "railway")
+            railway_db_user = os.getenv("RAILWAY_DATABASE_USER", "postgres")
+            railway_db_password = os.getenv("RAILWAY_DATABASE_PASSWORD", "eeEcTALmHMkWxbKGKIEHRnMmYSEjbTDE")
+            
+            database_url = f"postgresql://{railway_db_user}:{railway_db_password}@{railway_db_host}:{railway_db_port}/{railway_db_name}"
+            print(f"🔍 Using Railway database URL: {database_url[:50]}...")
+        else:
+            print(f"🔍 Found DATABASE_URL: {database_url[:50]}...")
         
         # Create simplified analytics service
         analytics_service = SimpleAnalyticsService(database_url)
