@@ -1094,6 +1094,7 @@ def logout_admin():
     st.success("👋 Logged out successfully!")
     st.rerun()
 
+
 def render_about_page():
     """Render the About page with application information."""
     st.title("ℹ️ About This Application")
@@ -1220,13 +1221,26 @@ def render_about_page():
     - **Website**: [www.thelearningproject.in](https://www.thelearningproject.in)
     """)
     
+    # Legal Disclaimer
+    st.markdown("---")
+    st.markdown("### ⚖️ Legal Disclaimer")
+    st.markdown("""
+    This unofficial Experience League Documentation chatbot is powered by AWS Bedrock and public Adobe Analytics and Customer Journey Analytics documentation and guides. 
+    Answers may be inaccurate, inefficient, or biased. Any use or decisions based on such answers should include 
+    reasonable practices including human oversight to ensure they are safe, accurate, and suitable for your intended 
+    purpose. This application or its developer(s) is not liable for any actions, losses, or damages resulting from 
+    the use of the chatbot. Do not enter any private, sensitive, personal, or regulated data. By using this chatbot, 
+    you acknowledge and agree that input you provide and answers you receive (collectively, "Content") may be used 
+    by the developer to provide, maintain, develop, and improve their respective offerings.
+    """)
+    
     # Footer
     st.markdown("---")
     st.markdown("""
     <div style='text-align: center; color: #666; font-size: 14px;'>
-        <p>🤖 <strong>Adobe Experience League Chatbot</strong></p>
-        <p>Powered by AWS Bedrock & Smart Routing Technology</p>
-        <p>Built to help you succeed with Adobe Analytics and CJA</p>
+        <p>🤖 <strong>Unofficial Adobe Experience League Chatbot</strong></p>
+        <p>Powered by Adobe Experience League documentation and AWS Bedrock</p>
+        <p>Built to answer questions about Adobe Analytics and CJA</p>
     </div>
     """, unsafe_allow_html=True)
     if 'saved_sessions' not in st.session_state:
@@ -2004,6 +2018,8 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
     # Footer
     st.markdown("---")
     st.markdown("**Adobe Experience League Chatbot** - Powered by AWS Bedrock & Smart Routing")
+    
+
 
 
 def main():
@@ -2107,6 +2123,7 @@ def main():
             st.error("❌ Configuration not loaded. Please check your environment variables.")
             st.stop()
         render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, model_test_results, analytics_service)
+        
 
 if __name__ == "__main__":
     main()
