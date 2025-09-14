@@ -86,6 +86,43 @@ class BedrockClient:
             logger.error(f"Text generation failed: {e}")
             raise
     
+    def generate_text_stream(self, 
+                           prompt: str, 
+                           max_tokens: int = 1000,
+                           temperature: float = 0.7,
+                           top_p: float = 0.9,
+                           system_prompt: str = None):
+        """
+        Generate text using Bedrock model with streaming.
+        
+        Args:
+            prompt: Input prompt
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature (0.0 to 1.0)
+            top_p: Top-p sampling parameter
+            system_prompt: Optional system prompt
+            
+        Yields:
+            Text chunks as they are generated
+            
+        Raises:
+            Exception: If generation fails
+        """
+        try:
+            # Prepare the request body based on model type
+            if "claude" in self.model_id.lower():
+                yield from self._generate_claude_text_stream(prompt, max_tokens, temperature, top_p, system_prompt)
+            elif "titan" in self.model_id.lower():
+                yield from self._generate_titan_text_stream(prompt, max_tokens, temperature, top_p)
+            elif "llama" in self.model_id.lower():
+                yield from self._generate_llama_text_stream(prompt, max_tokens, temperature, top_p)
+            else:
+                raise ValueError(f"Unsupported model: {self.model_id}")
+                
+        except Exception as e:
+            logger.error(f"Streaming text generation failed: {e}")
+            raise
+    
     def _generate_claude_text(self, prompt: str, max_tokens: int, temperature: float, top_p: float, system_prompt: str = None) -> str:
         """Generate text using Claude models."""
         messages = []
@@ -149,6 +186,57 @@ class BedrockClient:
         
         response_body = json.loads(response['body'].read())
         return response_body['generation']
+    
+    def _generate_claude_text_stream(self, prompt: str, max_tokens: int, temperature: float, top_p: float, system_prompt: str = None):
+        """Generate text using Claude models with streaming."""
+        messages = []
+        
+        if system_prompt:
+            messages.append({"role": "user", "content": f"System: {system_prompt}\n\nUser: {prompt}"})
+        else:
+            messages.append({"role": "user", "content": prompt})
+        
+        body = {
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "top_p": top_p,
+            "messages": messages
+        }
+        
+        # Use invoke_model_with_response_stream for streaming
+        response = self.client.invoke_model_with_response_stream(
+            modelId=self.model_id,
+            body=json.dumps(body),
+            contentType="application/json"
+        )
+        
+        # Process streaming response
+        for event in response['body']:
+            if event:
+                chunk = json.loads(event['chunk']['bytes'])
+                if 'delta' in chunk and 'text' in chunk['delta']:
+                    yield chunk['delta']['text']
+    
+    def _generate_titan_text_stream(self, prompt: str, max_tokens: int, temperature: float, top_p: float):
+        """Generate text using Titan models with streaming (fallback to non-streaming)."""
+        # Titan doesn't support streaming, so we'll simulate it by chunking the response
+        full_text = self._generate_titan_text(prompt, max_tokens, temperature, top_p)
+        
+        # Split into chunks for streaming effect
+        chunk_size = 50  # characters per chunk
+        for i in range(0, len(full_text), chunk_size):
+            yield full_text[i:i + chunk_size]
+    
+    def _generate_llama_text_stream(self, prompt: str, max_tokens: int, temperature: float, top_p: float):
+        """Generate text using Llama models with streaming (fallback to non-streaming)."""
+        # Llama doesn't support streaming in this implementation, so we'll simulate it
+        full_text = self._generate_llama_text(prompt, max_tokens, temperature, top_p)
+        
+        # Split into chunks for streaming effect
+        chunk_size = 50  # characters per chunk
+        for i in range(0, len(full_text), chunk_size):
+            yield full_text[i:i + chunk_size]
     
     def generate_embeddings(self, text: str) -> List[float]:
         """

@@ -561,6 +561,43 @@ def invoke_bedrock_model(model_id: str, query: str, bedrock_client, context: str
         else:
             return "", str(e)
 
+def invoke_bedrock_model_stream(model_id: str, query: str, bedrock_client, context: str = ""):
+    """Invoke Bedrock model with streaming response."""
+    try:
+        # Use the BedrockClient's generate_text_stream method
+        prompt = f"{context}\n\nQuery: {query}" if context else query
+        
+        # Create a temporary BedrockClient with the specific model_id
+        from src.utils.bedrock_client import BedrockClient
+        temp_client = BedrockClient(model_id=model_id, region=bedrock_client.region)
+        
+        # Generate text using streaming
+        for chunk in temp_client.generate_text_stream(
+            prompt=prompt,
+            max_tokens=1000,
+            temperature=0.7,
+            top_p=0.9
+        ):
+            yield chunk, None
+            
+    except Exception as e:
+        # If the selected model fails, try fallback to Haiku
+        if "AccessDeniedException" in str(e) or "don't have access" in str(e).lower():
+            try:
+                print(f"⚠️ Model {model_id} not accessible, falling back to Haiku...")
+                fallback_client = BedrockClient(model_id="us.anthropic.claude-3-haiku-20240307-v1:0", region=bedrock_client.region)
+                for chunk in fallback_client.generate_text_stream(
+                    prompt=prompt,
+                    max_tokens=1000,
+                    temperature=0.7,
+                    top_p=0.9
+                ):
+                    yield chunk, None
+            except Exception as fallback_error:
+                yield "", f"Primary model failed: {str(e)}. Fallback also failed: {str(fallback_error)}"
+        else:
+            yield "", str(e)
+
 def process_query_optimized(query: str, knowledge_base_id: str, smart_router, aws_clients, user_id: str = "anonymous") -> dict:
     """Optimized query processing with caching and performance monitoring"""
     operation_id = performance_monitor.start_operation("query_processing")
@@ -664,6 +701,95 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
             "model_used": None
         }
 
+def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, smart_router, aws_clients):
+    """Process query using smart routing with streaming response."""
+    try:
+        # Step 1: Retrieve documents from Knowledge Base
+        documents, retrieval_error = retrieve_documents_from_kb(
+            query, 
+            knowledge_base_id, 
+            aws_clients['bedrock_agent_client']
+        )
+        
+        if retrieval_error:
+            yield {
+                "success": False,
+                "error": f"Retrieval error: {retrieval_error}",
+                "documents": [],
+                "routing_decision": None,
+                "answer": "",
+                "model_used": None
+            }
+            return
+        
+        # Step 2: Smart routing - select appropriate model with fallback
+        current_haiku_only_mode = st.session_state.get('haiku_only_mode', smart_router.haiku_only_mode)
+        available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet", "opus"]
+        routing_decision = smart_router.select_available_model(query, documents, available_models)
+        
+        # Step 3: Prepare context from retrieved documents
+        context = ""
+        if documents:
+            context_parts = []
+            for i, doc in enumerate(documents[:3], 1):  # Use top 3 documents
+                content = doc.get('content', {}).get('text', '')
+                if content:
+                    context_parts.append(f"Document {i}: {content[:500]}...")
+            context = "\n\n".join(context_parts)
+        
+        # Step 4: Invoke selected model with streaming
+        full_answer = ""
+        for chunk, generation_error in invoke_bedrock_model_stream(
+            routing_decision['model_id'],
+            query,
+            aws_clients['bedrock'],
+            context
+        ):
+            if generation_error:
+                yield {
+                    "success": False,
+                    "error": f"Generation error: {generation_error}",
+                    "documents": documents,
+                    "routing_decision": routing_decision,
+                    "answer": "",
+                    "model_used": routing_decision['model']
+                }
+                return
+            
+            if chunk:
+                full_answer += chunk
+                # Yield streaming update with current full answer for display
+                yield {
+                    "success": True,
+                    "error": None,
+                    "documents": documents,
+                    "routing_decision": routing_decision,
+                    "answer": full_answer,  # Stream the accumulated answer so far
+                    "model_used": routing_decision['model'],
+                    "is_streaming": True
+                }
+        
+        # Final result with complete answer (no duplication)
+        yield {
+            "success": True,
+            "error": None,
+            "documents": documents,
+            "routing_decision": routing_decision,
+            "answer": "",  # Empty since we already yielded the full answer
+            "model_used": routing_decision['model'],
+            "is_streaming": False
+        }
+        
+    except Exception as e:
+        yield {
+            "success": False,
+            "error": f"Processing error: {str(e)}",
+            "documents": [],
+            "routing_decision": None,
+            "answer": "",
+            "model_used": None
+        }
+
 def test_model_invocation(model_id: str, test_query: str, bedrock_client) -> tuple:
     """Test model invocation with a simple query."""
     try:
@@ -686,17 +812,12 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
     st.markdown("**System Configuration, Status, and Analytics**")
     st.markdown("---")
     
-    # Create tabs for different admin sections
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    # Create tabs for different admin sections (optimized - reduced from 9 to 4 tabs)
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 System Status", 
-        "⚙️ Configuration", 
-        "🔗 AWS Details", 
-        "🧠 Smart Router", 
-        "📈 Analytics",
-        "🤖 Model Management",
+        "⚙️ Settings", 
         "📊 Query Analytics",
-        "🔍 Database Query",
-        "🚀 Performance"
+        "🔍 Database Query"
     ])
     
     with tab1:
@@ -749,9 +870,33 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
                 st.success(f"✅ **Models**\n{tested_models}/{total_models} Working")
             else:
                 st.info("ℹ️ **Models**\nTesting Pending")
+        
+        # Account Information section (merged from AWS Details tab)
+        st.markdown("---")
+        st.subheader("🏢 Account Information")
+        
+        if aws_error:
+            st.error(f"❌ **AWS Error:** {aws_error}")
+        elif aws_clients:
+            st.success("✅ **AWS clients initialized successfully**")
+            
+            # Account details in organized sections
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write(f"**Account ID:** `{aws_clients['account_id']}`")
+                st.write(f"**User ARN:** `{aws_clients['user_arn']}`")
+                st.write(f"**Region:** `{settings.aws_default_region}`")
+            
+            with col2:
+                st.write(f"**S3 Bucket:** `{aws_clients['s3_status']}`")
+                st.write("**Bedrock Client:** ✅ Initialized")
+                st.write("**STS Client:** ✅ Initialized")
+        else:
+            st.warning("⚠️ AWS clients not initialized")
     
     with tab2:
-        st.header("⚙️ Configuration Settings")
+        st.header("⚙️ Settings & Configuration")
         
         if aws_error:
             st.error(f"❌ **Configuration Error:** {aws_error}")
@@ -789,559 +934,86 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
                 st.info("🔍 Debug mode enabled - Debug information will be shown in the main chat interface")
             else:
                 st.info("🔍 Debug mode disabled - Clean interface without debug information")
-    
-    with tab3:
-        st.header("🔗 AWS Connection Details")
-        
-        if aws_error:
-            st.error(f"❌ **AWS Error:** {aws_error}")
-        elif aws_clients:
-            st.success("✅ **AWS clients initialized successfully**")
             
-            # AWS details in organized sections
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                st.subheader("🏢 Account Information")
-                st.write(f"**Account ID:** `{aws_clients['account_id']}`")
-                st.write(f"**User ARN:** `{aws_clients['user_arn']}`")
-                st.write(f"**Region:** `{settings.aws_default_region}`")
-            
-            with col2:
-                st.subheader("🪣 S3 Status")
-                st.write(f"**Bucket:** `{aws_clients['s3_status']}`")
-                st.write("**Bedrock Client:** ✅ Initialized")
-                st.write("**STS Client:** ✅ Initialized")
-            
-            # AWS Cost Information
+            # Enable Haiku Only Mode (merged from Performance tab)
             st.markdown("---")
-            st.subheader("💰 AWS Cost Breakdown")
+            st.subheader("🤖 Model Configuration")
             
-            # Cost information in expandable sections
-            cost_col1, cost_col2, cost_col3 = st.columns(3)
-            
-            with cost_col1:
-                with st.expander("🤖 **Bedrock Costs**", expanded=True):
-                    st.write("**Claude 3 Haiku:**")
-                    st.write("• Input: $0.25 per 1M tokens")
-                    st.write("• Output: $1.25 per 1M tokens")
-                    st.write("• **Best for:** Simple queries, high volume")
-                    
-                    st.write("**Claude 3 Sonnet:**")
-                    st.write("• Input: $3.00 per 1M tokens")
-                    st.write("• Output: $15.00 per 1M tokens")
-                    st.write("• **Best for:** Complex analysis, balanced performance")
-                    
-                    st.write("**Claude 3 Opus:**")
-                    st.write("• Input: $15.00 per 1M tokens")
-                    st.write("• Output: $75.00 per 1M tokens")
-                    st.write("• **Best for:** Creative tasks, maximum capability")
-                    
-                    st.write("**Titan Embeddings v2:**")
-                    st.write("• Cost: $0.02 per 1M tokens")
-                    st.write("• **Used for:** Document embeddings")
-            
-            with cost_col2:
-                with st.expander("🪣 **S3 Storage Costs**", expanded=True):
-                    st.write("**Standard Storage:**")
-                    st.write("• First 50 TB: $0.023 per GB/month")
-                    st.write("• Next 450 TB: $0.022 per GB/month")
-                    st.write("• Over 500 TB: $0.021 per GB/month")
-                    
-                    st.write("**Standard-IA Storage:**")
-                    st.write("• First 50 TB: $0.0125 per GB/month")
-                    st.write("• **Used for:** Infrequently accessed docs")
-                    
-                    st.write("**Glacier Storage:**")
-                    st.write("• $0.004 per GB/month")
-                    st.write("• **Used for:** Long-term archival")
-                    
-                    st.write("**Data Transfer:**")
-                    st.write("• Out to Internet: $0.09 per GB")
-                    st.write("• **Note:** Bedrock access is free")
-            
-            with cost_col3:
-                with st.expander("🧠 **Knowledge Base Costs**", expanded=True):
-                    st.write("**Vector Store (Pinecone):**")
-                    st.write("• $0.0001 per 1K vectors/month")
-                    st.write("• **Estimated:** ~$5-20/month for typical usage")
-                    
-                    st.write("**Data Source Sync:**")
-                    st.write("• $0.10 per 1K documents")
-                    st.write("• **One-time cost** per sync")
-                    
-                    st.write("**Query Processing:**")
-                    st.write("• $0.10 per 1K queries")
-                    st.write("• **Per query cost**")
-                    
-                    st.write("**Embedding Generation:**")
-                    st.write("• Uses Titan v2: $0.02 per 1M tokens")
-                    st.write("• **Included in** document processing")
-            
-            # Cost estimation section
-            st.markdown("---")
-            st.subheader("📊 **Monthly Cost Estimation**")
-            
-            est_col1, est_col2, est_col3 = st.columns(3)
-            
-            with est_col1:
-                st.metric("**Low Usage**", "$15-30", "~100 queries/month")
-                st.caption("• Mostly Haiku model\n• Small document set\n• Basic S3 storage")
-            
-            with est_col2:
-                st.metric("**Medium Usage**", "$50-100", "~500 queries/month")
-                st.caption("• Mix of Haiku/Sonnet\n• Regular document updates\n• Standard S3 + IA")
-            
-            with est_col3:
-                st.metric("**High Usage**", "$150-300", "~2000 queries/month")
-                st.caption("• All models used\n• Large document corpus\n• Full S3 lifecycle")
-            
-            # Cost optimization tips
-            with st.expander("💡 **Cost Optimization Tips**", expanded=False):
-                st.write("**Model Selection:**")
-                st.write("• Use Haiku for simple questions (10x cheaper than Opus)")
-                st.write("• Use Sonnet for complex analysis (5x cheaper than Opus)")
-                st.write("• Use Opus only for creative tasks")
+            if smart_router:
+                st.success("✅ **Smart Router: Initialized**")
                 
-                st.write("**Storage Optimization:**")
-                st.write("• Enable S3 lifecycle policies (moves old docs to IA/Glacier)")
-                st.write("• Compress documents before upload")
-                st.write("• Regular cleanup of unused documents")
-                
-                st.write("**Query Optimization:**")
-                st.write("• Use specific, focused questions")
-                st.write("• Leverage example questions for common queries")
-                st.write("• Monitor usage in AWS Cost Explorer")
-                
-                st.write("**Smart Routing Benefits:**")
-                st.write("• Automatically selects cost-effective models")
-                st.write("• Reduces unnecessary Opus usage")
-                st.write("• Optimizes based on query complexity")
-        else:
-            st.warning("⚠️ AWS clients not initialized")
-    
-    with tab4:
-        st.header("🧠 Smart Router Configuration")
-        
-        if smart_router:
-            st.success("✅ **Smart Router: Initialized**")
-            
-            # Haiku-only mode indicator
-            if smart_router.haiku_only_mode:
-                st.warning("⚠️ **HAIKU-ONLY MODE ACTIVE** - All queries will use Claude 3 Haiku for cost optimization (92% cost reduction)")
-                st.info("💡 This mode is enabled for one week testing. Monitor response quality and user feedback.")
-            else:
-                st.info("ℹ️ **Normal Mode** - Smart routing based on query complexity and context")
-            
-            # Available models
-            st.subheader("🤖 Available Models")
-            for model_name, model_id in smart_router.models.items():
-                model_info = smart_router.get_model_info(model_name)
-                with st.expander(f"**{model_name.title()}** - {model_info.get('name', model_id)}"):
-                    st.write(f"**Model ID:** `{model_id}`")
-                    st.write(f"**Description:** {model_info.get('description', 'N/A')}")
-                    st.write(f"**Cost:** {model_info.get('cost_per_1m_tokens', 'N/A')}")
-                    st.write(f"**Max Tokens:** {model_info.get('max_tokens', 'N/A')}")
-            
-            # Routing logic
-            st.subheader("🎯 Routing Logic")
-            st.write("**Query Complexity Analysis:**")
-            st.write("• **Simple queries** → Haiku (fast, cost-effective)")
-            st.write("• **Complex queries** → Sonnet (balanced performance)")
-            st.write("• **Low KB relevance** → Opus (general knowledge)")
-            st.write("• **Creative queries** → Opus (maximum capability)")
-            
-            st.write("**Relevance Thresholds:**")
-            st.write(f"• **High relevance:** ≥ {smart_router.high_relevance_threshold}")
-            st.write(f"• **Medium relevance:** ≥ {smart_router.medium_relevance_threshold}")
-            st.write(f"• **Low relevance:** < {smart_router.medium_relevance_threshold}")
-        else:
-            st.warning("⚠️ Smart Router not initialized")
-    
-    with tab5:
-        st.header("📈 Analytics & Cost Tracking")
-        
-        if model_test_results:
-            st.success("✅ **Model Testing: Completed**")
-            
-            # Model test results in a table format
-            st.subheader("🧪 Test Results")
-            for model_name, result in model_test_results.items():
-                if result["success"]:
-                    st.success(f"✅ **{model_name.title()}:** {result['message']}")
-                else:
-                    st.error(f"❌ **{model_name.title()}:** {result['message']}")
-            
-            # Summary statistics
-            st.subheader("📊 Summary Statistics")
-            successful_models = sum(1 for result in model_test_results.values() if result["success"])
-            total_models = len(model_test_results)
-            success_rate = (successful_models / total_models) * 100 if total_models > 0 else 0
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Total Models", total_models)
-            with col2:
-                st.metric("Successful", successful_models)
-            with col3:
-                st.metric("Success Rate", f"{success_rate:.1f}%")
-        else:
-            st.info("ℹ️ Model testing pending...")
-        
-        # Cost tracking section
-        st.markdown("---")
-        st.subheader("💰 **Cost Tracking & Usage Analytics**")
-        
-        # Initialize session state for cost tracking
-        if 'query_count' not in st.session_state:
-            st.session_state.query_count = 0
-        if 'total_tokens_used' not in st.session_state:
-            st.session_state.total_tokens_used = 0
-        if 'cost_by_model' not in st.session_state:
-            st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
-        
-        # Cost tracking metrics
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric("Queries Processed", st.session_state.query_count)
-        
-        with col2:
-            st.metric("Total Tokens Used", f"{st.session_state.total_tokens_used:,}")
-        
-        with col3:
-            total_cost = sum(st.session_state.cost_by_model.values())
-            st.metric("Estimated Cost", f"${total_cost:.4f}")
-        
-        with col4:
-            if st.session_state.query_count > 0:
-                avg_cost = total_cost / st.session_state.query_count
-                st.metric("Avg Cost/Query", f"${avg_cost:.4f}")
-            else:
-                st.metric("Avg Cost/Query", "$0.0000")
-        
-        # Model usage breakdown
-        st.subheader("🤖 **Model Usage Breakdown**")
-        
-        if st.session_state.query_count > 0:
-            usage_col1, usage_col2 = st.columns(2)
-            
-            with usage_col1:
-                st.write("**Cost by Model:**")
-                for model, cost in st.session_state.cost_by_model.items():
-                    if cost > 0:
-                        percentage = (cost / total_cost) * 100 if total_cost > 0 else 0
-                        st.write(f"• **{model.title()}:** ${cost:.4f} ({percentage:.1f}%)")
-            
-            with usage_col2:
-                # Create a simple bar chart for model usage
-                try:
-                    import pandas as pd
-                    
-                    model_data = {
-                        'Model': list(st.session_state.cost_by_model.keys()),
-                        'Cost': list(st.session_state.cost_by_model.values())
-                    }
-                    df = pd.DataFrame(model_data)
-                    df = df[df['Cost'] > 0]  # Only show models with usage
-                    
-                    if not df.empty:
-                        st.bar_chart(df.set_index('Model'))
-                    else:
-                        st.info("No model usage data yet")
-                except ImportError:
-                    # Fallback if pandas is not available
-                    st.write("**Model Usage Chart:**")
-                    for model, cost in st.session_state.cost_by_model.items():
-                        if cost > 0:
-                            st.write(f"• **{model.title()}:** ${cost:.4f}")
-        else:
-            st.info("No queries processed yet. Start asking questions to see cost analytics!")
-        
-        # Cost optimization recommendations
-        st.subheader("💡 **Cost Optimization Recommendations**")
-        
-        if st.session_state.query_count > 0:
-            # Analyze usage patterns and provide recommendations
-            recommendations = []
-            
-            if st.session_state.cost_by_model.get('opus', 0) > 0:
-                opus_percentage = (st.session_state.cost_by_model['opus'] / total_cost) * 100
-                if opus_percentage > 30:
-                    recommendations.append(f"⚠️ High Opus usage ({opus_percentage:.1f}%) - Consider using Sonnet for complex queries")
-            
-            if st.session_state.cost_by_model.get('haiku', 0) == 0:
-                recommendations.append("💡 No Haiku usage - Consider using Haiku for simple questions to reduce costs")
-            
-            if st.session_state.query_count < 10:
-                recommendations.append("📊 Limited data - More queries needed for accurate cost analysis")
-            
-            if recommendations:
-                for rec in recommendations:
-                    st.write(rec)
-            else:
-                st.success("✅ Good cost optimization! Your model usage is well-balanced.")
-        else:
-            st.info("Start using the system to get personalized cost optimization recommendations!")
-        
-        # Reset button for cost tracking
-        if st.button("🔄 Reset Cost Tracking", help="Reset all cost tracking data", key="reset_cost_tracking_analytics"):
-            st.session_state.query_count = 0
-            st.session_state.total_tokens_used = 0
-            st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
-            st.rerun()
-        
-        # AWS Cost Explorer Integration
-        st.markdown("---")
-        st.subheader("💰 **AWS Cost Explorer Integration**")
-        
-        if aws_clients and 'cost_explorer_client' in aws_clients:
-            # Date range selector
-            col1, col2 = st.columns(2)
-            with col1:
-                start_date = st.date_input(
-                    "Start Date",
-                    value=datetime.now().replace(day=1),  # First day of current month
-                    help="Select start date for cost analysis"
-                )
-            with col2:
-                end_date = st.date_input(
-                    "End Date",
-                    value=datetime.now(),  # Today
-                    help="Select end date for cost analysis"
-                )
-            
-            # Format dates for AWS API
-            start_date_str = start_date.strftime('%Y-%m-%d')
-            end_date_str = end_date.strftime('%Y-%m-%d')
-            
-            # Cost Explorer buttons
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if st.button("📊 Get Overall Costs", help="Get total AWS costs by service", key="get_overall_costs_analytics"):
-                    with st.spinner("Fetching cost data from AWS Cost Explorer..."):
-                        cost_data = get_cost_and_usage(start_date_str, end_date_str, settings.aws_default_region)
-                        if cost_data['success']:
-                            st.session_state.aws_cost_data = cost_data['data']
-                            st.success("✅ Cost data retrieved successfully!")
-                        else:
-                            st.error(f"❌ Error: {cost_data['error']}")
-            
-            with col2:
-                if st.button("🤖 Get Bedrock Costs", help="Get specific Bedrock service costs", key="get_bedrock_costs_analytics"):
-                    with st.spinner("Fetching Bedrock cost data..."):
-                        bedrock_costs = get_bedrock_costs(start_date_str, end_date_str, settings.aws_default_region)
-                        if bedrock_costs['success']:
-                            st.session_state.bedrock_cost_data = bedrock_costs['data']
-                            st.success("✅ Bedrock cost data retrieved!")
-                        else:
-                            st.error(f"❌ Error: {bedrock_costs['error']}")
-            
-            with col3:
-                if st.button("🪣 Get S3 Costs", help="Get S3 storage costs", key="get_s3_costs_analytics"):
-                    with st.spinner("Fetching S3 cost data..."):
-                        s3_costs = get_s3_costs(start_date_str, end_date_str, settings.aws_default_region)
-                        if s3_costs['success']:
-                            st.session_state.s3_cost_data = s3_costs['data']
-                            st.success("✅ S3 cost data retrieved!")
-                        else:
-                            st.error(f"❌ Error: {s3_costs['error']}")
-            
-            # Display cost data if available
-            if 'aws_cost_data' in st.session_state:
-                st.subheader("📈 **AWS Cost Breakdown by Service**")
-                display_aws_cost_data(st.session_state.aws_cost_data)
-            
-            if 'bedrock_cost_data' in st.session_state:
-                st.subheader("🤖 **Bedrock Service Costs**")
-                display_bedrock_cost_data(st.session_state.bedrock_cost_data)
-            
-            if 's3_cost_data' in st.session_state:
-                st.subheader("🪣 **S3 Storage Costs**")
-                display_s3_cost_data(st.session_state.s3_cost_data)
-                
-        else:
-            st.warning("⚠️ Cost Explorer client not available. Please check AWS configuration.")
-    
-    with tab6:
-        st.header("🤖 Model Management & Cost Control")
-        
-        if smart_router:
-            st.success("✅ **Smart Router: Initialized**")
-            
-            # Current mode display
-            st.subheader("🎯 Current Model Selection Mode")
-            if smart_router.haiku_only_mode:
-                st.warning("⚠️ **HAIKU-ONLY MODE ACTIVE**")
-                st.info("💡 All queries will use Claude 3 Haiku for maximum cost savings (92% reduction)")
-            else:
-                st.success("✅ **SMART ROUTING MODE ACTIVE**")
-                st.info("💡 Models are selected based on query complexity and context quality")
-            
-            # Mode toggle section
-            st.markdown("---")
-            st.subheader("🔄 Dynamic Mode Control")
-            
-            col1, col2 = st.columns([2, 1])
-            
-            with col1:
-                st.write("**Switch between modes based on your cost management needs:**")
-                st.write("• **Smart Routing**: Optimal quality with balanced costs")
-                st.write("• **Haiku-Only**: Maximum cost savings with good quality")
-            
-            with col2:
-                # Toggle button for Haiku-only mode
-                current_mode = smart_router.haiku_only_mode
-                new_mode = st.toggle(
-                    "Enable Haiku-Only Mode",
-                    value=current_mode,
-                    help="Toggle to enable/disable Haiku-only mode for cost optimization"
-                )
-                
-                # Update mode if changed
-                if new_mode != current_mode:
-                    smart_router.haiku_only_mode = new_mode
-                    st.session_state.haiku_only_mode = new_mode
-                    st.rerun()
-            
-            # Mode change confirmation
-            if new_mode != current_mode:
-                if new_mode:
-                    st.success("🔄 **Switched to Haiku-Only Mode** - All queries will now use Claude 3 Haiku")
-                else:
-                    st.success("🔄 **Switched to Smart Routing Mode** - Models will be selected based on query analysis")
-            
-            # Cost impact analysis
-            st.markdown("---")
-            st.subheader("💰 Cost Impact Analysis")
-            
-            cost_col1, cost_col2 = st.columns(2)
-            
-            with cost_col1:
-                st.write("**Current Mode Cost (per 1M tokens):**")
+                # Haiku-only mode indicator
                 if smart_router.haiku_only_mode:
-                    st.metric("Haiku Only", "$1.50", "92% savings vs Sonnet")
-                    st.caption("• Input: $0.25 per 1M tokens")
-                    st.caption("• Output: $1.25 per 1M tokens")
+                    st.warning("⚠️ **HAIKU-ONLY MODE ACTIVE** - All queries will use Claude 3 Haiku for cost optimization (92% cost reduction)")
+                    st.info("💡 This mode is enabled for one week testing. Monitor response quality and user feedback.")
                 else:
-                    st.metric("Smart Routing", "Variable", "Optimized selection")
-                    st.caption("• Haiku: $1.50 per 1M tokens")
-                    st.caption("• Sonnet: $18.00 per 1M tokens")
-                    st.caption("• Opus: $75.00 per 1M tokens")
-            
-            with cost_col2:
-                st.write("**Estimated Monthly Savings:**")
-                if smart_router.haiku_only_mode:
-                    st.metric("Cost Reduction", "80-90%", "vs Smart Routing")
-                    st.caption("• Typical usage: $15-30/month")
-                    st.caption("• High usage: $50-100/month")
-                else:
-                    st.metric("Balanced Cost", "Optimized", "Quality + Efficiency")
-                    st.caption("• Typical usage: $50-150/month")
-                    st.caption("• High usage: $200-400/month")
-            
-            # Usage recommendations
-            st.markdown("---")
-            st.subheader("💡 Usage Recommendations")
-            
-            if smart_router.haiku_only_mode:
-                st.info("""
-                **✅ Haiku-Only Mode is ideal when:**
-                • You want maximum cost savings
-                • Most queries are simple or factual
-                • Response speed is more important than detailed analysis
-                • You're testing cost optimization
-                • Budget constraints are tight
-                """)
+                    st.info("ℹ️ **Normal Mode** - Smart routing based on query complexity and context")
                 
-                st.warning("""
-                **⚠️ Consider switching to Smart Routing if:**
-                • Users report insufficient detail in responses
-                • Complex analytical queries are common
-                • Quality feedback shows issues
-                • You need creative problem-solving capabilities
-                """)
-            else:
-                st.success("""
-                **✅ Smart Routing Mode is ideal when:**
-                • You want balanced quality and cost
-                • Queries vary in complexity
-                • Quality is important for user satisfaction
-                • You have moderate budget flexibility
-                • You want optimal performance per query type
-                """)
+                # Mode toggle section
+                st.markdown("---")
+                st.subheader("🔄 Dynamic Mode Control")
                 
-                st.info("""
-                **💡 Consider switching to Haiku-Only if:**
-                • Costs are exceeding budget
-                • Most queries are simple
-                • You want to test cost optimization
-                • Response speed is critical
-                • You're in a cost-sensitive phase
-                """)
-            
-            # Real-time cost monitoring
-            st.markdown("---")
-            st.subheader("📊 Real-Time Cost Monitoring")
-            
-            if 'query_count' in st.session_state and st.session_state.query_count > 0:
-                total_cost = sum(st.session_state.cost_by_model.values())
-                haiku_cost = st.session_state.cost_by_model.get('haiku', 0)
-                sonnet_cost = st.session_state.cost_by_model.get('sonnet', 0)
-                opus_cost = st.session_state.cost_by_model.get('opus', 0)
-                
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2 = st.columns([2, 1])
                 
                 with col1:
-                    st.metric("Total Cost", f"${total_cost:.4f}")
-                with col2:
-                    st.metric("Haiku Cost", f"${haiku_cost:.4f}")
-                with col3:
-                    st.metric("Sonnet Cost", f"${sonnet_cost:.4f}")
-                with col4:
-                    st.metric("Opus Cost", f"${opus_cost:.4f}")
+                    st.write("**Switch between modes based on your cost management needs:**")
+                    st.write("• **Smart Routing**: Optimal quality with balanced costs")
+                    st.write("• **Haiku-Only**: Maximum cost savings with good quality")
                 
-                # Cost trend analysis
-                if total_cost > 0:
-                    haiku_percentage = (haiku_cost / total_cost) * 100
-                    st.write(f"**Current Haiku Usage:** {haiku_percentage:.1f}% of total cost")
+                with col2:
+                    # Toggle button for Haiku-only mode
+                    current_mode = smart_router.haiku_only_mode
+                    new_mode = st.toggle(
+                        "Enable Haiku-Only Mode",
+                        value=current_mode,
+                        help="Toggle to enable/disable Haiku-only mode for cost optimization"
+                    )
                     
-                    if haiku_percentage < 50 and not smart_router.haiku_only_mode:
-                        st.warning("⚠️ **High-cost models being used frequently** - Consider switching to Haiku-only mode for cost savings")
-                    elif haiku_percentage > 90 and smart_router.haiku_only_mode:
-                        st.success("✅ **Haiku-only mode working effectively** - Achieving maximum cost savings")
-            else:
-                st.info("No queries processed yet. Start using the system to see real-time cost data.")
-            
-            # Quick actions
-            st.markdown("---")
-            st.subheader("⚡ Quick Actions")
-            
-            action_col1, action_col2, action_col3 = st.columns(3)
-            
-            with action_col1:
-                if st.button("🔄 Reset Cost Tracking", help="Reset all cost tracking data", key="reset_cost_tracking_model_mgmt"):
-                    st.session_state.query_count = 0
-                    st.session_state.total_tokens_used = 0
-                    st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
-                    st.success("Cost tracking reset successfully!")
-                    st.rerun()
-            
-            with action_col2:
-                if st.button("📊 View Cost History", help="View detailed cost breakdown", key="view_cost_history_model_mgmt"):
-                    st.info("Cost history feature coming soon! Currently showing real-time data above.")
-            
-            with action_col3:
-                if st.button("💡 Get Recommendations", help="Get personalized cost optimization recommendations", key="get_recommendations_model_mgmt"):
-                    if smart_router.haiku_only_mode:
-                        st.info("💡 **Current recommendation:** Continue with Haiku-only mode for maximum savings")
+                    # Update mode if changed
+                    if new_mode != current_mode:
+                        smart_router.haiku_only_mode = new_mode
+                        st.session_state.haiku_only_mode = new_mode
+                        st.rerun()
+                
+                # Mode change confirmation
+                if new_mode != current_mode:
+                    if new_mode:
+                        st.success("🔄 **Switched to Haiku-Only Mode** - All queries will now use Claude 3 Haiku")
                     else:
-                        st.info("💡 **Current recommendation:** Monitor costs and switch to Haiku-only if budget exceeds limits")
-        else:
-            st.warning("⚠️ Smart Router not initialized")
+                        st.success("🔄 **Switched to Smart Routing Mode** - Models will be selected based on query analysis")
+                
+                # Cost impact analysis
+                st.markdown("---")
+                st.subheader("💰 Cost Impact Analysis")
+                
+                cost_col1, cost_col2 = st.columns(2)
+                
+                with cost_col1:
+                    st.write("**Current Mode Cost (per 1M tokens):**")
+                    if smart_router.haiku_only_mode:
+                        st.metric("Haiku Only", "$1.50", "92% savings vs Sonnet")
+                        st.caption("• Input: $0.25 per 1M tokens")
+                        st.caption("• Output: $1.25 per 1M tokens")
+                    else:
+                        st.metric("Smart Routing", "Variable", "Optimized selection")
+                        st.caption("• Haiku: $1.50 per 1M tokens")
+                        st.caption("• Sonnet: $18.00 per 1M tokens")
+                        st.caption("• Opus: $75.00 per 1M tokens")
+                
+                with cost_col2:
+                    st.write("**Estimated Monthly Savings:**")
+                    if smart_router.haiku_only_mode:
+                        st.metric("Cost Reduction", "80-90%", "vs Smart Routing")
+                        st.caption("• Typical usage: $15-30/month")
+                        st.caption("• High usage: $50-100/month")
+                    else:
+                        st.metric("Balanced Cost", "Optimized", "Quality + Efficiency")
+                        st.caption("• Typical usage: $50-150/month")
+                        st.caption("• High usage: $200-400/month")
+            else:
+                st.warning("⚠️ Smart Router not initialized")
     
-    with tab7:
+    with tab3:
         st.header("📊 Query Analytics Dashboard")
         
         # Check if analytics service is available
@@ -1377,6 +1049,7 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
                 db_info = get_database_info()
                 
                 col1, col2 = st.columns(2)
+                
                 with col1:
                     st.write(f"**Database Type:** {db_info.get('type', 'Unknown')}")
                     st.write(f"**Host:** {db_info.get('host', 'Unknown')}")
@@ -1390,7 +1063,7 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
             except Exception as e:
                 st.error(f"Database configuration error: {e}")
     
-    with tab8:
+    with tab4:
         st.header("🔍 Database Query Interface")
         
         # Check if database query interface is available
@@ -1416,158 +1089,6 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
             - pandas (for data display)
             - streamlit (for UI components)
             """)
-
-    with tab9:
-        st.header("🚀 Performance Dashboard")
-        st.markdown("**Real-time performance metrics and optimization controls**")
-        
-        # Performance overview
-        st.subheader("📊 Performance Overview")
-        
-        perf_stats = performance_monitor.get_stats()
-        cache_stats = {
-            'size': len(query_cache.cache),
-            'max_size': query_cache.max_size,
-            'utilization': (len(query_cache.cache) / query_cache.max_size) * 100
-        }
-        
-        # Key metrics in columns
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            st.metric(
-                "Cache Size", 
-                f"{cache_stats['size']}/{cache_stats['max_size']}",
-                help="Current cache entries vs maximum capacity"
-            )
-        
-        with col2:
-            st.metric(
-                "Cache Utilization", 
-                f"{cache_stats['utilization']:.1f}%",
-                help="Percentage of cache capacity used"
-            )
-        
-        with col3:
-            if 'query_processing' in perf_stats:
-                avg_time = perf_stats['query_processing']['avg_duration']
-                st.metric(
-                    "Avg Query Time", 
-                    f"{avg_time:.2f}s",
-                    help="Average time to process queries"
-                )
-            else:
-                st.metric("Avg Query Time", "N/A", help="No queries processed yet")
-        
-        with col4:
-            if 'query_processing' in perf_stats:
-                total_queries = perf_stats['query_processing']['count']
-                st.metric(
-                    "Total Queries", 
-                    str(total_queries),
-                    help="Total number of queries processed"
-                )
-            else:
-                st.metric("Total Queries", "0", help="No queries processed yet")
-        
-        # Detailed performance statistics
-        if perf_stats:
-            st.subheader("📈 Detailed Performance Statistics")
-            
-            for operation, stats in perf_stats.items():
-                with st.expander(f"🔍 {operation.replace('_', ' ').title()}", expanded=False):
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        st.metric("Count", stats['count'])
-                    with col2:
-                        st.metric("Avg Duration", f"{stats['avg_duration']:.3f}s")
-                    with col3:
-                        st.metric("Min Duration", f"{stats['min_duration']:.3f}s")
-                    with col4:
-                        st.metric("Max Duration", f"{stats['max_duration']:.3f}s")
-                    
-                    # Performance trend indicator
-                    if stats['count'] > 1:
-                        if stats['avg_duration'] < 3.0:
-                            st.success("✅ **Performance: Excellent** (< 3s average)")
-                        elif stats['avg_duration'] < 5.0:
-                            st.info("ℹ️ **Performance: Good** (3-5s average)")
-                        else:
-                            st.warning("⚠️ **Performance: Needs Improvement** (> 5s average)")
-        else:
-            st.info("📊 No performance data available yet. Process some queries to see metrics.")
-        
-        # Cache management
-        st.subheader("💾 Cache Management")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            if st.button("🧹 Clear Query Cache", help="Clear all cached query results"):
-                query_cache.clear()
-                st.success("✅ Query cache cleared!")
-                st.rerun()
-        
-        with col2:
-            if st.button("📊 Reset Performance Stats", help="Reset all performance counters"):
-                performance_monitor.operation_times.clear()
-                performance_monitor.operation_counts.clear()
-                st.success("✅ Performance stats reset!")
-                st.rerun()
-        
-        with col3:
-            if st.button("🔄 Refresh Metrics", help="Refresh the performance dashboard"):
-                st.rerun()
-        
-        # Performance recommendations
-        st.subheader("💡 Performance Recommendations")
-        
-        recommendations = []
-        
-        # Check cache utilization
-        if cache_stats['utilization'] > 80:
-            recommendations.append("⚠️ **Cache nearly full** - Consider increasing cache size or reducing TTL")
-        elif cache_stats['utilization'] < 20:
-            recommendations.append("ℹ️ **Low cache utilization** - Cache is working efficiently")
-        
-        # Check query performance
-        if 'query_processing' in perf_stats:
-            avg_time = perf_stats['query_processing']['avg_duration']
-            if avg_time > 5.0:
-                recommendations.append("⚠️ **Slow query performance** - Consider optimizing queries or increasing cache TTL")
-            elif avg_time < 2.0:
-                recommendations.append("✅ **Excellent query performance** - System is running optimally")
-        
-        # Check cache hit rate (simplified)
-        if 'query_processing' in perf_stats and perf_stats['query_processing']['count'] > 10:
-            recommendations.append("ℹ️ **Good query volume** - Performance metrics are reliable")
-        
-        if recommendations:
-            for rec in recommendations:
-                st.markdown(rec)
-        else:
-            st.info("🎯 **System running optimally** - No specific recommendations at this time")
-        
-        # System optimization status
-        st.subheader("🔧 System Optimization Status")
-        
-        optimization_items = [
-            ("Query Caching", "✅ Active", "Caching query results for faster responses"),
-            ("Performance Monitoring", "✅ Active", "Tracking operation times and metrics"),
-            ("Smart Routing", "✅ Active", "Intelligent model selection based on query complexity"),
-            ("AWS Client Caching", "✅ Active", "Caching AWS clients to reduce initialization time"),
-            ("Settings Caching", "✅ Active", "Caching configuration settings for faster access")
-        ]
-        
-        for item, status, description in optimization_items:
-            col1, col2, col3 = st.columns([2, 1, 3])
-            with col1:
-                st.write(f"**{item}**")
-            with col2:
-                st.write(status)
-            with col3:
-                st.caption(description)
 
 def display_aws_cost_data(cost_data):
     """Display AWS cost data in a formatted way."""
@@ -1812,17 +1333,43 @@ def render_main_page_minimal():
             st.markdown("---")
             st.subheader("💬 Chat History")
             
-            for i, message in enumerate(st.session_state.chat_history):
-                if message['role'] == 'user':
-                    st.markdown(f"**👤 You:** {message['content']}")
+            # Display messages in reverse order (newest first) with proper grouping
+            messages = list(reversed(st.session_state.chat_history))
+            i = 0
+            while i < len(messages):
+                message = messages[i]
+                
+                if message['role'] == 'assistant':
+                    # This is an assistant message, check if there's a user message after it
+                    if i + 1 < len(messages) and messages[i + 1]['role'] == 'user':
+                        # Found a user-assistant pair, display user first, then assistant
+                        user_message = messages[i + 1]
+                        st.markdown(f"**👤 You:** {user_message['content']}")
+                        st.markdown(f"**🤖 Assistant:** {message['content']}")
+                        
+                        # Show timing info if available (simplified)
+                        if 'metadata' in message and message['metadata']:
+                            metadata = message['metadata']
+                            if 'processing_time' in metadata:
+                                st.caption(f"⏱️ Processing Time: {metadata['processing_time']:.2f}s | 🤖 Model: {metadata.get('model_used', 'Unknown')} | 📄 Documents: {metadata.get('documents_retrieved', 0)}")
+                        
+                        # Skip both messages since we've displayed them
+                        i += 2
+                    else:
+                        # Orphaned assistant message, display it
+                        st.markdown(f"**🤖 Assistant:** {message['content']}")
+                        
+                        # Show timing info if available
+                        if 'metadata' in message and message['metadata']:
+                            metadata = message['metadata']
+                            if 'processing_time' in metadata:
+                                st.caption(f"⏱️ Processing Time: {metadata['processing_time']:.2f}s | 🤖 Model: {metadata.get('model_used', 'Unknown')} | 📄 Documents: {metadata.get('documents_retrieved', 0)}")
+                        
+                        i += 1
                 else:
-                    st.markdown(f"**🤖 Assistant:** {message['content']}")
-                    
-                    # Show timing info if available (simplified)
-                    if 'metadata' in message and message['metadata']:
-                        metadata = message['metadata']
-                        if 'processing_time' in metadata:
-                            st.caption(f"⏱️ Processing Time: {metadata['processing_time']:.2f}s | 🤖 Model: {metadata.get('model_used', 'Unknown')} | 📄 Documents: {metadata.get('documents_retrieved', 0)}")
+                    # This is an orphaned user message, display it
+                    st.markdown(f"**👤 You:** {message['content']}")
+                    i += 1
                 
                 st.markdown("---")
         else:
@@ -1872,114 +1419,140 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
     # Track query start time
     st.session_state.query_start_time = time.time()
     
-    # Process query with minimal UI (matching optimized app)
+    # Process query with streaming UI
     start_time = time.time()
-    
-    with st.spinner("🤖 Processing your question with AI..."):
-        # Process query with optimized smart routing (includes caching)
-        result = process_query_optimized(
-            query,
-            settings.bedrock_knowledge_base_id,
-            smart_router,
-            aws_clients,
-            user_id=st.session_state.get('user_id', 'anonymous')
-        )
-    
-    # Calculate processing time
-    processing_time = time.time() - start_time
     
     # Reserve space for result messages to prevent CLS
     result_container = st.container()
     with result_container:
-            # Track cost and usage
-            if result["success"]:
-                # Initialize session state for cost tracking
-                if 'query_count' not in st.session_state:
-                    st.session_state.query_count = 0
-                if 'total_tokens_used' not in st.session_state:
-                    st.session_state.total_tokens_used = 0
-                if 'cost_by_model' not in st.session_state:
-                    st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
+        # Initialize session state for cost tracking
+        if 'query_count' not in st.session_state:
+            st.session_state.query_count = 0
+        if 'total_tokens_used' not in st.session_state:
+            st.session_state.total_tokens_used = 0
+        if 'cost_by_model' not in st.session_state:
+            st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
+        
+        # Create a placeholder for the streaming response
+        response_placeholder = st.empty()
+        full_response = ""
+        model_used = None
+        documents = []
+        routing_decision = {}
+        
+        # Show initial processing message
+        with st.spinner("🤖 Processing your question with AI..."):
+            # Process query with streaming
+            for result in process_query_with_smart_routing_stream(
+                query,
+                settings.bedrock_knowledge_base_id,
+                smart_router,
+                aws_clients
+            ):
+                if not result["success"]:
+                    # Handle error
+                    response_placeholder.error(f"❌ **Error:** {result['error']}")
+                    save_chat_message('assistant', f"❌ Error: {result['error']}")
+                    st.rerun()
+                    return
                 
-                # Increment query count
-                st.session_state.query_count += 1
-                
-                # Estimate tokens and cost (rough estimation)
-                model_used = result.get('model_used', 'haiku')
-                answer_length = len(result.get('answer', ''))
-                query_length = len(query)
-                
-                # Rough token estimation (1 token ≈ 4 characters)
-                estimated_tokens = (query_length + answer_length) // 4
-                st.session_state.total_tokens_used += estimated_tokens
-                
-                # Cost calculation based on model
-                cost_per_1k_tokens = {
-                    'haiku': 0.00125,  # $1.25 per 1M tokens
-                    'sonnet': 0.015,   # $15 per 1M tokens  
-                    'opus': 0.075      # $75 per 1M tokens
-                }
-                
-                estimated_cost = (estimated_tokens / 1000) * cost_per_1k_tokens.get(model_used, 0.00125)
-                st.session_state.cost_by_model[model_used] += estimated_cost
-                
-                # Save assistant response with metadata
-                assistant_metadata = {
-                    'model_used': model_used,
-                    'documents_retrieved': len(result.get('documents', [])),
-                    'cost': estimated_cost,
-                    'routing_decision': result.get('routing_decision', {}),
-                    'processing_time': time.time() - st.session_state.get('query_start_time', time.time())
-                }
-                save_chat_message('assistant', result['answer'], assistant_metadata)
-                
-                # Show success message with timing info (matching optimized app)
-                st.success(f"✅ **Query processed successfully in {processing_time:.2f} seconds!**")
-                
-                
-                # Rerun to display the new message in chat history IMMEDIATELY
-                st.rerun()
-                
-                # Store analytics data in background (non-blocking)
-                def store_analytics_background():
-                    if st.session_state.get('analytics_available', False) and analytics_service:
-                        try:
-                            # Calculate query processing time
-                            query_processing_time = time.time() - st.session_state.get('query_start_time', time.time())
-                            
-                            # Track user query using the simplified integration with timing and model info
-                            query_id = analytics_service.track_query(
-                                session_id=st.session_state.get('current_session_id', 'default'),
-                                query_text=query,
-                                query_complexity=result.get('routing_decision', {}).get('complexity', 'simple'),
-                                query_time_seconds=query_processing_time,
+                # Update response variables
+                if result.get('answer'):
+                    # For streaming, replace the full response with the accumulated answer
+                    if result.get('is_streaming', True):
+                        full_response = result['answer']  # Replace with accumulated answer
+                    else:
+                        full_response += result['answer']  # Add final chunk if any
+                    
+                    model_used = result.get('model_used', 'haiku')
+                    documents = result.get('documents', [])
+                    routing_decision = result.get('routing_decision', {})
+                    
+                    # Display streaming response only during streaming
+                    if result.get('is_streaming', True):
+                        response_placeholder.markdown(f"**🤖 Assistant:** {full_response}")
+                    # Don't display final response here - it will be shown in chat history after st.rerun()
+        
+        # Calculate processing time
+        processing_time = time.time() - start_time
+        
+        # Track cost and usage
+        if full_response:
+            # Increment query count
+            st.session_state.query_count += 1
+            
+            # Estimate tokens and cost (rough estimation)
+            answer_length = len(full_response)
+            query_length = len(query)
+            
+            # Rough token estimation (1 token ≈ 4 characters)
+            estimated_tokens = (query_length + answer_length) // 4
+            st.session_state.total_tokens_used += estimated_tokens
+            
+            # Cost calculation based on model
+            cost_per_1k_tokens = {
+                'haiku': 0.00125,  # $1.25 per 1M tokens
+                'sonnet': 0.015,   # $15 per 1M tokens  
+                'opus': 0.075      # $75 per 1M tokens
+            }
+            
+            estimated_cost = (estimated_tokens / 1000) * cost_per_1k_tokens.get(model_used, 0.00125)
+            st.session_state.cost_by_model[model_used] += estimated_cost
+            
+            # Save assistant response with metadata
+            assistant_metadata = {
+                'model_used': model_used,
+                'documents_retrieved': len(documents),
+                'cost': estimated_cost,
+                'routing_decision': routing_decision,
+                'processing_time': time.time() - st.session_state.get('query_start_time', time.time())
+            }
+            save_chat_message('assistant', full_response, assistant_metadata)
+            
+            # Clear the streaming response placeholder since it will be shown in chat history
+            response_placeholder.empty()
+            
+            # Show success message with timing info
+            st.success(f"✅ **Query processed successfully in {processing_time:.2f} seconds!**")
+            
+            # Rerun to display the new message in chat history IMMEDIATELY
+            st.rerun()
+            
+            # Store analytics data in background (non-blocking)
+            def store_analytics_background():
+                if st.session_state.get('analytics_available', False) and analytics_service:
+                    try:
+                        # Calculate query processing time
+                        query_processing_time = time.time() - st.session_state.get('query_start_time', time.time())
+                        
+                        # Track user query using the simplified integration with timing and model info
+                        query_id = analytics_service.track_query(
+                            session_id=st.session_state.get('current_session_id', 'default'),
+                            query_text=query,
+                            query_complexity=routing_decision.get('complexity', 'simple'),
+                            query_time_seconds=query_processing_time,
+                            model_used=model_used
+                        )
+                        
+                        if query_id:
+                            # Track AI response using the simplified integration
+                            response_id = analytics_service.track_response(
+                                query_id=query_id,
+                                response_text=full_response,
                                 model_used=model_used
                             )
                             
-                            if query_id:
-                                # Track AI response using the simplified integration
-                                response_id = analytics_service.track_response(
-                                    query_id=query_id,
-                                    response_text=result['answer'],
-                                    model_used=model_used
-                                )
+                            if response_id:
+                                st.session_state.last_query_id = query_id
+                                st.session_state.last_response_id = response_id
                                 
-                                if response_id:
-                                    st.session_state.last_query_id = query_id
-                                    st.session_state.last_response_id = response_id
-                                    
-                        except Exception as e:
-                            print(f"Analytics storage failed: {e}")
-                
-                # Start analytics processing in background thread
-                analytics_thread = threading.Thread(target=store_analytics_background)
-                analytics_thread.daemon = True
-                analytics_thread.start()
-                
-            else:
-                # Save error message
-                save_chat_message('assistant', f"❌ Error: {result['error']}")
-                st.rerun()
+                    except Exception as e:
+                        print(f"Analytics storage failed: {e}")
+            
+            # Start analytics processing in background thread
+            analytics_thread = threading.Thread(target=store_analytics_background)
+            analytics_thread.daemon = True
+            analytics_thread.start()
 
 def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, analytics_service=None):
     """Render the clean main page focused on user experience."""
@@ -2027,17 +1600,43 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
         st.markdown("---")
         st.subheader("💬 Chat History")
         
-        for i, message in enumerate(st.session_state.chat_history):
-            if message['role'] == 'user':
-                st.markdown(f"**👤 You:** {message['content']}")
+        # Display messages in reverse order (newest first) with proper grouping
+        messages = list(reversed(st.session_state.chat_history))
+        i = 0
+        while i < len(messages):
+            message = messages[i]
+            
+            if message['role'] == 'assistant':
+                # This is an assistant message, check if there's a user message after it
+                if i + 1 < len(messages) and messages[i + 1]['role'] == 'user':
+                    # Found a user-assistant pair, display user first, then assistant
+                    user_message = messages[i + 1]
+                    st.markdown(f"**👤 You:** {user_message['content']}")
+                    st.markdown(f"**🤖 Assistant:** {message['content']}")
+                    
+                    # Show timing info if available (simplified)
+                    if 'metadata' in message and message['metadata']:
+                        metadata = message['metadata']
+                        if 'processing_time' in metadata:
+                            st.caption(f"⏱️ Processing Time: {metadata['processing_time']:.2f}s | 🤖 Model: {metadata.get('model_used', 'Unknown')} | 📄 Documents: {metadata.get('documents_retrieved', 0)}")
+                    
+                    # Skip both messages since we've displayed them
+                    i += 2
+                else:
+                    # Orphaned assistant message, display it
+                    st.markdown(f"**🤖 Assistant:** {message['content']}")
+                    
+                    # Show timing info if available
+                    if 'metadata' in message and message['metadata']:
+                        metadata = message['metadata']
+                        if 'processing_time' in metadata:
+                            st.caption(f"⏱️ Processing Time: {metadata['processing_time']:.2f}s | 🤖 Model: {metadata.get('model_used', 'Unknown')} | 📄 Documents: {metadata.get('documents_retrieved', 0)}")
+                    
+                    i += 1
             else:
-                st.markdown(f"**🤖 Assistant:** {message['content']}")
-                
-                # Show timing info if available (simplified)
-                if 'metadata' in message and message['metadata']:
-                    metadata = message['metadata']
-                    if 'processing_time' in metadata:
-                        st.caption(f"⏱️ Processing Time: {metadata['processing_time']:.2f}s | 🤖 Model: {metadata.get('model_used', 'Unknown')} | 📄 Documents: {metadata.get('documents_retrieved', 0)}")
+                # This is an orphaned user message, display it
+                st.markdown(f"**👤 You:** {message['content']}")
+                i += 1
             
             st.markdown("---")
     
