@@ -1509,52 +1509,61 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
             # Rerun to display the new message in chat history IMMEDIATELY
             st.rerun()
             
-            # Store analytics data in background (non-blocking)
-            def store_analytics_background():
-                print(f"🔍 [APP-BG] Background function called")
-                print(f"🔍 [APP-BG] Analytics available: {st.session_state.get('analytics_available', False)}")
-                print(f"🔍 [APP-BG] Analytics service: {analytics_service is not None}")
-                if st.session_state.get('analytics_available', False) and analytics_service:
-                    try:
-                        # Calculate query processing time
-                        query_processing_time = time.time() - st.session_state.get('query_start_time', time.time())
-                        
-                        # Track user query using the simplified integration with timing and model info
-                        print(f"🔍 [APP] About to track query: {query[:50]}...")
-                        print(f"🔍 [APP] Analytics service available: {analytics_service is not None}")
-                        print(f"🔍 [APP] Session ID: {st.session_state.get('current_session_id', 'default')}")
-                        
-                        query_id = analytics_service.track_query(
-                            session_id=st.session_state.get('current_session_id', 'default'),
-                            query_text=query,
-                            query_complexity=routing_decision.get('complexity', 'simple'),
-                            query_time_seconds=query_processing_time,
+            # Store analytics data directly (synchronous)
+            query_id = None
+            response_id = None
+            if st.session_state.get('analytics_available', False) and analytics_service:
+                try:
+                    print(f"🔍 [APP] About to track query: {query[:50]}...")
+                    print(f"🔍 [APP] Analytics service available: {analytics_service is not None}")
+                    print(f"🔍 [APP] Session ID: {st.session_state.get('current_session_id', 'default')}")
+                    
+                    # Calculate query processing time
+                    query_processing_time = time.time() - st.session_state.get('query_start_time', time.time())
+                    
+                    # Track user query using the simplified integration with timing and model info
+                    query_id = analytics_service.track_query(
+                        session_id=st.session_state.get('current_session_id', 'default'),
+                        query_text=query,
+                        query_complexity=routing_decision.get('complexity', 'simple'),
+                        query_time_seconds=query_processing_time,
+                        model_used=model_used
+                    )
+                    
+                    print(f"🔍 [APP] Query tracking result: {query_id}")
+                    
+                    if query_id:
+                        # Track AI response using the simplified integration
+                        response_id = analytics_service.track_response(
+                            query_id=query_id,
+                            response_text=full_response,
                             model_used=model_used
                         )
                         
-                        print(f"🔍 [APP] Query tracking result: {query_id}")
+                        if response_id:
+                            st.session_state.last_query_id = query_id
+                            st.session_state.last_response_id = response_id
+                            print(f"✅ [APP] Analytics tracking successful - Query ID: {query_id}, Response ID: {response_id}")
+                        else:
+                            print(f"❌ [APP] Response tracking failed")
+                    else:
+                        print(f"❌ [APP] Query tracking failed")
                         
-                        if query_id:
-                            # Track AI response using the simplified integration
-                            response_id = analytics_service.track_response(
-                                query_id=query_id,
-                                response_text=full_response,
-                                model_used=model_used
-                            )
-                            
-                            if response_id:
-                                st.session_state.last_query_id = query_id
-                                st.session_state.last_response_id = response_id
-                                
-                    except Exception as e:
-                        print(f"Analytics storage failed: {e}")
+                except Exception as e:
+                    print(f"❌ [APP] Analytics storage failed: {e}")
+                    import traceback
+                    print(f"❌ [APP] Traceback: {traceback.format_exc()}")
+            else:
+                print(f"❌ [APP] Analytics not available - available: {st.session_state.get('analytics_available', False)}, service: {analytics_service is not None}")
             
-            # Start analytics processing in background thread
-            print(f"🔍 [APP] Starting analytics background thread...")
-            analytics_thread = threading.Thread(target=store_analytics_background)
-            analytics_thread.daemon = True
-            analytics_thread.start()
-            print(f"🔍 [APP] Analytics background thread started")
+            # Add processing message with insertion ID to the response
+            if query_id:
+                processing_message = f"📊 **Query tracked successfully!** (ID: {query_id})"
+                if response_id:
+                    processing_message += f" | Response ID: {response_id}"
+                st.info(processing_message)
+            else:
+                st.warning("⚠️ Query tracking failed - check logs for details")
 
 def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smart_router, analytics_service=None):
     """Render the clean main page focused on user experience."""
@@ -1795,53 +1804,61 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 st.success("✅ **Query processed successfully!**")
                 
                 
-                # Store analytics data in background (non-blocking)
-                def store_analytics_background():
-                    print(f"🔍 [APP-BG-2] Background function called")
-                    print(f"🔍 [APP-BG-2] Analytics available: {st.session_state.get('analytics_available', False)}")
-                    print(f"🔍 [APP-BG-2] Analytics service: {analytics_service is not None}")
-                    if st.session_state.get('analytics_available', False) and analytics_service:
-                        try:
-                            # Calculate query processing time
-                            query_processing_time = time.time() - st.session_state.get('query_start_time', time.time())
-                            
-                            # Track user query using the simplified integration with timing and model info
-                            print(f"🔍 [APP-BG] About to track query: {query[:50]}...")
-                            print(f"🔍 [APP-BG] Analytics service available: {analytics_service is not None}")
-                            print(f"🔍 [APP-BG] Session ID: {st.session_state.get('current_session_id', 'default')}")
-                            
-                            query_id = analytics_service.track_query(
-                                session_id=st.session_state.get('current_session_id', 'default'),
-                                query_text=query,
-                                query_complexity=result.get('routing_decision', {}).get('complexity', 'simple'),
-                                query_time_seconds=query_processing_time,
+                # Store analytics data directly (synchronous)
+                query_id = None
+                response_id = None
+                if st.session_state.get('analytics_available', False) and analytics_service:
+                    try:
+                        print(f"🔍 [APP-2] About to track query: {query[:50]}...")
+                        print(f"🔍 [APP-2] Analytics service available: {analytics_service is not None}")
+                        print(f"🔍 [APP-2] Session ID: {st.session_state.get('current_session_id', 'default')}")
+                        
+                        # Calculate query processing time
+                        query_processing_time = time.time() - st.session_state.get('query_start_time', time.time())
+                        
+                        # Track user query using the simplified integration with timing and model info
+                        query_id = analytics_service.track_query(
+                            session_id=st.session_state.get('current_session_id', 'default'),
+                            query_text=query,
+                            query_complexity=result.get('routing_decision', {}).get('complexity', 'simple'),
+                            query_time_seconds=query_processing_time,
+                            model_used=model_used
+                        )
+                        
+                        print(f"🔍 [APP-2] Query tracking result: {query_id}")
+                        
+                        if query_id:
+                            # Track AI response using the simplified integration
+                            response_id = analytics_service.track_response(
+                                query_id=query_id,
+                                response_text=result['answer'],
                                 model_used=model_used
                             )
                             
-                            print(f"🔍 [APP-BG] Query tracking result: {query_id}")
+                            if response_id:
+                                st.session_state.last_query_id = query_id
+                                st.session_state.last_response_id = response_id
+                                print(f"✅ [APP-2] Analytics tracking successful - Query ID: {query_id}, Response ID: {response_id}")
+                            else:
+                                print(f"❌ [APP-2] Response tracking failed")
+                        else:
+                            print(f"❌ [APP-2] Query tracking failed")
                             
-                            if query_id:
-                                # Track AI response using the simplified integration
-                                response_id = analytics_service.track_response(
-                                    query_id=query_id,
-                                    response_text=result['answer'],
-                                    model_used=model_used
-                                )
-                                
-                                if response_id:
-                                    st.session_state.last_query_id = query_id
-                                    st.session_state.last_response_id = response_id
-                                    
-                        except Exception as e:
-                            print(f"Analytics storage failed: {e}")
+                    except Exception as e:
+                        print(f"❌ [APP-2] Analytics storage failed: {e}")
+                        import traceback
+                        print(f"❌ [APP-2] Traceback: {traceback.format_exc()}")
+                else:
+                    print(f"❌ [APP-2] Analytics not available - available: {st.session_state.get('analytics_available', False)}, service: {analytics_service is not None}")
                 
-                # Start analytics processing in background thread
-                import threading
-                print(f"🔍 [APP-2] Starting analytics background thread...")
-                analytics_thread = threading.Thread(target=store_analytics_background)
-                analytics_thread.daemon = True
-                analytics_thread.start()
-                print(f"🔍 [APP-2] Analytics background thread started")
+                # Add processing message with insertion ID to the response
+                if query_id:
+                    processing_message = f"📊 **Query tracked successfully!** (ID: {query_id})"
+                    if response_id:
+                        processing_message += f" | Response ID: {response_id}"
+                    st.info(processing_message)
+                else:
+                    st.warning("⚠️ Query tracking failed - check logs for details")
                 
                 # Clear processing state
                 st.session_state.processing_query = False
