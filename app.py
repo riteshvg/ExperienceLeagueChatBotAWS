@@ -1330,6 +1330,10 @@ def render_main_page_minimal():
     st.title("📊 Adobe Experience League Chatbot - Unofficial")
     st.markdown("**Intelligent RAG Assistant for answering questions about Adobe Analytics and Customer Journey Analytics**")
     
+    # Debug mode indicator (only visible when enabled)
+    if st.session_state.get('debug_mode', False):
+        st.info("🔍 **Debug Mode Active** - Debug information will be shown when processing queries")
+    
     # No status messages to prevent CLS (matching optimized app)
     
     # Main content area
@@ -1816,7 +1820,8 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
         
         # Debug information (can be enabled for troubleshooting)
         if st.session_state.get('debug_mode', False):
-            with st.expander("🔍 Debug Info", expanded=False):
+            st.info("🔍 **Debug Mode Active** - Debug information will be shown below")
+            with st.expander("🔍 Debug Info", expanded=True):
                 st.write(f"**Query value:** '{query}'")
                 st.write(f"**Query length:** {len(query)}")
                 st.write(f"**Session state query_input:** '{st.session_state.get('query_input', 'NOT_SET')}'")
@@ -1825,6 +1830,8 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 st.write(f"**AWS error:** {aws_error}")
                 st.write(f"**KB status:** {kb_status}")
                 st.write(f"**Smart router:** {smart_router is not None}")
+                st.write(f"**Debug mode status:** {st.session_state.get('debug_mode', False)}")
+                st.write(f"**Session state keys:** {list(st.session_state.keys())}")
         
         if query and len(query) >= 3 and aws_clients and not aws_error and kb_status and smart_router:
             # Check if query is relevant to Adobe Analytics, CJA, etc.
