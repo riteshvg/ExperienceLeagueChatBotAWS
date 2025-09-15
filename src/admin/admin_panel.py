@@ -26,11 +26,12 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
     
     st.markdown("---")
     
-    # Create tabs for different admin sections (optimized - reduced from 4 to 3 tabs)
-    tab1, tab2, tab3 = st.tabs([
+    # Create tabs for different admin sections
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 System Status", 
         "⚙️ Settings", 
-        "📊 Query Analytics"
+        "📊 Query Analytics",
+        "🔍 Database Query"
     ])
     
     with tab1:
