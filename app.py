@@ -1813,25 +1813,24 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             
             st.markdown("---")
     
+    # Debug information (always visible when debug mode is enabled)
+    if st.session_state.get('debug_mode', False):
+        with st.expander("🔍 Debug Info", expanded=True):
+            st.write(f"**Query value:** '{query if query else 'No query yet'}'")
+            st.write(f"**Query length:** {len(query) if query else 0}")
+            st.write(f"**Session state query_input:** '{st.session_state.get('query_input', 'NOT_SET')}'")
+            st.write(f"**Submit button clicked:** {submit_button}")
+            st.write(f"**AWS clients available:** {aws_clients is not None}")
+            st.write(f"**AWS error:** {aws_error}")
+            st.write(f"**KB status:** {kb_status}")
+            st.write(f"**Smart router:** {smart_router is not None}")
+            st.write(f"**Debug mode status:** {st.session_state.get('debug_mode', False)}")
+            st.write(f"**Session state keys:** {list(st.session_state.keys())}")
+    
     # Process query when submitted (button click or Enter key)
     if submit_button or st.session_state.get('enter_pressed', False):
         # Clean and validate query
         query = query.strip() if query else ""
-        
-        # Debug information (can be enabled for troubleshooting)
-        if st.session_state.get('debug_mode', False):
-            st.info("🔍 **Debug Mode Active** - Debug information will be shown below")
-            with st.expander("🔍 Debug Info", expanded=True):
-                st.write(f"**Query value:** '{query}'")
-                st.write(f"**Query length:** {len(query)}")
-                st.write(f"**Session state query_input:** '{st.session_state.get('query_input', 'NOT_SET')}'")
-                st.write(f"**Submit button clicked:** {submit_button}")
-                st.write(f"**AWS clients available:** {aws_clients is not None}")
-                st.write(f"**AWS error:** {aws_error}")
-                st.write(f"**KB status:** {kb_status}")
-                st.write(f"**Smart router:** {smart_router is not None}")
-                st.write(f"**Debug mode status:** {st.session_state.get('debug_mode', False)}")
-                st.write(f"**Session state keys:** {list(st.session_state.keys())}")
         
         if query and len(query) >= 3 and aws_clients and not aws_error and kb_status and smart_router:
             # Check if query is relevant to Adobe Analytics, CJA, etc.
