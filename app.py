@@ -361,7 +361,7 @@ def retrieve_documents_from_kb(query: str, knowledge_base_id: str, bedrock_agent
         if not is_valid:
             error_msg = f"Security validation failed. Detected threats: {', '.join(threats_detected)}"
             logger.warning(f"Blocked malicious query: {error_msg}")
-            return [], "Invalid query detected. Please provide a legitimate question about Adobe Analytics."
+            return [], "Invalid query detected. Please provide a legitimate question about Adobe Analytics, Customer Journey Analytics, or Adobe Experience Platform."
         
         # Use sanitized query for processing
         query = sanitized_query
@@ -919,7 +919,7 @@ def test_model_invocation(model_id: str, test_query: str, bedrock_client) -> tup
         return False, str(e)
 
 def check_query_relevance(query: str) -> bool:
-    """Check if the query is relevant to Adobe Analytics, CJA, or related topics."""
+    """Check if the query is relevant to Adobe Analytics, CJA, AEP, or related topics."""
     # Convert query to lowercase for case-insensitive matching
     query_lower = query.lower()
     
@@ -935,7 +935,13 @@ def check_query_relevance(query: str) -> bool:
         'customer journey analytics', 'cja', 'cross-channel', 'cross channel', 'journey',
         'customer journey', 'stitching', 'identity', 'person', 'person id',
         
-        'destinations', 'sources', 'data prep', 'query service',
+        # Adobe Experience Platform
+        'adobe experience platform', 'aep', 'experience platform', 'xdm', 'experience data model',
+        'schemas', 'datasets', 'data ingestion', 'data prep', 'query service', 'real-time customer profile',
+        'rtcp', 'profile', 'identity graph', 'data lake', 'data science workspace', 'jupyter',
+        'destinations', 'sources', 'connectors', 'workflows', 'data flows', 'segmentation',
+        'audience', 'audiences', 'activation', 'data governance', 'privacy', 'consent',
+        'sandbox', 'sandboxes', 'dev', 'stage', 'prod', 'production',
         
         # Adobe Experience Cloud
         'adobe experience cloud', 'experience cloud', 'adobe', 'marketing cloud',
@@ -985,17 +991,18 @@ def check_query_relevance(query: str) -> bool:
 
 def get_irrelevant_question_response() -> str:
     """Return a standard response for irrelevant questions."""
-    return """I'm sorry, but your question doesn't appear to be related to Adobe Analytics, Customer Journey Analytics, or other Adobe Experience Cloud products.
+    return """I'm sorry, but your question doesn't appear to be related to Adobe Analytics, Customer Journey Analytics, Adobe Experience Platform, or other Adobe Experience Cloud products.
 
 I'm specifically designed to help with questions about:
 • **Adobe Analytics** - Reports, segments, calculated metrics, implementation
 • **Customer Journey Analytics (CJA)** - Cross-channel analysis, customer journeys
+• **Adobe Experience Platform (AEP)** - Schemas, datasets, data ingestion, XDM
 • **Adobe Experience Cloud** - Marketing automation, personalization, content management
 
 Please ask questions about these topics, and I'll be happy to help! For example:
 - "How do I create a segment in Adobe Analytics?"
 - "What is Analysis Workspace?"
-- "How do I implement Adobe Analytics tracking?"
+- "How do I create schemas in Adobe Experience Platform?"
 - "What is Customer Journey Analytics?" """
 
 def render_processing_loader(step: int = 0):
@@ -1448,7 +1455,7 @@ def render_main_page_minimal():
     if submit_button or st.session_state.get('enter_pressed', False):
         # Basic validation only (no UI messages to prevent CLS)
         if query and len(query) >= 3:
-            # Check if query is relevant to Adobe Analytics, CJA, etc.
+            # Check if query is relevant to Adobe Analytics, CJA, AEP, etc.
             if not check_query_relevance(query):
                 # Save user message
                 save_chat_message('user', query)
@@ -1833,7 +1840,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
         query = query.strip() if query else ""
         
         if query and len(query) >= 3 and aws_clients and not aws_error and kb_status and smart_router:
-            # Check if query is relevant to Adobe Analytics, CJA, etc.
+            # Check if query is relevant to Adobe Analytics, CJA, AEP, etc.
             if not check_query_relevance(query):
                 # Save user message
                 save_chat_message('user', query)
