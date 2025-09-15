@@ -27,11 +27,10 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
     st.markdown("---")
     
     # Create tabs for different admin sections
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3 = st.tabs([
         "📊 System Status", 
         "⚙️ Settings", 
-        "📊 Query Analytics",
-        "🔍 Database Query"
+        "📊 Query Analytics"
     ])
     
     with tab1:
@@ -299,119 +298,6 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
             3. Verify database connection for tagging data
             4. Restart the application
             """)
-    
-    with tab4:
-        st.header("🔍 Database Query Interface")
-        
-        # GitHub Documentation Management
-        st.markdown("---")
-        st.subheader("📚 GitHub Documentation Management")
-        
-        # Define the four repositories used
-        repositories = {
-            "Adobe Analytics APIs": {
-                "url": "https://github.com/AdobeDocs/analytics-2.0-apis.git",
-                "description": "Adobe Analytics 2.0 APIs documentation",
-                "added_date": "2024-09-01"  # This should be updated when actually added
-            },
-            "Adobe Analytics User Docs": {
-                "url": "https://github.com/AdobeDocs/analytics.en.git", 
-                "description": "Adobe Analytics user documentation",
-                "added_date": "2024-09-01"
-            },
-            "Customer Journey Analytics": {
-                "url": "https://github.com/AdobeDocs/customer-journey-analytics-learn.en.git",
-                "description": "Customer Journey Analytics learning documentation", 
-                "added_date": "2024-09-01"
-            },
-            "Analytics APIs Docs": {
-                "url": "https://github.com/AdobeDocs/analytics-2.0-apis.git",
-                "description": "Analytics APIs comprehensive documentation",
-                "added_date": "2024-09-01"
-            }
-        }
-        
-        # Button to fetch repository details
-        if st.button("🔄 Fetch Repository Details", help="Get latest information about the GitHub repositories"):
-            with st.spinner("Fetching repository information..."):
-                try:
-                    import requests
-                    
-                    st.success("✅ Repository details fetched successfully!")
-                    
-                    # Display repository information
-                    for repo_name, repo_info in repositories.items():
-                        with st.expander(f"📖 {repo_name}", expanded=True):
-                            col1, col2 = st.columns([2, 1])
-                            
-                            with col1:
-                                st.write(f"**Description:** {repo_info['description']}")
-                                st.write(f"**Repository URL:** {repo_info['url']}")
-                                st.write(f"**Added to Application:** {repo_info['added_date']}")
-                            
-                            with col2:
-                                # Calculate days since added
-                                added_date = datetime.strptime(repo_info['added_date'], "%Y-%m-%d")
-                                days_since_added = (datetime.now() - added_date).days
-                                st.metric("Days Since Added", days_since_added)
-                                
-                                # Try to get last commit info (simplified)
-                                try:
-                                    # Extract repo path from URL
-                                    repo_path = repo_info['url'].replace('https://github.com/', '').replace('.git', '')
-                                    api_url = f"https://api.github.com/repos/{repo_path}"
-                                    
-                                    response = requests.get(api_url, timeout=10)
-                                    if response.status_code == 200:
-                                        repo_data = response.json()
-                                        last_updated = repo_data.get('updated_at', '')
-                                        if last_updated:
-                                            last_update_date = datetime.strptime(last_updated[:10], "%Y-%m-%d")
-                                            days_since_update = (datetime.now() - last_update_date).days
-                                            st.metric("Days Since Last Update", days_since_update)
-                                            st.caption(f"Last updated: {last_updated[:10]}")
-                                        else:
-                                            st.info("Last update info unavailable")
-                                    else:
-                                        st.warning("Could not fetch update info")
-                                except Exception as e:
-                                    st.warning(f"Update info unavailable: {str(e)[:50]}...")
-                    
-                    # Summary
-                    st.markdown("### 📊 Summary")
-                    total_repos = len(repositories)
-                    avg_days_since_added = sum([
-                        (datetime.now() - datetime.strptime(repo['added_date'], "%Y-%m-%d")).days 
-                        for repo in repositories.values()
-                    ]) / total_repos
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Total Repositories", total_repos)
-                    with col2:
-                        st.metric("Avg Days Since Added", f"{avg_days_since_added:.0f}")
-                    with col3:
-                        st.metric("Status", "Active")
-                        
-                except Exception as e:
-                    st.error(f"❌ Error fetching repository details: {str(e)}")
-                    st.info("💡 **Troubleshooting:** Check internet connection and GitHub API access")
-        
-        # Static repository information (always visible)
-        st.markdown("### 📋 Repository Overview")
-        
-        for repo_name, repo_info in repositories.items():
-            with st.expander(f"📖 {repo_name}", expanded=False):
-                st.write(f"**Description:** {repo_info['description']}")
-                st.write(f"**Repository URL:** {repo_info['url']}")
-                st.write(f"**Added to Application:** {repo_info['added_date']}")
-                
-                # Calculate days since added
-                added_date = datetime.strptime(repo_info['added_date'], "%Y-%m-%d")
-                days_since_added = (datetime.now() - added_date).days
-                st.write(f"**Days Since Added:** {days_since_added} days")
-        
-        # Tagging analytics removed for now
     
 
 
