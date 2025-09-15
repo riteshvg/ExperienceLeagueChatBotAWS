@@ -166,3 +166,6 @@ credentials.json
 *.bak
 secrets/
 credentials/
+
+# Documentation upload guide
+upload.md
