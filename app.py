@@ -937,7 +937,7 @@ def check_query_relevance(query: str) -> bool:
         
         # Adobe Experience Platform
         'adobe experience platform', 'aep', 'experience platform', 'xdm', 'experience data model',
-        'schemas', 'datasets', 'data ingestion', 'data prep', 'query service', 'real-time customer profile',
+        'schemas', 'schema', 'datasets', 'dataset', 'data ingestion', 'data prep', 'query service', 'real-time customer profile',
         'rtcp', 'profile', 'identity graph', 'data lake', 'data science workspace', 'jupyter',
         'destinations', 'sources', 'connectors', 'workflows', 'data flows', 'segmentation',
         'audience', 'audiences', 'activation', 'data governance', 'privacy', 'consent',
