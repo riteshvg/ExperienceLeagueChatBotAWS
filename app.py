@@ -5,6 +5,7 @@ import time
 import logging
 import threading
 import hashlib
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -15,6 +16,15 @@ from typing import Dict, Any, Optional, List, Tuple
 project_root = Path(__file__).parent
 sys.path.append(str(project_root))
 sys.path.append(str(project_root / "src"))
+
+# Import query enhancement modules
+try:
+    from query_enhancer import query_enhancer
+    from enhanced_rag_pipeline import enhanced_rag_pipeline
+    QUERY_ENHANCEMENT_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Query enhancement modules not available: {e}")
+    QUERY_ENHANCEMENT_AVAILABLE = False
 
 # Load environment variables
 load_dotenv()
@@ -702,22 +712,68 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
                 "model_used": None
             }
         
-        # Step 1: Retrieve documents from Knowledge Base
-        documents, retrieval_error = retrieve_documents_from_kb(
-            query, 
-            knowledge_base_id, 
-            aws_clients['bedrock_agent_client']
-        )
-        
-        if retrieval_error:
-            return {
-                "success": False,
-                "error": f"Retrieval error: {retrieval_error}",
-                "documents": [],
-                "routing_decision": None,
-                "answer": "",
-                "model_used": None
-            }
+        # Step 1: Enhanced document retrieval with query enhancement
+        if QUERY_ENHANCEMENT_AVAILABLE and st.session_state.get('query_enhancement_enabled', True):
+            try:
+                # Use enhanced RAG pipeline
+                enhanced_results = asyncio.run(enhanced_rag_pipeline.enhanced_retrieve_documents(
+                    query, 
+                    top_k=10,
+                    use_enhancement=True
+                ))
+                
+                # Convert enhanced results to legacy format
+                documents = []
+                for result in enhanced_results:
+                    documents.append({
+                        'content': {'text': result.content},
+                        'score': result.score,
+                        'location': {'s3Location': {'uri': result.source}}
+                    })
+                
+                # Store enhancement metadata in session state for UI display
+                st.session_state['last_query_enhancement'] = {
+                    'original_query': query,
+                    'enhanced_queries': [r.enhanced_query for r in enhanced_results],
+                    'detected_products': enhanced_results[0].product_context if enhanced_results else [],
+                    'processing_time_ms': sum(r.processing_time_ms for r in enhanced_results) / len(enhanced_results) if enhanced_results else 0
+                }
+                
+            except Exception as e:
+                logger.warning(f"Enhanced retrieval failed, falling back to standard: {e}")
+                # Fallback to standard retrieval
+                documents, retrieval_error = retrieve_documents_from_kb(
+                    query, 
+                    knowledge_base_id, 
+                    aws_clients['bedrock_agent_client']
+                )
+                
+                if retrieval_error:
+                    return {
+                        "success": False,
+                        "error": f"Retrieval error: {retrieval_error}",
+                        "documents": [],
+                        "routing_decision": None,
+                        "answer": "",
+                        "model_used": None
+                    }
+        else:
+            # Standard retrieval without enhancement
+            documents, retrieval_error = retrieve_documents_from_kb(
+                query, 
+                knowledge_base_id, 
+                aws_clients['bedrock_agent_client']
+            )
+            
+            if retrieval_error:
+                return {
+                    "success": False,
+                    "error": f"Retrieval error: {retrieval_error}",
+                    "documents": [],
+                    "routing_decision": None,
+                    "answer": "",
+                    "model_used": None
+                }
         
         # Step 2: Smart routing - select appropriate model with fallback
         # Use available models (Haiku and Sonnet are confirmed working)
@@ -1947,6 +2003,29 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             st.write(f"**Smart router:** {smart_router is not None}")
             st.write(f"**Debug mode status:** {st.session_state.get('debug_mode', False)}")
             st.write(f"**Session state keys:** {list(st.session_state.keys())}")
+    
+    # Query Enhancement Information (show when available)
+    if QUERY_ENHANCEMENT_AVAILABLE and st.session_state.get('last_query_enhancement'):
+        enhancement_data = st.session_state['last_query_enhancement']
+        with st.expander("🚀 Query Enhancement", expanded=False):
+            st.write(f"**Original Query:** {enhancement_data['original_query']}")
+            st.write(f"**Enhanced Queries:** {len(enhancement_data['enhanced_queries'])}")
+            for i, eq in enumerate(enhancement_data['enhanced_queries'], 1):
+                st.write(f"  {i}. {eq}")
+            if enhancement_data['detected_products']:
+                st.write(f"**Detected Products:** {', '.join(enhancement_data['detected_products'])}")
+            st.write(f"**Processing Time:** {enhancement_data['processing_time_ms']:.2f}ms")
+    
+    # Query Enhancement Toggle (in admin panel or settings)
+    if QUERY_ENHANCEMENT_AVAILABLE:
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            query_enhancement_enabled = st.checkbox(
+                "🚀 Query Enhancement", 
+                value=st.session_state.get('query_enhancement_enabled', True),
+                help="Enable query enhancement for better search results"
+            )
+            st.session_state['query_enhancement_enabled'] = query_enhancement_enabled
     
     # Process query when submitted (button click or Enter key)
     if submit_button or st.session_state.get('enter_pressed', False):

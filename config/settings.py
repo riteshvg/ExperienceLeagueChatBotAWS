@@ -59,6 +59,13 @@ class Settings(BaseSettings):
     data_refresh_interval: int = Field(default=3600, env="DATA_REFRESH_INTERVAL")  # 1 hour
     max_documents: int = Field(default=10000, env="MAX_DOCUMENTS")
     
+    # Query Enhancement Configuration
+    query_enhancement_enabled: bool = Field(default=True, env="QUERY_ENHANCEMENT_ENABLED")
+    query_enhancement_max_queries: int = Field(default=3, env="QUERY_ENHANCEMENT_MAX_QUERIES")
+    query_enhancement_cache_size: int = Field(default=500, env="QUERY_ENHANCEMENT_CACHE_SIZE")
+    query_enhancement_timeout_ms: int = Field(default=400, env="QUERY_ENHANCEMENT_TIMEOUT_MS")
+    query_enhancement_fallback: bool = Field(default=True, env="QUERY_ENHANCEMENT_FALLBACK")
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
