@@ -257,7 +257,7 @@ except ImportError as e:
 
 # Basic app configuration
 st.set_page_config(
-    page_title="Adobe Experience League Chatbot",
+    page_title="Adobe Experience League Chatbot (Unofficial)",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -1327,8 +1327,8 @@ def render_main_page_minimal():
     initialize_chat_history()
     
     # Header section - render immediately
-    st.title("📊 Adobe Experience League Chatbot")
-    st.markdown("**Intelligent RAG Assistant for Adobe Analytics Documentation**")
+    st.title("📊 Adobe Experience League Chatbot - Unofficial")
+    st.markdown("**Intelligent RAG Assistant for answering questions about Adobe Analytics and Customer Journey Analytics**")
     
     # No status messages to prevent CLS (matching optimized app)
     
@@ -1340,12 +1340,15 @@ def render_main_page_minimal():
     
     with col1:
         query = st.text_input(
-            "Ask your question about Adobe Analytics, Customer Journey Analytics, or related topics:",
+            "Ask your question about Adobe Analytics, Customer Journey Analytics related topics",
             placeholder="e.g., How do I set up Adobe Analytics tracking?",
             key="query_input",
             help="Maximum 20,000 characters. Be specific and clear for best results.",
             on_change=lambda: st.session_state.update(enter_pressed=True)
         )
+        
+        # Add tip below the input box
+        st.markdown("💡 **Tip:** Be precise and avoid anything that is not related. Ensure you put the name of the solution completely instead of abbreviations.")
         
         # Character counter
         if query:
