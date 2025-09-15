@@ -30,18 +30,33 @@ class InputValidator:
     
     def setup_patterns(self):
         """Setup regex patterns for threat detection"""
-        # SQL Injection patterns
+        # SQL Injection patterns - More specific to avoid false positives
         self.sql_patterns = [
-            r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|SCRIPT)\b)",
+            # SQL statements with proper SQL syntax context
+            r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|SCRIPT)\s+.*?\b(FROM|INTO|TABLE|DATABASE|WHERE|SET|VALUES)\b)",
+            # SQL comment patterns
             r"(\s*(;|--|/\*|\*/|@@|@)\s*)",
+            # SQL injection attempts with OR/AND
             r"(\b(OR|AND)\s+\d+\s*=\s*\d+)",
             r"(\b(OR|AND)\s+['\"]?\w+['\"]?\s*=\s*['\"]?\w+['\"]?)",
+            # UNION attacks
             r"(\bUNION\s+(ALL\s+)?SELECT\b)",
+            # INSERT attacks
             r"(\bINSERT\s+INTO\b)",
-            r"(\bDROP\s+(TABLE|DATABASE|SCHEMA)\b)",
+            # DROP attacks
+            r"(\bDROP\s+(TABLE|DATABASE)\b)",
+            # EXEC attacks
             r"(\bEXEC\s*\()",
+            # Time-based attacks
             r"(\bWAITFOR\s+DELAY\b)",
             r"(\bSLEEP\s*\()",
+            # SQL injection with quotes and semicolons
+            r"(['\"]\s*;\s*(DROP|DELETE|INSERT|UPDATE|SELECT))",
+            r"(['\"]\s*OR\s+['\"]?\d+['\"]?\s*=\s*['\"]?\d+['\"]?)",
+            # More specific SQL injection patterns
+            r"(\bCREATE\s+(TABLE|DATABASE|INDEX|VIEW)\b)",
+            r"(\bDROP\s+(TABLE|DATABASE|INDEX|VIEW)\b)",
+            r"(\bALTER\s+(TABLE|DATABASE)\b)",
         ]
         
         # XSS patterns (enhanced)
