@@ -733,9 +733,10 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
             selected_docs = select_best_documents(documents, max_docs=3)
             context_parts = []
             for i, doc in enumerate(selected_docs, 1):
-                content = doc.get('content', {}).get('text', '')
-                if content:
-                    context_parts.append(f"Document {i}: {content[:500]}...")
+                # Process document content and fix links
+                processed_content = process_document_content(doc)
+                if processed_content:
+                    context_parts.append(f"Document {i}: {processed_content[:500]}...")
             context = "\n\n".join(context_parts)
         
         # Step 4: Invoke selected model
@@ -842,9 +843,10 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
             selected_docs = select_best_documents(documents, max_docs=3)
             context_parts = []
             for i, doc in enumerate(selected_docs, 1):
-                content = doc.get('content', {}).get('text', '')
-                if content:
-                    context_parts.append(f"Document {i}: {content[:500]}...")
+                # Process document content and fix links
+                processed_content = process_document_content(doc)
+                if processed_content:
+                    context_parts.append(f"Document {i}: {processed_content[:500]}...")
             context = "\n\n".join(context_parts)
         
         # Update processing step: Synthesizing response
@@ -1047,6 +1049,73 @@ def select_best_documents(documents, max_docs=3):
         selected.extend(release_notes[:remaining])
     
     return selected
+
+def fix_markdown_links(content: str, base_url: str = "https://experienceleague.adobe.com") -> str:
+    """Fix relative markdown links to point to correct Adobe Experience League URLs."""
+    import re
+    
+    if not content:
+        return content
+    
+    # Pattern to match markdown links: [text](relative/path)
+    link_pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+    
+    def replace_link(match):
+        link_text = match.group(1)
+        link_path = match.group(2)
+        
+        # Skip if it's already an absolute URL
+        if link_path.startswith(('http://', 'https://', 'mailto:')):
+            return match.group(0)
+        
+        # Skip if it's an anchor link
+        if link_path.startswith('#'):
+            return match.group(0)
+        
+        # Handle different types of relative paths
+        if link_path.startswith('./'):
+            # Remove ./ prefix - this is a sibling directory
+            clean_path = link_path[2:]
+        elif link_path.startswith('../'):
+            # Handle parent directory references - these are often broken in release notes
+            # Map common broken paths to correct Experience League URLs
+            if 'tags/home' in link_path:
+                clean_path = 'tags/home'
+            elif 'data-governance/home' in link_path:
+                clean_path = 'data-governance/home'
+            elif 'data-prep/home' in link_path:
+                clean_path = 'data-prep/home'
+            else:
+                # For other parent references, try to clean them up
+                clean_path = link_path.replace('../', '').replace('../../', '')
+        else:
+            # Use path as-is
+            clean_path = link_path
+        
+        # Remove .md extension and convert to proper URL format
+        if clean_path.endswith('.md'):
+            clean_path = clean_path[:-3]
+        
+        # Construct the full URL
+        full_url = f"{base_url}/docs/{clean_path}"
+        
+        return f"[{link_text}]({full_url})"
+    
+    # Replace all relative links
+    fixed_content = re.sub(link_pattern, replace_link, content)
+    
+    return fixed_content
+
+def process_document_content(doc: dict) -> str:
+    """Process document content and fix links."""
+    content = doc.get('content', {}).get('text', '')
+    if not content:
+        return content
+    
+    # Fix markdown links in the content
+    fixed_content = fix_markdown_links(content)
+    
+    return fixed_content
 
 def render_processing_loader(step: int = 0):
     """Render a thin processing loader with steps."""
@@ -1656,7 +1725,9 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
                 'routing_decision': routing_decision,
                 'processing_time': time.time() - st.session_state.get('query_start_time', time.time())
             }
-            save_chat_message('assistant', full_response, assistant_metadata)
+            # Fix links in the response before saving
+            fixed_response = fix_markdown_links(full_response)
+            save_chat_message('assistant', fixed_response, assistant_metadata)
             
             # Clear the streaming response placeholder since it will be shown in chat history
             response_placeholder.empty()
@@ -1986,7 +2057,9 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                     'routing_decision': result.get('routing_decision', {}),
                     'processing_time': time.time() - st.session_state.get('query_start_time', time.time())
                 }
-                save_chat_message('assistant', result['answer'], assistant_metadata)
+                # Fix links in the response before saving
+                fixed_answer = fix_markdown_links(result['answer'])
+                save_chat_message('assistant', fixed_answer, assistant_metadata)
                 
                 # Show success message
                 st.success("✅ **Query processed successfully!**")
