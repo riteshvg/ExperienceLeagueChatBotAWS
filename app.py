@@ -729,8 +729,10 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
         # Step 3: Prepare context from retrieved documents
         context = ""
         if documents:
+            # Smart document selection: prioritize main documentation over release notes
+            selected_docs = select_best_documents(documents, max_docs=3)
             context_parts = []
-            for i, doc in enumerate(documents[:3], 1):  # Use top 3 documents
+            for i, doc in enumerate(selected_docs, 1):
                 content = doc.get('content', {}).get('text', '')
                 if content:
                     context_parts.append(f"Document {i}: {content[:500]}...")
@@ -836,8 +838,10 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
         # Step 3: Prepare context from retrieved documents
         context = ""
         if documents:
+            # Smart document selection: prioritize main documentation over release notes
+            selected_docs = select_best_documents(documents, max_docs=3)
             context_parts = []
-            for i, doc in enumerate(documents[:3], 1):  # Use top 3 documents
+            for i, doc in enumerate(selected_docs, 1):
                 content = doc.get('content', {}).get('text', '')
                 if content:
                     context_parts.append(f"Document {i}: {content[:500]}...")
@@ -1004,6 +1008,45 @@ Please ask questions about these topics, and I'll be happy to help! For example:
 - "What is Analysis Workspace?"
 - "How do I create schemas in Adobe Experience Platform?"
 - "What is Customer Journey Analytics?" """
+
+def select_best_documents(documents, max_docs=3):
+    """Select the best documents, prioritizing main documentation over release notes."""
+    if not documents:
+        return []
+    
+    # Separate documents by type
+    main_docs = []
+    release_notes = []
+    other_docs = []
+    
+    for doc in documents:
+        location = doc.get('location', {})
+        s3_uri = location.get('s3Location', {}).get('uri', '')
+        
+        if 'release-notes' in s3_uri:
+            release_notes.append(doc)
+        elif any(keyword in s3_uri for keyword in ['/home.md', '/overview.md', '/getting-started.md']):
+            main_docs.append(doc)
+        else:
+            other_docs.append(doc)
+    
+    # Prioritize main documentation, then other docs, then release notes
+    selected = []
+    
+    # Add main documentation first (up to max_docs)
+    selected.extend(main_docs[:max_docs])
+    
+    # If we need more docs, add other documentation
+    if len(selected) < max_docs:
+        remaining = max_docs - len(selected)
+        selected.extend(other_docs[:remaining])
+    
+    # If we still need more docs, add release notes
+    if len(selected) < max_docs:
+        remaining = max_docs - len(selected)
+        selected.extend(release_notes[:remaining])
+    
+    return selected
 
 def render_processing_loader(step: int = 0):
     """Render a thin processing loader with steps."""
