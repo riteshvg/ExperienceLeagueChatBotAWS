@@ -26,6 +26,14 @@ except ImportError as e:
     logger.warning(f"Query enhancement modules not available: {e}")
     QUERY_ENHANCEMENT_AVAILABLE = False
 
+# Import smart context manager
+try:
+    from smart_context_manager import smart_context_manager
+    SMART_CONTEXT_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Smart context manager not available: {e}")
+    SMART_CONTEXT_AVAILABLE = False
+
 # Load environment variables
 load_dotenv()
 
@@ -782,25 +790,29 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
         available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet", "opus"]
         routing_decision = smart_router.select_available_model(query, documents, available_models)
         
-        # Step 3: Prepare context from retrieved documents
+        # Step 3: Prepare context from retrieved documents with smart context management
         context = ""
+        context_metadata = {}
         if documents:
-            # Smart document selection: prioritize main documentation over release notes
-            selected_docs = select_best_documents(documents, max_docs=3)
-            context_parts = []
-            for i, doc in enumerate(selected_docs, 1):
-                # Process document content and fix links
-                processed_content = process_document_content(doc)
-                if processed_content:
-                    # Use more content for better responses - up to 2000 characters per document
-                    # For high-relevance docs (score > 0.6), use even more content
-                    score = doc.get('score', 0)
-                    max_length = 3000 if score > 0.6 else 2000
-                    content_to_use = processed_content[:max_length]
-                    if len(processed_content) > max_length:
-                        content_to_use += "..."
-                    context_parts.append(f"Document {i} (Score: {score:.3f}): {content_to_use}")
-            context = "\n\n".join(context_parts)
+            if SMART_CONTEXT_AVAILABLE:
+                # Use smart context manager for adaptive context length
+                context, context_metadata = smart_context_manager.prepare_smart_context(documents, query)
+                # Store context metadata in session state for UI display
+                st.session_state['last_context_metadata'] = context_metadata
+            else:
+                # Fallback to standard context preparation
+                selected_docs = select_best_documents(documents, max_docs=3)
+                context_parts = []
+                for i, doc in enumerate(selected_docs, 1):
+                    processed_content = process_document_content(doc)
+                    if processed_content:
+                        score = doc.get('score', 0)
+                        max_length = 3000 if score > 0.6 else 2000
+                        content_to_use = processed_content[:max_length]
+                        if len(processed_content) > max_length:
+                            content_to_use += "..."
+                        context_parts.append(f"Document {i} (Score: {score:.3f}): {content_to_use}")
+                context = "\n\n".join(context_parts)
         
         # Step 4: Invoke selected model
         answer, generation_error = invoke_bedrock_model(
@@ -948,25 +960,29 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
         # Update processing step: Querying AI model
         st.session_state.processing_step = 2
         
-        # Step 3: Prepare context from retrieved documents
+        # Step 3: Prepare context from retrieved documents with smart context management
         context = ""
+        context_metadata = {}
         if documents:
-            # Smart document selection: prioritize main documentation over release notes
-            selected_docs = select_best_documents(documents, max_docs=3)
-            context_parts = []
-            for i, doc in enumerate(selected_docs, 1):
-                # Process document content and fix links
-                processed_content = process_document_content(doc)
-                if processed_content:
-                    # Use more content for better responses - up to 2000 characters per document
-                    # For high-relevance docs (score > 0.6), use even more content
-                    score = doc.get('score', 0)
-                    max_length = 3000 if score > 0.6 else 2000
-                    content_to_use = processed_content[:max_length]
-                    if len(processed_content) > max_length:
-                        content_to_use += "..."
-                    context_parts.append(f"Document {i} (Score: {score:.3f}): {content_to_use}")
-            context = "\n\n".join(context_parts)
+            if SMART_CONTEXT_AVAILABLE:
+                # Use smart context manager for adaptive context length
+                context, context_metadata = smart_context_manager.prepare_smart_context(documents, query)
+                # Store context metadata in session state for UI display
+                st.session_state['last_context_metadata'] = context_metadata
+            else:
+                # Fallback to standard context preparation
+                selected_docs = select_best_documents(documents, max_docs=3)
+                context_parts = []
+                for i, doc in enumerate(selected_docs, 1):
+                    processed_content = process_document_content(doc)
+                    if processed_content:
+                        score = doc.get('score', 0)
+                        max_length = 3000 if score > 0.6 else 2000
+                        content_to_use = processed_content[:max_length]
+                        if len(processed_content) > max_length:
+                            content_to_use += "..."
+                        context_parts.append(f"Document {i} (Score: {score:.3f}): {content_to_use}")
+                context = "\n\n".join(context_parts)
         
         # Update processing step: Synthesizing response
         st.session_state.processing_step = 3
@@ -2108,6 +2124,44 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
         else:
             # Show that enhancement is available but not used yet
             st.info("🚀 Query Enhancement is available and enabled. Submit a query to see enhancement details.")
+    
+    # Smart Context Management Information (show when available)
+    if SMART_CONTEXT_AVAILABLE:
+        if st.session_state.get('last_context_metadata'):
+            context_data = st.session_state['last_context_metadata']
+            with st.expander("🧠 Smart Context Management", expanded=False):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("**Query Complexity:**")
+                    complexity_emoji = {
+                        'simple': '🟢',
+                        'medium': '🟡', 
+                        'complex': '🔴'
+                    }
+                    complexity = context_data['complexity']
+                    st.write(f"{complexity_emoji.get(complexity, '⚪')} {complexity.title()}")
+                    
+                    st.write("**Context Configuration:**")
+                    st.write(f"• Max chars per doc: {context_data['max_chars_per_doc']:,}")
+                    st.write(f"• Max documents: {context_data['max_docs']}")
+                    st.write(f"• Documents used: {context_data['documents_used']}")
+                
+                with col2:
+                    st.write("**Context Statistics:**")
+                    st.write(f"• Total context length: {context_data['context_length']:,} chars")
+                    st.write(f"• Processing time: {context_data['processing_time_ms']:.2f} ms")
+                    
+                    if 'detection_details' in context_data:
+                        details = context_data['detection_details']
+                        st.write("**Detection Details:**")
+                        st.write(f"• Query length: {details['query_length']} chars")
+                        st.write(f"• Complexity score: {details['complexity_score']}")
+                        if details['technical_indicators']:
+                            st.write(f"• Technical terms: {len(details['technical_indicators'])}")
+        else:
+            # Show that smart context is available but not used yet
+            st.info("🧠 Smart Context Management is available. Submit a query to see context optimization details.")
     
     # Query Enhancement Toggle moved to main input area for better visibility
     
