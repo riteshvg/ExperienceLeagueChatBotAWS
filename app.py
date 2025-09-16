@@ -1784,6 +1784,91 @@ def render_main_page_minimal():
                         
                         # Process the query
                         process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service)
+    
+    # Enhanced Debug Panel (always visible when debug mode is enabled)
+    if st.session_state.get('debug_mode', False) and DEBUG_PANEL_AVAILABLE:
+        debug_panel.render_debug_panel()
+    elif st.session_state.get('debug_mode', False):
+        # Fallback to basic debug info if debug panel is not available
+        with st.expander("🔍 Basic Debug Info", expanded=True):
+            st.write(f"**Debug mode status:** {st.session_state.get('debug_mode', False)}")
+            st.write(f"**Session state keys:** {list(st.session_state.keys())}")
+            if 'query_input' in st.session_state:
+                st.write(f"**Query input:** '{st.session_state.get('query_input', 'NOT_SET')}'")
+            if 'processing_query' in st.session_state:
+                st.write(f"**Processing query:** {st.session_state.get('processing_query', False)}")
+            if 'query_count' in st.session_state:
+                st.write(f"**Query count:** {st.session_state.get('query_count', 0)}")
+            if 'total_tokens_used' in st.session_state:
+                st.write(f"**Total tokens used:** {st.session_state.get('total_tokens_used', 0)}")
+            if 'cost_by_model' in st.session_state:
+                st.write(f"**Cost by model:** {st.session_state.get('cost_by_model', {})}")
+            if 'debug_history' in st.session_state:
+                st.write(f"**Debug history entries:** {len(st.session_state.get('debug_history', []))}")
+    
+    # Query Enhancement Information (show when available)
+    if QUERY_ENHANCEMENT_AVAILABLE and st.session_state.get('last_enhancement_metadata'):
+        enhancement_data = st.session_state['last_enhancement_metadata']
+        with st.expander("🚀 Query Enhancement Details", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**Original Query:**")
+                st.write(f"'{enhancement_data.get('original_query', 'N/A')}'")
+                
+                st.write("**Enhanced Queries:**")
+                for i, enhanced_query in enumerate(enhancement_data.get('enhanced_queries', [])[:3], 1):
+                    st.write(f"{i}. {enhanced_query}")
+            
+            with col2:
+                st.write("**Detected Products:**")
+                products = enhancement_data.get('detected_products', [])
+                if products:
+                    for product in products:
+                        st.write(f"• {product}")
+                else:
+                    st.write("None detected")
+                
+                st.write("**Processing Time:**")
+                st.write(f"{enhancement_data.get('processing_time_ms', 0):.2f} ms")
+    
+    # Smart Context Management Information (show when available)
+    if SMART_CONTEXT_AVAILABLE:
+        if st.session_state.get('last_context_metadata'):
+            context_data = st.session_state['last_context_metadata']
+            with st.expander("🧠 Smart Context Management", expanded=False):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("**Query Complexity:**")
+                    complexity_emoji = {
+                        'simple': '🟢',
+                        'medium': '🟡', 
+                        'complex': '🔴'
+                    }
+                    complexity = context_data['complexity']
+                    st.write(f"{complexity_emoji.get(complexity, '⚪')} {complexity.title()}")
+                    
+                    st.write("**Context Configuration:**")
+                    st.write(f"• Max chars per doc: {context_data['max_chars_per_doc']:,}")
+                    st.write(f"• Max documents: {context_data['max_docs']}")
+                    st.write(f"• Documents used: {context_data['documents_used']}")
+                
+                with col2:
+                    st.write("**Context Statistics:**")
+                    st.write(f"• Total context length: {context_data['context_length']:,} chars")
+                    st.write(f"• Processing time: {context_data['processing_time_ms']:.2f} ms")
+                    
+                    if 'detection_details' in context_data:
+                        details = context_data['detection_details']
+                        st.write("**Detection Details:**")
+                        st.write(f"• Query length: {details['query_length']} chars")
+                        st.write(f"• Complexity score: {details['complexity_score']}")
+                        if details['technical_indicators']:
+                            st.write(f"• Technical terms: {len(details['technical_indicators'])}")
+        else:
+            # Show that smart context is available but not used yet
+            st.info("🧠 Smart Context Management is available. Submit a query to see context optimization details.")
 
 def process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service):
     """Process query with full initialization (called only when needed)."""
@@ -1839,6 +1924,17 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
                     # Handle error
                     response_placeholder.error(f"❌ **Error:** {result['error']}")
                     save_chat_message('assistant', f"❌ Error: {result['error']}")
+                    
+                    # Add debug entry for error
+                    if DEBUG_PANEL_AVAILABLE:
+                        debug_panel.add_debug_entry(
+                            query=query,
+                            status="error",
+                            duration=time.time() - start_time,
+                            error=result['error'],
+                            step_info="Query processing failed"
+                        )
+                    
                     st.rerun()
                     return
                 
@@ -1892,6 +1988,18 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
             
             estimated_cost = (estimated_tokens / 1000) * cost_per_1k_tokens.get(model_used, 0.00125)
             st.session_state.cost_by_model[model_used] += estimated_cost
+            
+            # Add debug entry for query completion
+            if DEBUG_PANEL_AVAILABLE:
+                debug_panel.add_debug_entry(
+                    query=query,
+                    status="completed",
+                    duration=processing_time,
+                    tokens=estimated_tokens,
+                    cost=estimated_cost,
+                    model=model_used,
+                    step_info="Query completed successfully"
+                )
             
             # Save assistant response with metadata
             assistant_metadata = {

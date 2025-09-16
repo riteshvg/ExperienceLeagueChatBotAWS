@@ -50,7 +50,7 @@ class DebugPanel:
             st.session_state.current_step_start = None
         
         if 'debug_panel_expanded' not in st.session_state:
-            st.session_state.debug_panel_expanded = False
+            st.session_state.debug_panel_expanded = True
     
     def add_debug_entry(self, query: str, status: str, duration: float = None, 
                        tokens: int = None, cost: float = None, model: str = None,
@@ -360,31 +360,35 @@ class DebugPanel:
         if not st.session_state.get('debug_mode', False):
             return
         
-        # Debug panel toggle
-        if st.button("🔍 Toggle Debug Panel"):
-            st.session_state.debug_panel_expanded = not st.session_state.debug_panel_expanded
-        
-        if not st.session_state.get('debug_panel_expanded', False):
-            st.info("🔍 Debug mode is active. Click 'Toggle Debug Panel' to view details.")
-            return
-        
         st.markdown("---")
         st.markdown("## 🔍 Debug Panel")
         
-        # Render all sections
+        # Debug panel toggle (optional - for collapsing)
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("🔍 Toggle Details", help="Show/hide detailed debug information"):
+                st.session_state.debug_panel_expanded = not st.session_state.get('debug_panel_expanded', True)
+        
+        with col2:
+            if st.session_state.get('debug_panel_expanded', True):
+                st.success("Debug details are visible")
+            else:
+                st.info("Debug details are hidden - click 'Toggle Details' to show")
+        
+        # Always show basic debug info
         self.render_current_status()
-        st.markdown("---")
         
-        self.render_performance_metrics()
-        st.markdown("---")
+        # Show detailed sections only if expanded
+        if st.session_state.get('debug_panel_expanded', True):
+            st.markdown("---")
+            self.render_performance_metrics()
+            st.markdown("---")
+            self.render_query_history()
+            st.markdown("---")
+            self.render_session_variables()
+            st.markdown("---")
+            self.render_debug_controls()
         
-        self.render_query_history()
-        st.markdown("---")
-        
-        self.render_session_variables()
-        st.markdown("---")
-        
-        self.render_debug_controls()
         st.markdown("---")
 
 # Global instance
