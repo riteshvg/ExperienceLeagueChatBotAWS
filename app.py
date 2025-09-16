@@ -1117,33 +1117,49 @@ Please ask questions about these topics, and I'll be happy to help! For example:
 - "What is Customer Journey Analytics?" """
 
 def select_best_documents(documents, max_docs=3):
-    """Select the best documents, prioritizing main documentation over release notes."""
+    """Select the best documents, prioritizing main documentation and high-relevance docs."""
     if not documents:
         return []
     
-    # Separate documents by type
+    # Separate documents by type and relevance
     main_docs = []
+    high_relevance_docs = []
     release_notes = []
     other_docs = []
     
     for doc in documents:
         location = doc.get('location', {})
         s3_uri = location.get('s3Location', {}).get('uri', '')
+        score = doc.get('score', 0)
         
-        if 'release-notes' in s3_uri:
+        # Prioritize high-relevance documents (score > 0.6)
+        if score > 0.6:
+            high_relevance_docs.append(doc)
+        elif 'release-notes' in s3_uri:
             release_notes.append(doc)
         elif any(keyword in s3_uri for keyword in ['/home.md', '/overview.md', '/getting-started.md']):
             main_docs.append(doc)
         else:
             other_docs.append(doc)
     
-    # Prioritize main documentation, then other docs, then release notes
+    # Sort each category by score (highest first)
+    high_relevance_docs.sort(key=lambda x: x.get('score', 0), reverse=True)
+    main_docs.sort(key=lambda x: x.get('score', 0), reverse=True)
+    other_docs.sort(key=lambda x: x.get('score', 0), reverse=True)
+    release_notes.sort(key=lambda x: x.get('score', 0), reverse=True)
+    
+    # Prioritize: high-relevance docs, then main docs, then other docs, then release notes
     selected = []
     
-    # Add main documentation first (up to max_docs)
-    selected.extend(main_docs[:max_docs])
+    # Add high-relevance documents first
+    selected.extend(high_relevance_docs[:max_docs])
     
-    # If we need more docs, add other documentation
+    # If we need more docs, add main documentation
+    if len(selected) < max_docs:
+        remaining = max_docs - len(selected)
+        selected.extend(main_docs[:remaining])
+    
+    # If we still need more docs, add other documentation
     if len(selected) < max_docs:
         remaining = max_docs - len(selected)
         selected.extend(other_docs[:remaining])

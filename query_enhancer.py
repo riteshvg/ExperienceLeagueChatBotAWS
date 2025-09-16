@@ -96,6 +96,17 @@ class AdobeQueryEnhancer:
             "customer journey": "Adobe Journey Optimizer",
             "journey management": "Adobe Journey Optimizer",
             
+            # Web SDK specific terms
+            "web sdk": "Adobe Experience Platform Web SDK",
+            "websdk": "Adobe Experience Platform Web SDK",
+            "identitydata": "identity data",
+            "identity data": "identity data",
+            "ecid": "ECID",
+            "core id": "CORE ID",
+            "identitymap": "identityMap",
+            "getidentity": "getIdentity",
+            "sendevent": "sendEvent",
+            
             # Adobe Audience Manager
             "aam": "Adobe Audience Manager",
             "audience manager": "Adobe Audience Manager",
@@ -190,6 +201,12 @@ class AdobeQueryEnhancer:
                 r"\b(ajo|journey optimizer|adobe journey optimizer)\b",
                 r"\b(journey orchestration|customer journey)\b",
                 r"\b(journey management|orchestration)\b"
+            ],
+            "web_sdk": [
+                r"\b(web sdk|websdk|adobe experience platform web sdk)\b",
+                r"\b(identitydata|identity data|ecid|core id)\b",
+                r"\b(identitymap|getidentity|sendevent)\b",
+                r"\b(web sdk|websdk).*\b(identity|ecid|tracking)\b"
             ]
         }
     
@@ -223,8 +240,8 @@ class AdobeQueryEnhancer:
             if original_query not in enhanced_queries:
                 enhanced_queries.insert(0, original_query)
             
-            # Limit to 3 enhanced queries for performance
-            enhanced_queries = enhanced_queries[:3]
+            # Limit to 5 enhanced queries for better coverage but not too many
+            enhanced_queries = enhanced_queries[:5]
             
             processing_time = (time.time() - start_time) * 1000
             
