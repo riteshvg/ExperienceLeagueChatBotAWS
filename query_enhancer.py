@@ -240,6 +240,13 @@ class AdobeQueryEnhancer:
             if original_query not in enhanced_queries:
                 enhanced_queries.insert(0, original_query)
             
+            # Reorder to prioritize Web SDK specific queries
+            web_sdk_queries = [q for q in enhanced_queries if any(term in q.lower() for term in ['ecid', 'core id', 'identity overview', 'identity data web sdk'])]
+            other_queries = [q for q in enhanced_queries if q not in web_sdk_queries]
+            
+            # Put Web SDK specific queries first, then others
+            enhanced_queries = web_sdk_queries + other_queries
+            
             # Limit to 5 enhanced queries for better coverage but not too many
             enhanced_queries = enhanced_queries[:5]
             
