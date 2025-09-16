@@ -1787,7 +1787,15 @@ def render_main_page_minimal():
     
     # Enhanced Debug Panel (always visible when debug mode is enabled)
     if st.session_state.get('debug_mode', False) and DEBUG_PANEL_AVAILABLE:
-        debug_panel.render_debug_panel()
+        # Create main content and debug panel layout
+        main_col, debug_col = st.columns([7, 3])
+        
+        with main_col:
+            # Main content goes here - this will be handled by the calling function
+            pass
+        
+        with debug_col:
+            debug_panel.render_debug_panel_content_only()
     elif st.session_state.get('debug_mode', False):
         # Fallback to basic debug info if debug panel is not available
         with st.expander("🔍 Basic Debug Info", expanded=True):

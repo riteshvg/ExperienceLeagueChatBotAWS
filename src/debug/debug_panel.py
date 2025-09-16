@@ -309,12 +309,15 @@ class DebugPanel:
         return badges.get(status, f"❓ {status}")
     
     def render_debug_panel(self):
-        """Main function to render the complete debug panel in sidebar"""
+        """Main function to render the complete debug panel as a right-hand panel"""
         if not st.session_state.get('debug_mode', False):
             return
         
-        # Create a sidebar for debug information
-        with st.sidebar:
+        # Create a right-hand panel using columns
+        # Main content takes 70% width, debug panel takes 30%
+        main_col, debug_col = st.columns([7, 3])
+        
+        with debug_col:
             st.markdown("---")
             st.markdown("## 🔍 Debug Panel")
             
@@ -345,6 +348,42 @@ class DebugPanel:
                 self.render_debug_controls()
             
             st.markdown("---")
+    
+    def render_debug_panel_content_only(self):
+        """Render only the debug panel content without column layout"""
+        if not st.session_state.get('debug_mode', False):
+            return
+        
+        st.markdown("---")
+        st.markdown("## 🔍 Debug Panel")
+        
+        # Debug panel toggle (optional - for collapsing)
+        col1, col2 = st.columns([1, 2])
+        with col1:
+            if st.button("🔍 Toggle", help="Show/hide detailed debug information"):
+                st.session_state.debug_panel_expanded = not st.session_state.get('debug_panel_expanded', True)
+        
+        with col2:
+            if st.session_state.get('debug_panel_expanded', True):
+                st.success("Details ON")
+            else:
+                st.info("Details OFF")
+        
+        # Always show basic debug info
+        self.render_current_status()
+        
+        # Show detailed sections only if expanded
+        if st.session_state.get('debug_panel_expanded', True):
+            st.markdown("---")
+            self.render_performance_metrics()
+            st.markdown("---")
+            self.render_query_history()
+            st.markdown("---")
+            self.render_session_variables()
+            st.markdown("---")
+            self.render_debug_controls()
+        
+        st.markdown("---")
 
 # Global instance
 debug_panel = DebugPanel()
