@@ -304,17 +304,25 @@ class AdobeQueryEnhancer:
                 enhanced_query = f"{product} {query}"
                 enhanced_queries.append(enhanced_query)
         
-        # 2. Synonym expansion
+        # 2. Web SDK specific enhancements
+        if any(term in query.lower() for term in ['web sdk', 'websdk', 'identitydata', 'identity data']):
+            # Add ECID and CORE ID terms for Web SDK identity queries
+            if 'identity' in query.lower():
+                enhanced_queries.append(f"{query} ECID CORE ID")
+                enhanced_queries.append(f"Web SDK identity overview {query}")
+                enhanced_queries.append(f"identity data Web SDK ECID tracking")
+        
+        # 3. Synonym expansion
         synonym_enhanced = self._apply_synonym_expansion(query)
         if synonym_enhanced != query:
             enhanced_queries.append(synonym_enhanced)
         
-        # 3. Adobe context enhancement
+        # 4. Adobe context enhancement
         if not any(term in query.lower() for term in self.adobe_context_terms):
             context_enhanced = f"Adobe {query}"
             enhanced_queries.append(context_enhanced)
         
-        # 4. Technical term enhancement
+        # 5. Technical term enhancement
         tech_enhanced = self._apply_technical_enhancement(query)
         if tech_enhanced != query:
             enhanced_queries.append(tech_enhanced)
