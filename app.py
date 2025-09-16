@@ -34,6 +34,14 @@ except ImportError as e:
     logger.warning(f"Smart context manager not available: {e}")
     SMART_CONTEXT_AVAILABLE = False
 
+# Import debug panel
+try:
+    from src.debug.debug_panel import debug_panel
+    DEBUG_PANEL_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Debug panel not available: {e}")
+    DEBUG_PANEL_AVAILABLE = False
+
 # Load environment variables
 load_dotenv()
 
@@ -881,6 +889,15 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
         
         # Update processing step: Analyzing question
         st.session_state.processing_step = 0
+        st.session_state.current_step_start = time.time()
+        
+        # Add debug entry for query start
+        if DEBUG_PANEL_AVAILABLE:
+            debug_panel.add_debug_entry(
+                query=query,
+                status="processing",
+                step_info="Starting query analysis"
+            )
         
         # Step 1: Enhanced document retrieval with query enhancement
         if QUERY_ENHANCEMENT_AVAILABLE and st.session_state.get('query_enhancement_enabled', True):
@@ -2095,9 +2112,12 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             
             st.markdown("---")
     
-    # Debug information (always visible when debug mode is enabled)
-    if st.session_state.get('debug_mode', False):
-        with st.expander("🔍 Debug Info", expanded=True):
+    # Enhanced Debug Panel (always visible when debug mode is enabled)
+    if st.session_state.get('debug_mode', False) and DEBUG_PANEL_AVAILABLE:
+        debug_panel.render_debug_panel()
+    elif st.session_state.get('debug_mode', False):
+        # Fallback to basic debug info if debug panel is not available
+        with st.expander("🔍 Basic Debug Info", expanded=True):
             st.write(f"**Query value:** '{query if query else 'No query yet'}'")
             st.write(f"**Query length:** {len(query) if query else 0}")
             st.write(f"**Session state query_input:** '{st.session_state.get('query_input', 'NOT_SET')}'")
@@ -2163,7 +2183,29 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             # Show that smart context is available but not used yet
             st.info("🧠 Smart Context Management is available. Submit a query to see context optimization details.")
     
-    # Query Enhancement Toggle moved to main input area for better visibility
+    # Debug Mode Toggle Button
+    col1, col2, col3 = st.columns([1, 1, 2])
+    
+    with col1:
+        if st.button("🔍 Debug Mode", help="Toggle debug mode for detailed query information"):
+            st.session_state.debug_mode = not st.session_state.get('debug_mode', False)
+            st.rerun()
+    
+    with col2:
+        if st.session_state.get('debug_mode', False):
+            st.success("Debug Mode: ON")
+        else:
+            st.info("Debug Mode: OFF")
+    
+    with col3:
+        # Query Enhancement Toggle moved to main input area for better visibility
+        if QUERY_ENHANCEMENT_AVAILABLE:
+            query_enhancement_enabled = st.checkbox(
+                "🚀 Query Enhancement", 
+                value=st.session_state.get('query_enhancement_enabled', True),
+                help="Enable query enhancement for better document retrieval"
+            )
+            st.session_state.query_enhancement_enabled = query_enhancement_enabled
     
     # Process query when submitted (button click or Enter key)
     if submit_button or st.session_state.get('enter_pressed', False):
@@ -2233,6 +2275,15 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             # Update progress bar and status
             progress_bar.progress(100)
             status_text.success("✅ Processing complete!")
+            
+            # Add debug entry for successful completion
+            if DEBUG_PANEL_AVAILABLE and result["success"]:
+                debug_panel.add_debug_entry(
+                    query=query,
+                    status="completed",
+                    duration=processing_time,
+                    step_info="Query completed successfully"
+                )
             
             # Track cost and usage
             if result["success"]:
@@ -2360,6 +2411,18 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             else:
                 # Save error message
                 save_chat_message('assistant', f"❌ Error: {result['error']}")
+                
+                # Add debug entry for failed query
+                if DEBUG_PANEL_AVAILABLE:
+                    processing_time = time.time() - start_time
+                    debug_panel.add_debug_entry(
+                        query=query,
+                        status="error",
+                        duration=processing_time,
+                        error=result.get('error', 'Unknown error'),
+                        step_info="Query failed"
+                    )
+                
                 st.rerun()
         else:
             st.error("❌ **System not ready!** Please check the admin dashboard for system status.")
