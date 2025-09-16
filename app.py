@@ -1882,6 +1882,14 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
                 'opus': 0.075      # $75 per 1M tokens
             }
             
+            # Ensure cost_by_model is initialized with all model keys
+            if 'cost_by_model' not in st.session_state:
+                st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
+            
+            # Ensure the specific model key exists
+            if model_used not in st.session_state.cost_by_model:
+                st.session_state.cost_by_model[model_used] = 0
+            
             estimated_cost = (estimated_tokens / 1000) * cost_per_1k_tokens.get(model_used, 0.00125)
             st.session_state.cost_by_model[model_used] += estimated_cost
             
@@ -2290,6 +2298,14 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                     'sonnet': 0.015,   # $15 per 1M tokens  
                     'opus': 0.075      # $75 per 1M tokens
                 }
+                
+                # Ensure cost_by_model is initialized with all model keys
+                if 'cost_by_model' not in st.session_state:
+                    st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
+                
+                # Ensure the specific model key exists
+                if model_used not in st.session_state.cost_by_model:
+                    st.session_state.cost_by_model[model_used] = 0
                 
                 estimated_cost = (estimated_tokens / 1000) * cost_per_1k_tokens.get(model_used, 0.00125)
                 st.session_state.cost_by_model[model_used] += estimated_cost
