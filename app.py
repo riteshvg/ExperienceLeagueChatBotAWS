@@ -1908,6 +1908,16 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             on_change=lambda: st.session_state.update(enter_pressed=True)
         )
         
+        # Query Enhancement Toggle (moved here for better visibility)
+        if QUERY_ENHANCEMENT_AVAILABLE:
+            st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+            query_enhancement_enabled = st.checkbox(
+                "🚀 Query Enhancement", 
+                value=st.session_state.get('query_enhancement_enabled', True),
+                help="Enable query enhancement for better search results"
+            )
+            st.session_state['query_enhancement_enabled'] = query_enhancement_enabled
+        
         # Character counter
         if query:
             char_count = len(query)
@@ -2016,16 +2026,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 st.write(f"**Detected Products:** {', '.join(enhancement_data['detected_products'])}")
             st.write(f"**Processing Time:** {enhancement_data['processing_time_ms']:.2f}ms")
     
-    # Query Enhancement Toggle (in admin panel or settings)
-    if QUERY_ENHANCEMENT_AVAILABLE:
-        col1, col2 = st.columns([3, 1])
-        with col2:
-            query_enhancement_enabled = st.checkbox(
-                "🚀 Query Enhancement", 
-                value=st.session_state.get('query_enhancement_enabled', True),
-                help="Enable query enhancement for better search results"
-            )
-            st.session_state['query_enhancement_enabled'] = query_enhancement_enabled
+    # Query Enhancement Toggle moved to main input area for better visibility
     
     # Process query when submitted (button click or Enter key)
     if submit_button or st.session_state.get('enter_pressed', False):
