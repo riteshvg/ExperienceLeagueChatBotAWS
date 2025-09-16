@@ -2183,29 +2183,6 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             # Show that smart context is available but not used yet
             st.info("🧠 Smart Context Management is available. Submit a query to see context optimization details.")
     
-    # Debug Mode Toggle Button
-    col1, col2, col3 = st.columns([1, 1, 2])
-    
-    with col1:
-        if st.button("🔍 Debug Mode", help="Toggle debug mode for detailed query information"):
-            st.session_state.debug_mode = not st.session_state.get('debug_mode', False)
-            st.rerun()
-    
-    with col2:
-        if st.session_state.get('debug_mode', False):
-            st.success("Debug Mode: ON")
-        else:
-            st.info("Debug Mode: OFF")
-    
-    with col3:
-        # Query Enhancement Toggle moved to main input area for better visibility
-        if QUERY_ENHANCEMENT_AVAILABLE:
-            query_enhancement_enabled = st.checkbox(
-                "🚀 Query Enhancement", 
-                value=st.session_state.get('query_enhancement_enabled', True),
-                help="Enable query enhancement for better document retrieval"
-            )
-            st.session_state.query_enhancement_enabled = query_enhancement_enabled
     
     # Process query when submitted (button click or Enter key)
     if submit_button or st.session_state.get('enter_pressed', False):
@@ -2442,6 +2419,71 @@ def main():
         ["🏠 Main Chat", "ℹ️ About", "🔧 Admin Dashboard"],
         index=0
     )
+    
+    # Debug Mode Toggle in Sidebar
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔧 Debug Controls")
+    
+    debug_mode = st.sidebar.checkbox(
+        "🔍 Debug Mode", 
+        value=st.session_state.get('debug_mode', False),
+        help="Enable debug mode for detailed query information and performance tracking"
+    )
+    st.session_state.debug_mode = debug_mode
+    
+    if debug_mode:
+        st.sidebar.success("Debug Mode: ON")
+        
+        # Additional debug controls when debug mode is enabled
+        st.sidebar.markdown("**Debug Options:**")
+        
+        # Query Enhancement Toggle in Sidebar
+        if QUERY_ENHANCEMENT_AVAILABLE:
+            query_enhancement_enabled = st.sidebar.checkbox(
+                "🚀 Query Enhancement", 
+                value=st.session_state.get('query_enhancement_enabled', True),
+                help="Enable query enhancement for better document retrieval"
+            )
+            st.session_state.query_enhancement_enabled = query_enhancement_enabled
+        
+        # Smart Context Toggle in Sidebar
+        if SMART_CONTEXT_AVAILABLE:
+            smart_context_enabled = st.sidebar.checkbox(
+                "🧠 Smart Context", 
+                value=st.session_state.get('smart_context_enabled', True),
+                help="Enable smart context management for cost optimization"
+            )
+            st.session_state.smart_context_enabled = smart_context_enabled
+        
+        # Debug panel controls
+        if DEBUG_PANEL_AVAILABLE:
+            st.sidebar.markdown("**Debug Panel:**")
+            if st.sidebar.button("🔄 Refresh Debug Info"):
+                st.rerun()
+            
+            if st.sidebar.button("🗑️ Clear Debug History"):
+                if 'debug_history' in st.session_state:
+                    st.session_state.debug_history = []
+                if 'query_count' in st.session_state:
+                    st.session_state.query_count = 0
+                if 'total_queries' in st.session_state:
+                    st.session_state.total_queries = 0
+                if 'response_times' in st.session_state:
+                    st.session_state.response_times = []
+                if 'success_count' in st.session_state:
+                    st.session_state.success_count = 0
+                if 'error_count' in st.session_state:
+                    st.session_state.error_count = 0
+                if 'session_cost' in st.session_state:
+                    st.session_state.session_cost = 0.0
+                if 'cost_by_model' in st.session_state:
+                    st.session_state.cost_by_model = {}
+                if 'total_tokens_used' in st.session_state:
+                    st.session_state.total_tokens_used = 0
+                st.sidebar.success("Debug history cleared!")
+                st.rerun()
+    else:
+        st.sidebar.info("Debug Mode: OFF")
     
     # Ultra-fast path for main chat - minimal initialization
     if page == "🏠 Main Chat":
