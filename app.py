@@ -792,7 +792,14 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
                 # Process document content and fix links
                 processed_content = process_document_content(doc)
                 if processed_content:
-                    context_parts.append(f"Document {i}: {processed_content[:500]}...")
+                    # Use more content for better responses - up to 2000 characters per document
+                    # For high-relevance docs (score > 0.6), use even more content
+                    score = doc.get('score', 0)
+                    max_length = 3000 if score > 0.6 else 2000
+                    content_to_use = processed_content[:max_length]
+                    if len(processed_content) > max_length:
+                        content_to_use += "..."
+                    context_parts.append(f"Document {i} (Score: {score:.3f}): {content_to_use}")
             context = "\n\n".join(context_parts)
         
         # Step 4: Invoke selected model
@@ -951,7 +958,14 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
                 # Process document content and fix links
                 processed_content = process_document_content(doc)
                 if processed_content:
-                    context_parts.append(f"Document {i}: {processed_content[:500]}...")
+                    # Use more content for better responses - up to 2000 characters per document
+                    # For high-relevance docs (score > 0.6), use even more content
+                    score = doc.get('score', 0)
+                    max_length = 3000 if score > 0.6 else 2000
+                    content_to_use = processed_content[:max_length]
+                    if len(processed_content) > max_length:
+                        content_to_use += "..."
+                    context_parts.append(f"Document {i} (Score: {score:.3f}): {content_to_use}")
             context = "\n\n".join(context_parts)
         
         # Update processing step: Synthesizing response
