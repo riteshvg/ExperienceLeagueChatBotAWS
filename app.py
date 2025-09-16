@@ -863,23 +863,72 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
         # Update processing step: Analyzing question
         st.session_state.processing_step = 0
         
-        # Step 1: Retrieve documents from Knowledge Base
-        documents, retrieval_error = retrieve_documents_from_kb(
-            query, 
-            knowledge_base_id, 
-            aws_clients['bedrock_agent_client']
-        )
-        
-        if retrieval_error:
-            yield {
-                "success": False,
-                "error": f"Retrieval error: {retrieval_error}",
-                "documents": [],
-                "routing_decision": None,
-                "answer": "",
-                "model_used": None
-            }
-            return
+        # Step 1: Enhanced document retrieval with query enhancement
+        if QUERY_ENHANCEMENT_AVAILABLE and st.session_state.get('query_enhancement_enabled', True):
+            try:
+                # Use enhanced RAG pipeline
+                enhanced_results = asyncio.run(enhanced_rag_pipeline.enhanced_retrieve_documents(
+                    query, 
+                    top_k=10,
+                    use_enhancement=True
+                ))
+                
+                # Convert enhanced results to legacy format
+                documents = []
+                for result in enhanced_results:
+                    documents.append({
+                        'content': {'text': result.content},
+                        'score': result.score,
+                        'location': {'s3Location': {'uri': result.source}}
+                    })
+                
+                # Store enhancement metadata in session state for UI display
+                st.session_state['last_query_enhancement'] = {
+                    'original_query': query,
+                    'enhanced_queries': [r.enhanced_query for r in enhanced_results],
+                    'detected_products': enhanced_results[0].product_context if enhanced_results else [],
+                    'processing_time_ms': sum(r.processing_time_ms for r in enhanced_results) / len(enhanced_results) if enhanced_results else 0
+                }
+                
+                print(f"🔍 [ENHANCEMENT] Query enhanced: {len(enhanced_results)} results, {len(st.session_state.get('last_query_enhancement', {}).get('enhanced_queries', []))} enhanced queries")
+                
+            except Exception as e:
+                print(f"⚠️ [ENHANCEMENT] Enhanced retrieval failed, falling back to standard: {e}")
+                # Fallback to standard retrieval
+                documents, retrieval_error = retrieve_documents_from_kb(
+                    query, 
+                    knowledge_base_id, 
+                    aws_clients['bedrock_agent_client']
+                )
+                
+                if retrieval_error:
+                    yield {
+                        "success": False,
+                        "error": f"Retrieval error: {retrieval_error}",
+                        "documents": [],
+                        "routing_decision": None,
+                        "answer": "",
+                        "model_used": None
+                    }
+                    return
+        else:
+            # Standard retrieval without enhancement
+            documents, retrieval_error = retrieve_documents_from_kb(
+                query, 
+                knowledge_base_id, 
+                aws_clients['bedrock_agent_client']
+            )
+            
+            if retrieval_error:
+                yield {
+                    "success": False,
+                    "error": f"Retrieval error: {retrieval_error}",
+                    "documents": [],
+                    "routing_decision": None,
+                    "answer": "",
+                    "model_used": None
+                }
+                return
         
         # Update processing step: Searching knowledge base
         st.session_state.processing_step = 1
@@ -2015,16 +2064,20 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             st.write(f"**Session state keys:** {list(st.session_state.keys())}")
     
     # Query Enhancement Information (show when available)
-    if QUERY_ENHANCEMENT_AVAILABLE and st.session_state.get('last_query_enhancement'):
-        enhancement_data = st.session_state['last_query_enhancement']
-        with st.expander("🚀 Query Enhancement", expanded=False):
-            st.write(f"**Original Query:** {enhancement_data['original_query']}")
-            st.write(f"**Enhanced Queries:** {len(enhancement_data['enhanced_queries'])}")
-            for i, eq in enumerate(enhancement_data['enhanced_queries'], 1):
-                st.write(f"  {i}. {eq}")
-            if enhancement_data['detected_products']:
-                st.write(f"**Detected Products:** {', '.join(enhancement_data['detected_products'])}")
-            st.write(f"**Processing Time:** {enhancement_data['processing_time_ms']:.2f}ms")
+    if QUERY_ENHANCEMENT_AVAILABLE:
+        if st.session_state.get('last_query_enhancement'):
+            enhancement_data = st.session_state['last_query_enhancement']
+            with st.expander("🚀 Query Enhancement", expanded=False):
+                st.write(f"**Original Query:** {enhancement_data['original_query']}")
+                st.write(f"**Enhanced Queries:** {len(enhancement_data['enhanced_queries'])}")
+                for i, eq in enumerate(enhancement_data['enhanced_queries'], 1):
+                    st.write(f"  {i}. {eq}")
+                if enhancement_data['detected_products']:
+                    st.write(f"**Detected Products:** {', '.join(enhancement_data['detected_products'])}")
+                st.write(f"**Processing Time:** {enhancement_data['processing_time_ms']:.2f}ms")
+        else:
+            # Show that enhancement is available but not used yet
+            st.info("🚀 Query Enhancement is available and enabled. Submit a query to see enhancement details.")
     
     # Query Enhancement Toggle moved to main input area for better visibility
     
