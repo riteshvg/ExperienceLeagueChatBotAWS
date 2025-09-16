@@ -93,33 +93,23 @@ class DebugPanel:
             st.session_state.cost_by_model[model] += cost
     
     def render_current_status(self):
-        """Render current session status section"""
-        st.subheader("📊 Current Session Status")
+        """Render current session status section (sidebar optimized)"""
+        st.markdown("**📊 Current Status**")
         
-        col1, col2, col3, col4 = st.columns(4)
+        # Compact status display
+        current_query = st.session_state.get('query_input', 'No query')
+        processing_state = "Processing" if st.session_state.get('processing_query', False) else "Idle"
+        current_step = st.session_state.get('processing_step', 0)
+        total_messages = len(st.session_state.get('chat_history', []))
         
-        with col1:
-            current_query = st.session_state.get('query_input', 'No query')
-            st.metric(
-                "Current Query",
-                current_query[:30] + "..." if len(current_query) > 30 else current_query
-            )
-        
-        with col2:
-            processing_state = "Processing" if st.session_state.get('processing_query', False) else "Idle"
-            st.metric("Processing State", processing_state)
-        
-        with col3:
-            current_step = st.session_state.get('processing_step', 0)
-            st.metric("Current Step", f"Step {current_step}")
-        
-        with col4:
-            total_messages = len(st.session_state.get('chat_history', []))
-            st.metric("Total Messages", total_messages)
+        # Status in compact format
+        st.write(f"**Query:** {current_query[:25]}{'...' if len(current_query) > 25 else ''}")
+        st.write(f"**State:** {processing_state} | **Step:** {current_step}")
+        st.write(f"**Messages:** {total_messages}")
         
         # Processing step details
         if st.session_state.get('processing_query', False):
-            st.info(f"🔄 Currently processing: {st.session_state.get('processing_step', 0)}/5 steps")
+            st.info(f"🔄 Step {current_step}/5")
         
         # Session activity summary
         st.write("**Session Activity Summary:**")
@@ -155,47 +145,27 @@ class DebugPanel:
         return stats
 
     def render_performance_metrics(self):
-        """Render performance metrics dashboard"""
-        st.subheader("⚡ Performance Metrics")
+        """Render performance metrics dashboard (sidebar optimized)"""
+        st.markdown("**⚡ Performance**")
         
-        col1, col2, col3, col4 = st.columns(4)
+        # Compact metrics display
+        avg_response_time = 0
+        if st.session_state.get('response_times'):
+            avg_response_time = sum(st.session_state.response_times) / len(st.session_state.response_times)
         
-        with col1:
-            avg_response_time = 0
-            if st.session_state.get('response_times'):
-                avg_response_time = sum(st.session_state.response_times) / len(st.session_state.response_times)
-            st.metric(
-                "Avg Response Time",
-                f"{avg_response_time:.2f}s",
-                delta=None
-            )
+        total_tokens = st.session_state.get('total_tokens_used', 0)
+        session_cost = st.session_state.get('session_cost', 0)
         
-        with col2:
-            total_tokens = st.session_state.get('total_tokens_used', 0)
-            st.metric(
-                "Total Tokens",
-                f"{total_tokens:,}",
-                delta=None
-            )
+        success_rate = 0
+        total_queries = st.session_state.get('total_queries', 0)
+        if total_queries > 0:
+            success_rate = (st.session_state.get('success_count', 0) / total_queries) * 100
         
-        with col3:
-            session_cost = st.session_state.get('session_cost', 0)
-            st.metric(
-                "Session Cost",
-                f"${session_cost:.4f}",
-                delta=None
-            )
-        
-        with col4:
-            success_rate = 0
-            total_queries = st.session_state.get('total_queries', 0)
-            if total_queries > 0:
-                success_rate = (st.session_state.get('success_count', 0) / total_queries) * 100
-            st.metric(
-                "Success Rate",
-                f"{success_rate:.1f}%",
-                delta=None
-            )
+        # Compact format
+        st.write(f"**Avg Time:** {avg_response_time:.2f}s")
+        st.write(f"**Tokens:** {total_tokens:,}")
+        st.write(f"**Cost:** ${session_cost:.4f}")
+        st.write(f"**Success:** {success_rate:.1f}%")
         
         # Current processing duration
         if st.session_state.get('current_step_start'):
@@ -203,42 +173,32 @@ class DebugPanel:
             st.info(f"⏱️ Current step duration: {current_duration:.2f}s")
     
     def render_query_history(self):
-        """Render enhanced query history"""
-        st.subheader("📝 Query History")
+        """Render enhanced query history (sidebar optimized)"""
+        st.markdown("**📝 Query History**")
         
         if not st.session_state.get('debug_history'):
-            st.info("No queries processed yet.")
+            st.info("No queries yet")
             return
         
-        # Show last 10 entries
-        recent_history = st.session_state.debug_history[-10:]
+        # Show last 5 entries in compact format
+        recent_history = st.session_state.debug_history[-5:]
         
         for entry in reversed(recent_history):
-            with st.expander(f"Query #{entry['id']} - {entry['timestamp']}", expanded=False):
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write(f"**Query:** {entry['query']}")
-                    st.write(f"**Status:** {self._get_status_badge(entry['status'])}")
-                    if entry['step_info']:
-                        st.write(f"**Step Info:** {entry['step_info']}")
-                
-                with col2:
-                    if entry['duration']:
-                        st.write(f"**Duration:** {entry['duration']:.2f}s")
-                    if entry['tokens']:
-                        st.write(f"**Tokens:** {entry['tokens']:,}")
-                    if entry['cost']:
-                        st.write(f"**Cost:** ${entry['cost']:.4f}")
-                    if entry['model']:
-                        st.write(f"**Model:** {entry['model']}")
-                
-                if entry['error']:
-                    st.error(f"**Error:** {entry['error']}")
+            # Compact entry display
+            status_emoji = "✅" if entry['status'] == 'completed' else "❌" if entry['status'] == 'error' else "🔄"
+            duration = f"{entry['duration']:.1f}s" if entry['duration'] else "N/A"
+            tokens = f"{entry['tokens']:,}" if entry['tokens'] else "N/A"
+            
+            st.write(f"{status_emoji} **#{entry['id']}** {entry['timestamp']}")
+            st.write(f"   {entry['query'][:40]}{'...' if len(entry['query']) > 40 else ''}")
+            st.write(f"   Time: {duration} | Tokens: {tokens}")
+            
+            if entry['error']:
+                st.error(f"   Error: {entry['error'][:50]}{'...' if len(entry['error']) > 50 else ''}")
     
     def render_session_variables(self):
-        """Render organized session variables"""
-        st.subheader("🔧 Session Variables")
+        """Render organized session variables (sidebar optimized)"""
+        st.markdown("**🔧 Session Variables**")
         
         # Group variables by category
         core_session = {
@@ -283,17 +243,18 @@ class DebugPanel:
                     st.write(f"**{key}:** {value}")
     
     def render_debug_controls(self):
-        """Render debug control buttons"""
-        st.subheader("🎛️ Debug Controls")
+        """Render debug control buttons (sidebar optimized)"""
+        st.markdown("**🎛️ Debug Controls**")
         
-        col1, col2, col3, col4 = st.columns(4)
+        # Compact controls
+        col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("🔄 Refresh Debug Info"):
+            if st.button("🔄 Refresh", help="Refresh debug info"):
                 st.rerun()
         
         with col2:
-            if st.button("🗑️ Clear Debug History"):
+            if st.button("🗑️ Clear", help="Clear debug history"):
                 st.session_state.debug_history = []
                 st.session_state.query_count = 0
                 st.session_state.total_queries = 0
@@ -303,20 +264,12 @@ class DebugPanel:
                 st.session_state.session_cost = 0.0
                 st.session_state.cost_by_model = {}
                 st.session_state.total_tokens_used = 0
-                st.success("Debug history cleared!")
+                st.success("Cleared!")
                 st.rerun()
         
-        with col3:
-            view_mode = st.selectbox(
-                "View Mode",
-                ["Summary", "Full Details"],
-                index=0
-            )
-            st.session_state.debug_view_mode = view_mode
-        
-        with col4:
-            if st.button("📊 Export Debug Data"):
-                self.export_debug_data()
+        # Export button
+        if st.button("📊 Export Data", help="Download debug data"):
+            self.export_debug_data()
     
     def export_debug_data(self):
         """Export debug data as JSON"""
@@ -356,40 +309,42 @@ class DebugPanel:
         return badges.get(status, f"❓ {status}")
     
     def render_debug_panel(self):
-        """Main function to render the complete debug panel"""
+        """Main function to render the complete debug panel in sidebar"""
         if not st.session_state.get('debug_mode', False):
             return
         
-        st.markdown("---")
-        st.markdown("## 🔍 Debug Panel")
-        
-        # Debug panel toggle (optional - for collapsing)
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            if st.button("🔍 Toggle Details", help="Show/hide detailed debug information"):
-                st.session_state.debug_panel_expanded = not st.session_state.get('debug_panel_expanded', True)
-        
-        with col2:
+        # Create a sidebar for debug information
+        with st.sidebar:
+            st.markdown("---")
+            st.markdown("## 🔍 Debug Panel")
+            
+            # Debug panel toggle (optional - for collapsing)
+            col1, col2 = st.columns([1, 2])
+            with col1:
+                if st.button("🔍 Toggle", help="Show/hide detailed debug information"):
+                    st.session_state.debug_panel_expanded = not st.session_state.get('debug_panel_expanded', True)
+            
+            with col2:
+                if st.session_state.get('debug_panel_expanded', True):
+                    st.success("Details ON")
+                else:
+                    st.info("Details OFF")
+            
+            # Always show basic debug info
+            self.render_current_status()
+            
+            # Show detailed sections only if expanded
             if st.session_state.get('debug_panel_expanded', True):
-                st.success("Debug details are visible")
-            else:
-                st.info("Debug details are hidden - click 'Toggle Details' to show")
-        
-        # Always show basic debug info
-        self.render_current_status()
-        
-        # Show detailed sections only if expanded
-        if st.session_state.get('debug_panel_expanded', True):
+                st.markdown("---")
+                self.render_performance_metrics()
+                st.markdown("---")
+                self.render_query_history()
+                st.markdown("---")
+                self.render_session_variables()
+                st.markdown("---")
+                self.render_debug_controls()
+            
             st.markdown("---")
-            self.render_performance_metrics()
-            st.markdown("---")
-            self.render_query_history()
-            st.markdown("---")
-            self.render_session_variables()
-            st.markdown("---")
-            self.render_debug_controls()
-        
-        st.markdown("---")
 
 # Global instance
 debug_panel = DebugPanel()
