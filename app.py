@@ -1876,6 +1876,18 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
     print(f"🔍 [PROCESS] Analytics service: {analytics_service is not None}")
     print(f"🔍 [PROCESS] Analytics available: {st.session_state.get('analytics_available', False)}")
     
+    # Initialize debug panel and cost tracking early
+    if DEBUG_PANEL_AVAILABLE:
+        debug_panel.initialize_session_variables()
+    
+    # Initialize cost tracking early to prevent KeyError
+    if 'cost_by_model' not in st.session_state:
+        st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
+    if 'query_count' not in st.session_state:
+        st.session_state.query_count = 0
+    if 'total_tokens_used' not in st.session_state:
+        st.session_state.total_tokens_used = 0
+    
     # Save user message
     save_chat_message('user', query)
     print(f"🔍 [PROCESS] User message saved")
@@ -1896,13 +1908,6 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
     # Reserve space for result messages to prevent CLS
     result_container = st.container()
     with result_container:
-        # Initialize session state for cost tracking
-        if 'query_count' not in st.session_state:
-            st.session_state.query_count = 0
-        if 'total_tokens_used' not in st.session_state:
-            st.session_state.total_tokens_used = 0
-        if 'cost_by_model' not in st.session_state:
-            st.session_state.cost_by_model = {'haiku': 0, 'sonnet': 0, 'opus': 0}
         
         # Create a placeholder for the streaming response
         response_placeholder = st.empty()
