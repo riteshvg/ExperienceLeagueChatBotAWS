@@ -54,7 +54,7 @@ class DebugPanel:
     
     def add_debug_entry(self, query: str, status: str, duration: float = None, 
                        tokens: int = None, cost: float = None, model: str = None,
-                       error: str = None, step_info: str = None):
+                       error: str = None, step_info: str = None, source_urls: List[str] = None):
         """Add a new debug entry to the history"""
         entry = {
             'id': len(st.session_state.debug_history) + 1,
@@ -66,7 +66,8 @@ class DebugPanel:
             'cost': cost,
             'model': model,
             'error': error,
-            'step_info': step_info
+            'step_info': step_info,
+            'source_urls': source_urls or []
         }
         
         st.session_state.debug_history.append(entry)
@@ -76,6 +77,10 @@ class DebugPanel:
             st.session_state.success_count += 1
         elif status == 'error':
             st.session_state.error_count += 1
+        
+        # Store last model used
+        if model:
+            st.session_state.last_model_used = model
         
         # Update performance metrics
         if duration:
@@ -101,11 +106,13 @@ class DebugPanel:
         processing_state = "Processing" if st.session_state.get('processing_query', False) else "Idle"
         current_step = st.session_state.get('processing_step', 0)
         total_messages = len(st.session_state.get('chat_history', []))
+        last_model = st.session_state.get('last_model_used', 'Not set')
         
         # Status in compact format
         st.write(f"**Query:** {current_query[:25]}{'...' if len(current_query) > 25 else ''}")
         st.write(f"**State:** {processing_state} | **Step:** {current_step}")
         st.write(f"**Messages:** {total_messages}")
+        st.write(f"**Last Model:** {last_model}")
         
         # Processing step details
         if st.session_state.get('processing_query', False):
@@ -188,10 +195,16 @@ class DebugPanel:
             status_emoji = "✅" if entry['status'] == 'completed' else "❌" if entry['status'] == 'error' else "🔄"
             duration = f"{entry['duration']:.1f}s" if entry['duration'] else "N/A"
             tokens = f"{entry['tokens']:,}" if entry['tokens'] else "N/A"
+            model = entry.get('model', 'Unknown')
             
             st.write(f"{status_emoji} **#{entry['id']}** {entry['timestamp']}")
             st.write(f"   {entry['query'][:40]}{'...' if len(entry['query']) > 40 else ''}")
-            st.write(f"   Time: {duration} | Tokens: {tokens}")
+            st.write(f"   Time: {duration} | Tokens: {tokens} | Model: {model}")
+            
+            # Show source URLs if available
+            if entry.get('source_urls'):
+                with st.expander(f"📚 Sources for Query #{entry['id']}", expanded=False):
+                    self.render_source_urls(entry['source_urls'])
             
             if entry['error']:
                 st.error(f"   Error: {entry['error'][:50]}{'...' if len(entry['error']) > 50 else ''}")
@@ -241,6 +254,104 @@ class DebugPanel:
             with st.expander(f"📁 {category_name}", expanded=False):
                 for key, value in variables.items():
                     st.write(f"**{key}:** {value}")
+    
+    def _convert_s3_uri_to_experience_league_url(self, s3_uri: str) -> str:
+        """Convert S3 URI to proper Adobe Experience League URL."""
+        if not s3_uri or not s3_uri.startswith('s3://'):
+            return s3_uri
+        
+        # Extract the path after the bucket name
+        # s3://bucket-name/adobe-docs/path/to/file.md
+        parts = s3_uri.split('/')
+        if len(parts) < 4:
+            return s3_uri
+        
+        # Get the path after 'adobe-docs'
+        adobe_docs_index = -1
+        for i, part in enumerate(parts):
+            if part == 'adobe-docs':
+                adobe_docs_index = i
+                break
+        
+        if adobe_docs_index == -1 or adobe_docs_index + 1 >= len(parts):
+            return s3_uri
+        
+        # Get the relative path after adobe-docs
+        relative_path = '/'.join(parts[adobe_docs_index + 1:])
+        
+        # Remove file extension
+        if relative_path.endswith('.md'):
+            relative_path = relative_path[:-3]
+        elif relative_path.endswith('.txt'):
+            relative_path = relative_path[:-4]
+        
+        # Map S3 paths to Experience League URLs based on actual Adobe structure
+        if relative_path.startswith('adobe-analytics/'):
+            # adobe-analytics/path → analytics/path
+            exp_league_path = relative_path.replace('adobe-analytics/', 'analytics/')
+            # Use /en/docs/ structure for main pages
+            if exp_league_path.count('/') <= 1:
+                return f"https://experienceleague.adobe.com/en/docs/{exp_league_path}"
+            else:
+                return f"https://experienceleague.adobe.com/en/docs/{exp_league_path}"
+        
+        elif relative_path.startswith('customer-journey-analytics/'):
+            # customer-journey-analytics/path → customer-journey-analytics/path
+            # Use the correct CJA URL structure
+            if relative_path.count('/') <= 1:
+                return f"https://experienceleague.adobe.com/en/docs/{relative_path}"
+            else:
+                return f"https://experienceleague.adobe.com/en/docs/{relative_path}"
+        
+        elif relative_path.startswith('experience-platform/'):
+            # experience-platform/path → real-time-customer-data-platform/path
+            # Map to Real-Time CDP as it's the main AEP documentation
+            aep_path = relative_path.replace('experience-platform/', 'real-time-customer-data-platform/')
+            if aep_path.count('/') <= 1:
+                return f"https://experienceleague.adobe.com/en/docs/{aep_path}"
+            else:
+                return f"https://experienceleague.adobe.com/en/docs/{aep_path}"
+        
+        elif relative_path.startswith('analytics-apis/'):
+            # analytics-apis/path → analytics/apis/path
+            exp_league_path = relative_path.replace('analytics-apis/', 'analytics/apis/')
+            return f"https://experienceleague.adobe.com/en/docs/{exp_league_path}"
+        
+        elif relative_path.startswith('cja-apis/'):
+            # cja-apis/path → customer-journey-analytics/apis/path
+            exp_league_path = relative_path.replace('cja-apis/', 'customer-journey-analytics/apis/')
+            return f"https://experienceleague.adobe.com/en/docs/{exp_league_path}"
+        
+        else:
+            # Default fallback - try to map to a reasonable URL
+            # For unknown paths, try to construct a reasonable URL
+            if '/' not in relative_path:
+                return f"https://experienceleague.adobe.com/en/docs/{relative_path}"
+            else:
+                return f"https://experienceleague.adobe.com/en/docs/{relative_path}"
+    
+    def render_source_urls(self, source_urls: List[str]):
+        """Render clickable source URLs"""
+        if not source_urls:
+            return
+        
+        st.markdown("**📚 Source Documents:**")
+        
+        for i, url in enumerate(source_urls, 1):
+            # Convert S3 URI to Experience League URL
+            if url.startswith('s3://'):
+                exp_league_url = self._convert_s3_uri_to_experience_league_url(url)
+                # Extract filename from S3 URI for display name
+                filename = url.split('/')[-1]
+                if filename.endswith('.md'):
+                    filename = filename[:-3]
+                elif filename.endswith('.txt'):
+                    filename = filename[:-4]
+                display_name = filename.replace('_', ' ').replace('-', ' ').title()
+                st.markdown(f"{i}. [{display_name}]({exp_league_url})")
+            else:
+                # If it's already a web URL, use it directly
+                st.markdown(f"{i}. [Source {i}]({url})")
     
     def render_debug_controls(self):
         """Render debug control buttons (sidebar optimized)"""
@@ -309,18 +420,13 @@ class DebugPanel:
         return badges.get(status, f"❓ {status}")
     
     def render_debug_panel(self):
-        """Main function to render the complete debug panel as a right-hand panel"""
+        """Main function to render the complete debug panel under query input"""
         if not st.session_state.get('debug_mode', False):
             return
         
-        # Create a right-hand panel using columns
-        # Main content takes 70% width, debug panel takes 30%
-        main_col, debug_col = st.columns([7, 3])
-        
-        with debug_col:
-            st.markdown("---")
-            st.markdown("## 🔍 Debug Panel")
-            
+        # Render debug panel directly under query input
+        st.markdown("---")
+        with st.expander("🔍 Debug Panel", expanded=True):
             # Debug panel toggle (optional - for collapsing)
             col1, col2 = st.columns([1, 2])
             with col1:
@@ -346,8 +452,6 @@ class DebugPanel:
                 self.render_session_variables()
                 st.markdown("---")
                 self.render_debug_controls()
-            
-            st.markdown("---")
     
     def render_debug_panel_content_only(self):
         """Render only the debug panel content without column layout"""

@@ -23,7 +23,7 @@ try:
     from enhanced_rag_pipeline import enhanced_rag_pipeline
     QUERY_ENHANCEMENT_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"Query enhancement modules not available: {e}")
+    print(f"Warning: Query enhancement modules not available: {e}")
     QUERY_ENHANCEMENT_AVAILABLE = False
 
 # Import smart context manager
@@ -31,7 +31,7 @@ try:
     from smart_context_manager import smart_context_manager
     SMART_CONTEXT_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"Smart context manager not available: {e}")
+    print(f"Warning: Smart context manager not available: {e}")
     SMART_CONTEXT_AVAILABLE = False
 
 # Import debug panel
@@ -39,8 +39,21 @@ try:
     from src.debug.debug_panel import debug_panel
     DEBUG_PANEL_AVAILABLE = True
 except ImportError as e:
-    logger.warning(f"Debug panel not available: {e}")
+    print(f"Warning: Debug panel not available: {e}")
     DEBUG_PANEL_AVAILABLE = False
+
+# Import hybrid model components
+try:
+    from src.models.model_provider import ModelProvider
+    from src.config.hybrid_config import HybridConfigManager
+    from src.routing.query_router import QueryRouter
+    from src.ui.comparison_ui import ComparisonUI
+    from src.feedback.feedback_ui import FeedbackUI
+    from src.retraining.retraining_ui import RetrainingUI
+    HYBRID_MODELS_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Hybrid model components not available: {e}")
+    HYBRID_MODELS_AVAILABLE = False
 
 # Load environment variables
 load_dotenv()
@@ -365,6 +378,32 @@ def initialize_aws_clients(settings):
         
     except Exception as e:
         return None, str(e)
+
+def clean_adobe_dnl_text(text: str) -> str:
+    """Clean Adobe DNL (Display Name Language) markup from text."""
+    import re
+    
+    # Remove [!DNL ...] markup and replace with just the text
+    text = re.sub(r'\[!DNL\s+([^\]]+)\]', r'\1', text)
+    
+    # Remove other common Adobe markup patterns
+    text = re.sub(r'\[!UICONTROL\s+([^\]]+)\]', r'\1', text)
+    text = re.sub(r'\[!BADGE\s+([^\]]+)\]', r'\1', text)
+    text = re.sub(r'\[!NOTE\]', 'Note:', text)
+    text = re.sub(r'\[!WARNING\]', 'Warning:', text)
+    text = re.sub(r'\[!TIP\]', 'Tip:', text)
+    
+    return text
+
+def extract_source_urls(documents: List[Dict]) -> List[str]:
+    """Extract source URLs from documents for debug panel."""
+    source_urls = []
+    for doc in documents:
+        location = doc.get('location', {})
+        s3_uri = location.get('s3Location', {}).get('uri', '')
+        if s3_uri:
+            source_urls.append(s3_uri)
+    return source_urls
 
 def retrieve_documents_from_kb(query: str, knowledge_base_id: str, bedrock_agent_client, max_results: int = 3):
     """Retrieve relevant documents from Knowledge Base with comprehensive security validation."""
@@ -798,6 +837,15 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
         available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet", "opus"]
         routing_decision = smart_router.select_available_model(query, documents, available_models)
         
+        # Add debug entry for model selection
+        if DEBUG_PANEL_AVAILABLE:
+            debug_panel.add_debug_entry(
+                query=query,
+                status="processing",
+                model=routing_decision['model'],
+                step_info=f"Model selected: {routing_decision['model']} - {routing_decision.get('reasoning', 'No reasoning provided')}"
+            )
+        
         # Step 3: Prepare context from retrieved documents with smart context management
         context = ""
         context_metadata = {}
@@ -896,7 +944,8 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
             debug_panel.add_debug_entry(
                 query=query,
                 status="processing",
-                step_info="Starting query analysis"
+                step_info="Starting query analysis",
+                source_urls=[]
             )
         
         # Step 1: Enhanced document retrieval with query enhancement
@@ -973,6 +1022,15 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
         current_haiku_only_mode = st.session_state.get('haiku_only_mode', smart_router.haiku_only_mode)
         available_models = ["haiku"] if current_haiku_only_mode else ["haiku", "sonnet", "opus"]
         routing_decision = smart_router.select_available_model(query, documents, available_models)
+        
+        # Add debug entry for model selection
+        if DEBUG_PANEL_AVAILABLE:
+            debug_panel.add_debug_entry(
+                query=query,
+                status="processing",
+                model=routing_decision['model'],
+                step_info=f"Model selected: {routing_decision['model']} - {routing_decision.get('reasoning', 'No reasoning provided')}"
+            )
         
         # Update processing step: Querying AI model
         st.session_state.processing_step = 2
@@ -1381,6 +1439,271 @@ def logout_admin():
     st.success("👋 Logged out successfully!")
     st.rerun()
 
+def check_hybrid_demo_access():
+    """Check if user has access to hybrid demo."""
+    # Check if already authenticated
+    if st.session_state.get('hybrid_demo_authenticated', False):
+        return True
+    
+    # Show authentication form
+    st.markdown("### 🔐 Hybrid Demo Access Required")
+    st.markdown("Please enter the password to access the Hybrid AI Model Demo.")
+    
+    # Create a form for password input
+    with st.form("hybrid_demo_auth_form"):
+        password = st.text_input("Password", type="password", placeholder="Enter password")
+        submit_button = st.form_submit_button("🔓 Access Demo")
+        
+        if submit_button:
+            # Check password (you can change this to your preferred password)
+            demo_password = os.getenv("DEMO_PASSWORD", "demo123")  # Default password
+            if password == demo_password:
+                st.session_state.hybrid_demo_authenticated = True
+                st.success("✅ Access granted! Loading demo...")
+                st.rerun()
+            else:
+                st.error("❌ Invalid password. Please try again.")
+    
+    return False
+
+def logout_hybrid_demo():
+    """Logout from hybrid demo."""
+    if 'hybrid_demo_authenticated' in st.session_state:
+        del st.session_state.hybrid_demo_authenticated
+    st.success("👋 Logged out successfully!")
+    st.rerun()
+
+def render_hybrid_smart_routing_interface():
+    """Render smart routing interface for hybrid demo."""
+    st.header("🧭 Smart Query Routing")
+    st.markdown("Let the system automatically choose the best model for your query")
+    
+    # Query input
+    query = st.text_area(
+        "Enter your query:",
+        placeholder="e.g., What is Adobe Analytics and how does it work?",
+        height=100,
+        key="hybrid_query_text_area"
+    )
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        context_length = st.slider(
+            "Context Length:",
+            min_value=0,
+            max_value=100000,
+            value=0,
+            step=1000,
+            help="Estimated context length in characters",
+            key="hybrid_context_length_slider"
+        )
+    
+    with col2:
+        if st.button("🎯 Analyze & Route", type="primary"):
+            if query:
+                with st.spinner("Analyzing query and routing to best model..."):
+                    try:
+                        # Analyze query
+                        analysis = st.session_state.hybrid_query_router.analyze_query(query)
+                        
+                        # Display analysis
+                        st.subheader("📊 Query Analysis")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Complexity", analysis['complexity'].title())
+                        with col2:
+                            st.metric("Query Type", analysis['query_type'].title())
+                        with col3:
+                            st.metric("Estimated Tokens", f"{analysis['estimated_tokens']:,}")
+                        
+                        # Route query
+                        routing_decision = st.session_state.hybrid_query_router.route_query(
+                            query, analysis, context_length
+                        )
+                        
+                        st.subheader("🎯 Routing Decision")
+                        st.info(f"**Selected Model:** {routing_decision['selected_model'].title()}")
+                        st.write(f"**Reasoning:** {routing_decision['reasoning']}")
+                        
+                        # Execute query with selected model
+                        st.subheader("🤖 Response")
+                        with st.spinner(f"Generating response using {routing_decision['selected_model'].title()}..."):
+                            try:
+                                # Get knowledge base and AWS clients from main app
+                                settings = get_cached_settings()
+                                aws_clients = get_cached_aws_clients(settings) if settings else None
+                                knowledge_base_id = settings.bedrock_knowledge_base_id if settings else None
+                                
+                                if routing_decision['selected_model'] == 'gemini':
+                                    result = st.session_state.hybrid_model_provider.generate_response(
+                                        query, 'gemini', knowledge_base_id, aws_clients
+                                    )
+                                else:
+                                    result = st.session_state.hybrid_model_provider.generate_response(
+                                        query, 'claude', knowledge_base_id, aws_clients
+                                    )
+                                
+                                # Clean Adobe DNL markup from response
+                                cleaned_response = clean_adobe_dnl_text(result['response'])
+                                st.write(cleaned_response)
+                                
+                                # Display metrics
+                                col1, col2, col3 = st.columns(3)
+                                with col1:
+                                    st.metric("Response Time", f"{result['response_time']:.2f}s")
+                                with col2:
+                                    st.metric("Tokens Used", f"{result['tokens_used']:,}")
+                                with col3:
+                                    st.metric("Cost", f"${result['cost']:.4f}")
+                                
+                            except Exception as e:
+                                st.error(f"Error generating response: {e}")
+                    
+                    except Exception as e:
+                        st.error(f"Error in smart routing: {e}")
+            else:
+                st.warning("Please enter a query first.")
+
+def render_hybrid_test_suite_interface():
+    """Render test suite interface for hybrid demo."""
+    st.header("🧪 Test Suite")
+    st.markdown("Run predefined test queries to evaluate model performance")
+    
+    # Test categories
+    test_categories = {
+        "Adobe Analytics": [
+            "How do I set up Adobe Analytics tracking?",
+            "What is the difference between eVars and props?",
+            "How do I create custom segments in Adobe Analytics?"
+        ],
+        "Customer Journey Analytics": [
+            "How do I connect data sources in CJA?",
+            "What is the difference between CJA and Adobe Analytics?",
+            "How do I create cross-channel reports in CJA?"
+        ],
+        "Adobe Experience Platform": [
+            "How do I set up a schema in AEP?",
+            "What is the difference between datasets and profiles?",
+            "How do I create segments in AEP?"
+        ]
+    }
+    
+    selected_category = st.selectbox("Select Test Category:", list(test_categories.keys()), key="hybrid_test_category_selectbox")
+    
+    if selected_category:
+        st.subheader(f"Test Queries - {selected_category}")
+        
+        for i, query in enumerate(test_categories[selected_category]):
+            with st.expander(f"Query {i+1}: {query[:50]}...", expanded=False):
+                st.write(f"**Full Query:** {query}")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button(f"Test with Gemini", key=f"gemini_test_{i}"):
+                        with st.spinner("Testing with Gemini..."):
+                            try:
+                                # Get knowledge base and AWS clients
+                                settings = get_cached_settings()
+                                aws_clients = get_cached_aws_clients(settings) if settings else None
+                                knowledge_base_id = settings.bedrock_knowledge_base_id if settings else None
+                                
+                                result = st.session_state.hybrid_model_provider.generate_response(
+                                    query, 'gemini', knowledge_base_id, aws_clients
+                                )
+                                st.write("**Gemini Response:**")
+                                # Clean Adobe DNL markup from response
+                                cleaned_response = clean_adobe_dnl_text(result['response'])
+                                st.write(cleaned_response)
+                                kb_status = "✅ Used KB" if result.get('used_knowledge_base') else "❌ No KB"
+                                st.write(f"**Metrics:** {result['response_time']:.2f}s, {result['tokens_used']} tokens, ${result['cost']:.4f} | {kb_status}")
+                            except Exception as e:
+                                st.error(f"Gemini test failed: {e}")
+                
+                with col2:
+                    if st.button(f"Test with Claude", key=f"claude_test_{i}"):
+                        with st.spinner("Testing with Claude..."):
+                            try:
+                                # Get knowledge base and AWS clients
+                                settings = get_cached_settings()
+                                aws_clients = get_cached_aws_clients(settings) if settings else None
+                                knowledge_base_id = settings.bedrock_knowledge_base_id if settings else None
+                                
+                                result = st.session_state.hybrid_model_provider.generate_response(
+                                    query, 'claude', knowledge_base_id, aws_clients
+                                )
+                                st.write("**Claude Response:**")
+                                # Clean Adobe DNL markup from response
+                                cleaned_response = clean_adobe_dnl_text(result['response'])
+                                st.write(cleaned_response)
+                                kb_status = "✅ Used KB" if result.get('used_knowledge_base') else "❌ No KB"
+                                st.write(f"**Metrics:** {result['response_time']:.2f}s, {result['tokens_used']} tokens, ${result['cost']:.4f} | {kb_status}")
+                            except Exception as e:
+                                st.error(f"Claude test failed: {e}")
+
+def render_hybrid_analytics_interface():
+    """Render analytics interface for hybrid demo."""
+    st.header("📊 Analytics")
+    st.markdown("View performance metrics and usage statistics")
+    
+    if st.session_state.hybrid_model_provider:
+        # Get usage statistics
+        usage_stats = st.session_state.hybrid_model_provider.get_usage_stats()
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Queries", usage_stats.get('total_queries', 0))
+        with col2:
+            st.metric("Total Cost", f"${usage_stats.get('total_cost', 0):.4f}")
+        with col3:
+            st.metric("Avg Response Time", f"{usage_stats.get('avg_response_time', 0):.2f}s")
+        with col4:
+            st.metric("Total Tokens", f"{usage_stats.get('total_tokens', 0):,}")
+        
+        # Model-specific metrics
+        st.subheader("Model Performance")
+        
+        if 'model_stats' in usage_stats:
+            for model, stats in usage_stats['model_stats'].items():
+                with st.expander(f"{model.title()} Statistics", expanded=False):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Queries", stats.get('queries', 0))
+                    with col2:
+                        st.metric("Cost", f"${stats.get('cost', 0):.4f}")
+                    with col3:
+                        st.metric("Avg Time", f"{stats.get('avg_time', 0):.2f}s")
+    else:
+        st.info("Please initialize the models first to view analytics.")
+
+def render_hybrid_feedback_interface():
+    """Render feedback interface for hybrid demo."""
+    st.header("📝 Feedback & Retraining")
+    st.markdown("Rate model responses and prepare data for retraining")
+    
+    # Initialize feedback UI
+    feedback_ui = FeedbackUI()
+    
+    # Feedback dashboard
+    feedback_ui.render_feedback_dashboard()
+    
+    st.markdown("---")
+    
+    # Retraining interface
+    feedback_ui.render_retraining_interface()
+
+def render_hybrid_retraining_interface():
+    """Render retraining interface for hybrid demo."""
+    st.header("🔄 Model Retraining")
+    st.markdown("Prepare feedback data for model retraining and improvement")
+    
+    # Initialize retraining UI
+    retraining_ui = RetrainingUI()
+    
+    # Render retraining interface
+    retraining_ui.render_retraining_interface()
+
 
 def render_about_page():
     """Render the About page with application information."""
@@ -1787,15 +2110,7 @@ def render_main_page_minimal():
     
     # Enhanced Debug Panel (always visible when debug mode is enabled)
     if st.session_state.get('debug_mode', False) and DEBUG_PANEL_AVAILABLE:
-        # Create main content and debug panel layout
-        main_col, debug_col = st.columns([7, 3])
-        
-        with main_col:
-            # Main content goes here - this will be handled by the calling function
-            pass
-        
-        with debug_col:
-            debug_panel.render_debug_panel_content_only()
+        debug_panel.render_debug_panel()
     elif st.session_state.get('debug_mode', False):
         # Fallback to basic debug info if debug panel is not available
         with st.expander("🔍 Basic Debug Info", expanded=True):
@@ -1945,7 +2260,8 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
                             status="error",
                             duration=time.time() - start_time,
                             error=result['error'],
-                            step_info="Query processing failed"
+                            step_info="Query processing failed",
+                            source_urls=[]
                         )
                     
                     st.rerun()
@@ -2004,6 +2320,9 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
             
             # Add debug entry for query completion
             if DEBUG_PANEL_AVAILABLE:
+                # Extract source URLs from documents
+                source_urls = extract_source_urls(documents) if documents else []
+                
                 debug_panel.add_debug_entry(
                     query=query,
                     status="completed",
@@ -2011,7 +2330,8 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
                     tokens=estimated_tokens,
                     cost=estimated_cost,
                     model=model_used,
-                    step_info="Query completed successfully"
+                    step_info="Query completed successfully",
+                    source_urls=source_urls
                 )
             
             # Save assistant response with metadata
@@ -2388,7 +2708,8 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                     query=query,
                     status="completed",
                     duration=processing_time,
-                    step_info="Query completed successfully"
+                    step_info="Query completed successfully",
+                    source_urls=[]
                 )
             
             # Track cost and usage
@@ -2534,7 +2855,8 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                         status="error",
                         duration=processing_time,
                         error=result.get('error', 'Unknown error'),
-                        step_info="Query failed"
+                        step_info="Query failed",
+                        source_urls=[]
                     )
                 
                 st.rerun()
@@ -2544,16 +2866,228 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
     # Footer
     st.markdown("---")
     st.markdown("**Adobe Experience League Chatbot** - Powered by AWS Bedrock & Smart Routing")
-    
 
+
+def render_hybrid_demo_page():
+    """Render the hybrid demo page with model comparison functionality."""
+    # Check authentication
+    if not check_hybrid_demo_access():
+        return
+    
+    # Header with logout button
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.title("🔄 Hybrid AI Model Architecture Demo")
+        st.markdown("**Compare Google Gemini and AWS Bedrock Claude models side-by-side**")
+    with col2:
+        if st.button("🚪 Logout", type="secondary", help="Logout from demo"):
+            logout_hybrid_demo()
+    
+    # Initialize session state for hybrid demo
+    if 'hybrid_model_provider' not in st.session_state:
+        st.session_state.hybrid_model_provider = None
+    if 'hybrid_config_manager' not in st.session_state:
+        st.session_state.hybrid_config_manager = None
+    if 'hybrid_query_router' not in st.session_state:
+        st.session_state.hybrid_query_router = None
+    if 'hybrid_comparison_ui' not in st.session_state:
+        st.session_state.hybrid_comparison_ui = None
+    
+    # Sidebar for configuration
+    with st.sidebar:
+        st.header("⚙️ Configuration")
+        
+        # API Key status
+        st.subheader("🔑 API Keys")
+        config_manager = HybridConfigManager()
+        api_status = config_manager.validate_api_keys()
+        
+        # Debug information
+        with st.expander("🔍 Debug Info", expanded=False):
+            google_key = os.getenv('GOOGLE_API_KEY')
+            aws_key = os.getenv('AWS_ACCESS_KEY_ID')
+            st.write(f"Google API Key: {'✅ Set' if google_key else '❌ Not set'}")
+            st.write(f"AWS Access Key: {'✅ Set' if aws_key else '❌ Not set'}")
+            if google_key:
+                st.write(f"Google Key (first 10 chars): {google_key[:10]}...")
+            if aws_key:
+                st.write(f"AWS Key (first 10 chars): {aws_key[:10]}...")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Google", "✅" if api_status['google_available'] else "❌")
+        with col2:
+            st.metric("AWS", "✅" if api_status['aws_available'] else "❌")
+        
+        if not api_status['at_least_one_available']:
+            st.error("No API keys found. Please set GOOGLE_API_KEY or AWS credentials.")
+            st.info("Set environment variables or add to .env file")
+            return
+        
+        # Initialize components
+        if st.button("🚀 Initialize Models"):
+            with st.spinner("Initializing models..."):
+                try:
+                    # Initialize model provider
+                    model_provider = ModelProvider()
+                    st.session_state.hybrid_model_provider = model_provider
+                    
+                    # Initialize query router
+                    query_router = QueryRouter(config_manager)
+                    st.session_state.hybrid_query_router = query_router
+                    
+                    # Initialize comparison UI
+                    comparison_ui = ComparisonUI(model_provider, query_router)
+                    st.session_state.hybrid_comparison_ui = comparison_ui
+                    
+                    st.session_state.hybrid_config_manager = config_manager
+                    
+                    st.success("Models initialized successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Initialization failed: {e}")
+        
+        # Model status
+        if st.session_state.hybrid_model_provider:
+            st.subheader("🤖 Model Status")
+            available_models = st.session_state.hybrid_model_provider.get_available_models()
+            for model in available_models:
+                st.success(f"✅ {model.title()}")
+        
+        # Configuration settings
+        if st.session_state.hybrid_config_manager:
+            st.subheader("⚙️ Settings")
+            
+            # Model preference
+            preferred_model = st.selectbox(
+                "Preferred Model:",
+                ["auto", "gemini", "claude"],
+                index=0,
+                key="hybrid_preferred_model_selectbox"
+            )
+            
+            # Cost vs Quality preference
+            cost_vs_quality = st.slider(
+                "Cost vs Quality:",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.5,
+                help="0 = Cost sensitive, 1 = Quality focused",
+                key="hybrid_cost_vs_quality_slider"
+            )
+            
+            # Update configuration
+            if st.button("💾 Save Settings"):
+                st.session_state.hybrid_config_manager.update_user_preferences(
+                    preferred_model=preferred_model,
+                    cost_sensitivity=1.0 - cost_vs_quality
+                )
+                st.session_state.hybrid_config_manager.save_config()
+                st.success("Settings saved!")
+        
+        # Model Links Section
+        st.subheader("🔗 Model Links")
+        
+        # Google Gemini links
+        with st.expander("🤖 Google Gemini", expanded=False):
+            st.markdown("")
+            st.markdown("**[Google AI Studio](https://makersuite.google.com/app/apikey)** - Get API key")
+            st.markdown("**[Gemini Documentation](https://ai.google.dev/docs)** - Official docs")
+            st.markdown("**[Gemini API Reference](https://ai.google.dev/api/rest)** - API reference")
+            st.markdown("**[Gemini Pricing](https://ai.google.dev/pricing)** - Cost information")
+        
+        # AWS Bedrock Claude links
+        with st.expander("🤖 AWS Bedrock Claude", expanded=False):
+            st.markdown("")
+            st.markdown("**[AWS Bedrock Console](https://console.aws.amazon.com/bedrock/)** - Access Bedrock")
+            st.markdown("**[Claude Documentation](https://docs.anthropic.com/claude)** - Official docs")
+            st.markdown("**[Bedrock API Reference](https://docs.aws.amazon.com/bedrock/)** - API docs")
+            st.markdown("**[Bedrock Pricing](https://aws.amazon.com/bedrock/pricing/)** - Cost information")
+        
+        # Adobe Experience League links
+        with st.expander("📚 Adobe Experience League", expanded=False):
+            st.markdown("")
+            st.markdown("**[Adobe Analytics](https://experienceleague.adobe.com/docs/analytics/)** - Analytics docs")
+            st.markdown("**[Customer Journey Analytics](https://experienceleague.adobe.com/docs/analytics-platform/)** - CJA docs")
+            st.markdown("**[Adobe Experience Platform](https://experienceleague.adobe.com/docs/experience-platform/)** - AEP docs")
+            st.markdown("**[Mobile SDK](https://experienceleague.adobe.com/docs/mobile/)** - Mobile docs")
+    
+    # Main content
+    if not st.session_state.hybrid_model_provider:
+        st.info("👆 Please initialize the models using the sidebar to get started.")
+        
+        # Show setup instructions
+        with st.expander("📋 Setup Instructions", expanded=True):
+            st.markdown("""
+            ### Prerequisites
+            
+            1. **Google API Key** (for Gemini):
+               - Get API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+               - Set environment variable: `GOOGLE_API_KEY=your_key_here`
+            
+            2. **AWS Credentials** (for Claude):
+               - Configure AWS credentials for Bedrock access
+               - Set environment variables: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`
+               - Or use AWS CLI: `aws configure`
+            
+            3. **Enable Claude Models in Bedrock**:
+               - Go to [AWS Bedrock Console](https://console.aws.amazon.com/bedrock/)
+               - Navigate to "Model access" in the left sidebar
+               - Request access to Claude models (Haiku, Sonnet, Opus)
+            
+            ### Usage
+            
+            1. **Initialize Models**: Click "🚀 Initialize Models" in the sidebar
+            2. **Compare Models**: Use the "Compare Models" tab to test both models side-by-side
+            3. **Smart Routing**: Use the "Smart Routing" tab to let the system choose the best model
+            4. **Test Suite**: Use the "Test Suite" tab to run predefined test queries
+            5. **Analytics**: Use the "Analytics" tab to view performance metrics
+            """)
+        return
+    
+    # Main interface
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🔄 Compare Models", "🧭 Smart Routing", "🧪 Test Suite", "📊 Analytics", "📝 Feedback", "🔄 Retraining"])
+    
+    with tab1:
+        # Pass knowledge base info to comparison UI
+        settings = get_cached_settings()
+        aws_clients = get_cached_aws_clients(settings) if settings else None
+        knowledge_base_id = settings.bedrock_knowledge_base_id if settings else None
+        
+        # Update comparison UI with KB info
+        st.session_state.hybrid_comparison_ui.knowledge_base_id = knowledge_base_id
+        st.session_state.hybrid_comparison_ui.aws_clients = aws_clients
+        
+        st.session_state.hybrid_comparison_ui.render_comparison_interface()
+    
+    with tab2:
+        render_hybrid_smart_routing_interface()
+    
+    with tab3:
+        render_hybrid_test_suite_interface()
+    
+    with tab4:
+        render_hybrid_analytics_interface()
+    
+    with tab5:
+        render_hybrid_feedback_interface()
+    
+    with tab6:
+        render_hybrid_retraining_interface()
 
 
 def main():
     """Main Streamlit application entry point with optimized initialization."""
     # Page selection - render immediately for fast LCP
+    page_options = ["🏠 Main Chat", "ℹ️ About", "🔧 Admin Dashboard"]
+    
+    # Add hybrid demo if available
+    if HYBRID_MODELS_AVAILABLE:
+        page_options.append("🔄 Hybrid Demo")
+    
     page = st.sidebar.selectbox(
         "Navigate to:",
-        ["🏠 Main Chat", "ℹ️ About", "🔧 Admin Dashboard"],
+        page_options,
         index=0
     )
     
@@ -2630,6 +3164,13 @@ def main():
     elif page == "ℹ️ About":
         # Render About page - no initialization needed
         render_about_page()
+    
+    elif page == "🔄 Hybrid Demo":
+        # Render Hybrid Demo - hybrid model comparison
+        if not HYBRID_MODELS_AVAILABLE:
+            st.error("❌ Hybrid model components not available. Please check your installation.")
+            st.stop()
+        render_hybrid_demo_page()
     
     else:  # Admin Dashboard - full initialization
         # Check admin access first

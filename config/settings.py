@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     query_enhancement_timeout_ms: int = Field(default=400, env="QUERY_ENHANCEMENT_TIMEOUT_MS")
     query_enhancement_fallback: bool = Field(default=True, env="QUERY_ENHANCEMENT_FALLBACK")
     
+    # Hybrid Model Configuration
+    google_api_key: Optional[str] = Field(None, env="GOOGLE_API_KEY")
+    demo_password: str = Field(default="demo123", env="DEMO_PASSWORD")
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

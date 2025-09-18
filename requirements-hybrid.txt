@@ -1,0 +1,21 @@
+# Hybrid Model Architecture Requirements
+# Additional dependencies for Gemini and Claude integration
+
+# Core dependencies (already in main requirements.txt)
+streamlit>=1.28.0
+boto3>=1.34.0
+python-dotenv>=1.0.0
+pandas>=2.1.0
+psycopg2-binary>=2.9.0
+pydantic>=2.5.0
+pydantic-settings>=2.0.0
+requests>=2.31.0
+
+# Google Gemini API
+google-generativeai>=0.8.0
+
+# Token counting
+tiktoken>=0.11.0
+
+# Additional utilities
+concurrent-futures>=3.1.1
