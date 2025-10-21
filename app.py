@@ -42,7 +42,7 @@ except ImportError as e:
     print(f"Warning: Debug panel not available: {e}")
     DEBUG_PANEL_AVAILABLE = False
 
-# Import citation manager
+# Import citation manager (old system - will be replaced)
 try:
     from src.utils.citation_manager import citation_manager
     CITATION_MANAGER_AVAILABLE = True
@@ -51,6 +51,15 @@ except ImportError as e:
     print(f"Warning: Citation manager not available: {e}")
     CITATION_MANAGER_AVAILABLE = False
     citation_manager = None
+
+# Import citation mapper (new verified system)
+try:
+    from src.utils.citation_mapper import format_citation, map_to_experience_league_url
+    CITATION_MAPPER_AVAILABLE = True
+    print("✅ Citation mapper loaded successfully")
+except ImportError as e:
+    print(f"Warning: Citation mapper not available: {e}")
+    CITATION_MAPPER_AVAILABLE = False
 
 # Import hybrid model components
 try:
@@ -2724,14 +2733,29 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
             # Fix links in the response before saving
             fixed_response = fix_markdown_links(full_response)
             
-            # Add citations if available
-            if CITATION_MANAGER_AVAILABLE and citation_manager and documents:
+            # Add citations using new verified citation mapper
+            if CITATION_MAPPER_AVAILABLE and documents:
                 try:
-                    citations = citation_manager.extract_citations(documents)
+                    citations = []
+                    for doc in documents:
+                        citation_info = format_citation(
+                            doc_metadata=doc,
+                            doc_title=None  # Will be extracted from metadata
+                        )
+                        citations.append(citation_info)
+                    
                     if citations:
-                        # Format citations as markdown and append
-                        citations_markdown = citation_manager.format_citations_markdown(citations)
+                        # Format citations as markdown
+                        citations_markdown = "\n\n---\n\n### 📚 Sources\n\n"
+                        for citation in citations:
+                            citations_markdown += f"{len([c for c in citations if citations.index(c) < citations.index(citation)]) + 1}. **[{citation['title']}]({citation['url']})** "
+                            citations_markdown += f"(Relevance: {citation['score']:.2%})"
+                            if citation.get('github_url'):
+                                citations_markdown += f" • [View on GitHub →]({citation['github_url']})"
+                            citations_markdown += "\n"
+                        
                         fixed_response += citations_markdown
+                        logger.info(f"Added {len(citations)} citations to response")
                 except Exception as e:
                     logger.error(f"Error adding citations: {e}")
             
@@ -3165,14 +3189,29 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 answer_to_save = full_answer if full_answer else result.get('answer', '')
                 fixed_answer = fix_markdown_links(answer_to_save)
                 
-                # Add citations if available
-                if CITATION_MANAGER_AVAILABLE and citation_manager and result.get('documents'):
+                # Add citations using new verified citation mapper
+                if CITATION_MAPPER_AVAILABLE and result.get('documents'):
                     try:
-                        citations = citation_manager.extract_citations(result['documents'])
+                        citations = []
+                        for doc in result['documents']:
+                            citation_info = format_citation(
+                                doc_metadata=doc,
+                                doc_title=None  # Will be extracted from metadata
+                            )
+                            citations.append(citation_info)
+                        
                         if citations:
-                            # Format citations as markdown and append
-                            citations_markdown = citation_manager.format_citations_markdown(citations)
+                            # Format citations as markdown
+                            citations_markdown = "\n\n---\n\n### 📚 Sources\n\n"
+                            for idx, citation in enumerate(citations, 1):
+                                citations_markdown += f"{idx}. **[{citation['title']}]({citation['url']})** "
+                                citations_markdown += f"(Relevance: {citation['score']:.2%})"
+                                if citation.get('github_url'):
+                                    citations_markdown += f" • [View on GitHub →]({citation['github_url']})"
+                                citations_markdown += "\n"
+                            
                             fixed_answer += citations_markdown
+                            logger.info(f"Added {len(citations)} citations to response")
                     except Exception as e:
                         logger.error(f"Error adding citations: {e}")
                 
