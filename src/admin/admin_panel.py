@@ -27,10 +27,11 @@ def render_admin_page(settings, aws_clients, aws_error, kb_status, kb_error, sma
     st.markdown("---")
     
     # Create tabs for different admin sections
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 System Status", 
         "⚙️ Settings", 
-        "📊 Query Analytics"
+        "📊 Query Analytics",
+        "📚 Documentation Management"
     ])
     
     with tab1:
@@ -428,3 +429,32 @@ def display_s3_cost_data(cost_data):
         
     except Exception as e:
         st.error(f"Error displaying S3 cost data: {str(e)}")
+
+    with tab4:
+        # Documentation Management Dashboard
+        try:
+            from src.admin.documentation_manager import DocumentationManager
+            from src.admin.documentation_dashboard import DocumentationDashboard
+            
+            # Initialize documentation manager
+            doc_manager = DocumentationManager(
+                kb_id=settings.bedrock_knowledge_base_id,
+                region=settings.bedrock_region
+            )
+            
+            # Initialize dashboard
+            doc_dashboard = DocumentationDashboard(doc_manager)
+            
+            # Render dashboard (it will render its own header)
+            doc_dashboard.render_dashboard()
+            
+        except ImportError as e:
+            st.error(f"❌ Import error: {str(e)}")
+            st.info("💡 Make sure all modules are in the correct location.")
+            import traceback
+            st.code(traceback.format_exc())
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+            st.info("💡 Make sure all dependencies are installed and AWS credentials are configured.")
+            import traceback
+            st.code(traceback.format_exc())

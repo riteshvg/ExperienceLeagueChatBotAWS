@@ -1,0 +1,5 @@
+2025-10-19 14:33:51,466 - INFO - Configuration loaded - Bucket: adobe-analytics-rag-docs-your-unique-name, Region: us-east-1
+2025-10-19 14:33:51,474 - INFO - Found credentials in shared credentials file: ~/.aws/credentials
+2025-10-19 14:33:51,590 - INFO - AWS S3 client initialized
+2025-10-19 14:33:51,590 - INFO - Starting Adobe Experience Platform documentation upload...
+2025-10-19 14:33:51,590 - INFO - Cloning repository: https://github.com/AdobeDocs/experience-platform.en.git

@@ -65,7 +65,7 @@ class AEPDocumentUploader:
     
     def clone_repository(self, repo_url: str, target_dir: Path) -> bool:
         """
-        Clone a Git repository to a local directory.
+        Clone or update a Git repository using incremental updates.
         
         Args:
             repo_url: Git repository URL
@@ -76,18 +76,40 @@ class AEPDocumentUploader:
         """
         try:
             if target_dir.exists():
-                self.logger.info(f"Repository already exists at {target_dir}, pulling latest changes...")
+                self.logger.info(f"Repository exists at {target_dir}, pulling latest changes...")
                 repo = Repo(target_dir)
+                
+                # Fetch latest changes
+                self.logger.info("Fetching latest changes from remote...")
+                repo.remotes.origin.fetch()
+                
+                # Pull changes
+                self.logger.info("Pulling latest changes...")
                 repo.remotes.origin.pull()
+                
+                self.logger.info(f"Repository updated successfully at {target_dir}")
             else:
-                self.logger.info(f"Cloning repository: {repo_url}")
-                Repo.clone_from(repo_url, target_dir)
+                self.logger.info(f"Cloning repository (first time): {repo_url}")
+                self.logger.info("Using shallow clone for faster download...")
+                
+                # Use shallow clone with depth 1 for faster initial clone
+                Repo.clone_from(
+                    repo_url, 
+                    target_dir,
+                    depth=1  # Only clone latest commit
+                )
+                
+                # After shallow clone, fetch full history if needed
+                self.logger.info("Fetching full repository history...")
+                repo = Repo(target_dir)
+                repo.remotes.origin.fetch(unshallow=True)
+                
+                self.logger.info(f"Repository cloned successfully at {target_dir}")
             
-            self.logger.info(f"Repository cloned successfully to {target_dir}")
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to clone repository {repo_url}: {e}")
+            self.logger.error(f"Failed to clone/update repository {repo_url}: {e}")
             return False
     
     def upload_directory_to_s3(self, local_dir: Path, s3_prefix: str) -> bool:
@@ -205,26 +227,28 @@ class AEPDocumentUploader:
     def upload_aep_docs(self) -> bool:
         """Upload Adobe Experience Platform documentation."""
         try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                temp_path = Path(temp_dir)
-                
-                # Clone Adobe Experience Platform docs
-                aep_dir = temp_path / "adobe-experience-platform"
-                if not self.clone_repository(
-                    "https://github.com/AdobeDocs/experience-platform.en.git",
-                    aep_dir
-                ):
-                    return False
-                
-                # Upload AEP docs to S3
-                if not self.upload_directory_to_s3(
-                    aep_dir,
-                    "adobe-docs/experience-platform"
-                ):
-                    return False
-                
-                self.logger.info("✅ Adobe Experience Platform docs uploaded successfully")
-                return True
+            # Use persistent directory for incremental updates
+            project_root = Path(__file__).parent.parent
+            cache_dir = project_root / ".cache" / "repos"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Clone/update Adobe Experience Platform docs
+            aep_dir = cache_dir / "adobe-experience-platform"
+            if not self.clone_repository(
+                "https://github.com/AdobeDocs/experience-platform.en.git",
+                aep_dir
+            ):
+                return False
+            
+            # Upload AEP docs to S3
+            if not self.upload_directory_to_s3(
+                aep_dir,
+                "adobe-docs/experience-platform"
+            ):
+                return False
+            
+            self.logger.info("✅ Adobe Experience Platform docs uploaded successfully")
+            return True
                 
         except Exception as e:
             self.logger.error(f"Failed to upload AEP docs: {e}")

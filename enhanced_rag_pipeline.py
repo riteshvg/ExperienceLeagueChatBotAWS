@@ -54,7 +54,7 @@ class EnhancedRAGPipeline:
     async def enhanced_retrieve_documents(
         self, 
         query: str, 
-        top_k: int = 5,
+        top_k: int = 8,  # Standardized to 8 for optimal retrieval balance (was 5)
         use_enhancement: bool = None
     ) -> List[EnhancedSearchResult]:
         """
@@ -62,7 +62,7 @@ class EnhancedRAGPipeline:
         
         Args:
             query: Original user query
-            top_k: Number of documents to retrieve per enhanced query
+            top_k: Number of documents to retrieve per enhanced query (standardized to 8)
             use_enhancement: Whether to use query enhancement (defaults to config)
             
         Returns:
@@ -154,6 +154,7 @@ class EnhancedRAGPipeline:
     async def _single_vector_search(self, query: str, top_k: int) -> List[Dict]:
         """Single vector search using Bedrock Knowledge Base"""
         try:
+            # numberOfResults set to 8 for consistent retrieval across all calls
             response = self.bedrock_agent_client.retrieve(
                 knowledgeBaseId=self.knowledge_base_id,
                 retrievalQuery={
@@ -161,7 +162,7 @@ class EnhancedRAGPipeline:
                 },
                 retrievalConfiguration={
                     'vectorSearchConfiguration': {
-                        'numberOfResults': top_k
+                        'numberOfResults': top_k  # Standardized to 8 (recommended 7-10 range)
                     }
                 }
             )

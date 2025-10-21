@@ -42,17 +42,32 @@ except ImportError as e:
     print(f"Warning: Debug panel not available: {e}")
     DEBUG_PANEL_AVAILABLE = False
 
+# Import citation manager
+try:
+    from src.utils.citation_manager import citation_manager
+    CITATION_MANAGER_AVAILABLE = True
+    print("✅ Citation manager loaded successfully")
+except ImportError as e:
+    print(f"Warning: Citation manager not available: {e}")
+    CITATION_MANAGER_AVAILABLE = False
+    citation_manager = None
+
 # Import hybrid model components
 try:
     from src.models.model_provider import ModelProvider
     from src.config.hybrid_config import HybridConfigManager
     from src.routing.query_router import QueryRouter
     from src.ui.comparison_ui import ComparisonUI
+    from src.retraining.auto_retraining_pipeline import AutoRetrainingPipeline
+    from src.retraining.auto_retraining_ui import AutoRetrainingUI
+    from config.auto_retraining_config import AUTO_RETRAINING_CONFIG
+    AUTO_RETRAINING_AVAILABLE = True
     from src.feedback.feedback_ui import FeedbackUI
     from src.retraining.retraining_ui import RetrainingUI
     HYBRID_MODELS_AVAILABLE = True
 except ImportError as e:
     print(f"Warning: Hybrid model components not available: {e}")
+    AUTO_RETRAINING_AVAILABLE = False
     HYBRID_MODELS_AVAILABLE = False
 
 # Load environment variables
@@ -405,14 +420,39 @@ def extract_source_urls(documents: List[Dict]) -> List[str]:
             source_urls.append(s3_uri)
     return source_urls
 
-def retrieve_documents_from_kb(query: str, knowledge_base_id: str, bedrock_agent_client, max_results: int = 3):
-    """Retrieve relevant documents from Knowledge Base with comprehensive security validation."""
+def retrieve_documents_from_kb(query: str, knowledge_base_id: str, bedrock_agent_client, max_results: int = 8):  # Standardized to 8 for optimal retrieval
+    """Retrieve relevant documents from Knowledge Base with query preprocessing, security validation, and similarity filtering."""
     try:
-        # Import security validator
+        # Import required modules
         from src.security.input_validator import security_validator
         from src.security.security_monitor import security_monitor
+        from src.utils.retrieval_filter import filter_retrieval_by_similarity
+        from src.utils.query_processor import preprocess_query
+        from config.settings import get_settings
         
-        # Comprehensive security validation
+        # Get settings for similarity threshold
+        settings = get_settings()
+        
+        # Store original query for display
+        original_query = query
+        
+        # Step 1: Query preprocessing (abbreviation expansion and contextual enhancement)
+        enhanced_query, preprocessing_metadata = preprocess_query(query)
+        
+        # Store preprocessing metadata in session state for telemetry (if in Streamlit context)
+        try:
+            import streamlit as st
+            if 'query_preprocessing_telemetry' not in st.session_state:
+                st.session_state.query_preprocessing_telemetry = []
+            st.session_state.query_preprocessing_telemetry.append(preprocessing_metadata)
+        except:
+            # Not in Streamlit context, skip telemetry
+            pass
+        
+        # Use enhanced query for retrieval
+        query = enhanced_query
+        
+        # Step 2: Comprehensive security validation
         is_valid, sanitized_query, threats_detected = security_validator.validate_chat_query(query)
         
         # Monitor the validation attempt
@@ -437,6 +477,7 @@ def retrieve_documents_from_kb(query: str, knowledge_base_id: str, bedrock_agent
             query = query[:MAX_QUERY_LENGTH - 100] + "... [truncated]"
             logger.info(f"Query truncated to {len(query)} characters for AWS Bedrock compatibility")
         
+        # Retrieve documents from Knowledge Base
         response = bedrock_agent_client.retrieve(
             knowledgeBaseId=knowledge_base_id,
             retrievalQuery={
@@ -444,11 +485,33 @@ def retrieve_documents_from_kb(query: str, knowledge_base_id: str, bedrock_agent
             },
             retrievalConfiguration={
                 'vectorSearchConfiguration': {
-                    'numberOfResults': max_results
+                    'numberOfResults': max_results  # Standardized to 8 for consistent retrieval (recommended 7-10 range)
                 }
             }
         )
-        return response.get('retrievalResults', []), None
+        
+        # Get raw retrieval results
+        raw_results = response.get('retrievalResults', [])
+        
+        # Apply similarity threshold filtering
+        filtered_results, filter_metadata = filter_retrieval_by_similarity(
+            results=raw_results,
+            threshold=settings.similarity_threshold,
+            min_results=settings.min_retrieval_results,
+            max_results=settings.max_retrieval_results
+        )
+        
+        # Store filter metadata in session state for telemetry (if in Streamlit context)
+        try:
+            import streamlit as st
+            if 'retrieval_telemetry' not in st.session_state:
+                st.session_state.retrieval_telemetry = []
+            st.session_state.retrieval_telemetry.append(filter_metadata)
+        except:
+            # Not in Streamlit context, skip telemetry
+            pass
+        
+        return filtered_results, None
     except Exception as e:
         # Enhanced error handling for specific AWS errors
         error_msg = str(e)
@@ -640,19 +703,28 @@ class SmartRouter:
 def invoke_bedrock_model(model_id: str, query: str, bedrock_client, context: str = "") -> tuple:
     """Invoke Bedrock model with proper request format based on model type."""
     try:
-        # Use the BedrockClient's generate_text method instead of direct invoke_model
-        prompt = f"{context}\n\nQuery: {query}" if context else query
+        # Import system prompt utilities
+        from config.prompts import format_system_prompt, should_use_fallback, NO_CONTEXT_MESSAGE
+        
+        # Check if we have sufficient context
+        if should_use_fallback(context):
+            return NO_CONTEXT_MESSAGE, None
+        
+        # Format system prompt with retrieved context and user query
+        system_prompt = format_system_prompt(context, query)
         
         # Create a temporary BedrockClient with the specific model_id
         from src.utils.bedrock_client import BedrockClient
         temp_client = BedrockClient(model_id=model_id, region=bedrock_client.region)
         
-        # Generate text using the appropriate method
+        # Generate text using the appropriate method with system prompt
+        # Temperature set to 0.15 for factual accuracy and reduced hallucinations in RAG responses
         answer = temp_client.generate_text(
-            prompt=prompt,
+            prompt=query,  # User query only (system prompt is separate)
             max_tokens=1000,
-            temperature=0.7,
-            top_p=0.9
+            temperature=0.15,  # Optimized for factual accuracy (was 0.7)
+            top_p=0.9,
+            system_prompt=system_prompt  # System prompt with context and instructions
         )
         
         return answer, None
@@ -663,11 +735,13 @@ def invoke_bedrock_model(model_id: str, query: str, bedrock_client, context: str
             try:
                 print(f"⚠️ Model {model_id} not accessible, falling back to Haiku...")
                 fallback_client = BedrockClient(model_id="us.anthropic.claude-3-haiku-20240307-v1:0", region=bedrock_client.region)
+                # Temperature set to 0.15 for factual accuracy in fallback model
                 answer = fallback_client.generate_text(
-                    prompt=prompt,
+                    prompt=query,  # User query only (system prompt is separate)
                     max_tokens=1000,
-                    temperature=0.7,
-                    top_p=0.9
+                    temperature=0.15,  # Optimized for factual accuracy (was 0.7)
+                    top_p=0.9,
+                    system_prompt=system_prompt  # System prompt with context and instructions
                 )
                 return answer, None
             except Exception as fallback_error:
@@ -676,21 +750,31 @@ def invoke_bedrock_model(model_id: str, query: str, bedrock_client, context: str
             return "", str(e)
 
 def invoke_bedrock_model_stream(model_id: str, query: str, bedrock_client, context: str = ""):
-    """Invoke Bedrock model with streaming response."""
+    """Invoke Bedrock model with streaming response and system prompt."""
     try:
-        # Use the BedrockClient's generate_text_stream method
-        prompt = f"{context}\n\nQuery: {query}" if context else query
+        # Import system prompt utilities
+        from config.prompts import format_system_prompt, should_use_fallback, NO_CONTEXT_MESSAGE
+        
+        # Check if we have sufficient context
+        if should_use_fallback(context):
+            yield NO_CONTEXT_MESSAGE, None
+            return
+        
+        # Format system prompt with retrieved context and user query
+        system_prompt = format_system_prompt(context, query)
         
         # Create a temporary BedrockClient with the specific model_id
         from src.utils.bedrock_client import BedrockClient
         temp_client = BedrockClient(model_id=model_id, region=bedrock_client.region)
         
-        # Generate text using streaming
+        # Generate text using streaming with system prompt
+        # Temperature set to 0.15 for factual accuracy in streaming responses
         for chunk in temp_client.generate_text_stream(
-            prompt=prompt,
+            prompt=query,  # User query only (system prompt is separate)
             max_tokens=1000,
-            temperature=0.7,
-            top_p=0.9
+            temperature=0.15,  # Optimized for factual accuracy (was 0.7)
+            top_p=0.9,
+            system_prompt=system_prompt  # System prompt with context and instructions
         ):
             yield chunk, None
             
@@ -700,11 +784,13 @@ def invoke_bedrock_model_stream(model_id: str, query: str, bedrock_client, conte
             try:
                 print(f"⚠️ Model {model_id} not accessible, falling back to Haiku...")
                 fallback_client = BedrockClient(model_id="us.anthropic.claude-3-haiku-20240307-v1:0", region=bedrock_client.region)
+                # Temperature set to 0.15 for factual accuracy in fallback streaming
                 for chunk in fallback_client.generate_text_stream(
-                    prompt=prompt,
+                    prompt=query,  # User query only (system prompt is separate)
                     max_tokens=1000,
-                    temperature=0.7,
-                    top_p=0.9
+                    temperature=0.15,  # Optimized for factual accuracy (was 0.7)
+                    top_p=0.9,
+                    system_prompt=system_prompt  # System prompt with context and instructions
                 ):
                     yield chunk, None
             except Exception as fallback_error:
@@ -771,9 +857,10 @@ def process_query_with_smart_routing(query: str, knowledge_base_id: str, smart_r
         if QUERY_ENHANCEMENT_AVAILABLE and st.session_state.get('query_enhancement_enabled', True):
             try:
                 # Use enhanced RAG pipeline
+                # top_k set to 8 for optimal retrieval balance (recommended 7-10 range)
                 enhanced_results = asyncio.run(enhanced_rag_pipeline.enhanced_retrieve_documents(
                     query, 
-                    top_k=10,
+                    top_k=8,  # Standardized to 8 for consistent retrieval (was 10)
                     use_enhancement=True
                 ))
                 
@@ -952,9 +1039,10 @@ def process_query_with_smart_routing_stream(query: str, knowledge_base_id: str, 
         if QUERY_ENHANCEMENT_AVAILABLE and st.session_state.get('query_enhancement_enabled', True):
             try:
                 # Use enhanced RAG pipeline
+                # top_k set to 8 for optimal retrieval balance (recommended 7-10 range)
                 enhanced_results = asyncio.run(enhanced_rag_pipeline.enhanced_retrieve_documents(
                     query, 
-                    top_k=10,
+                    top_k=8,  # Standardized to 8 for consistent retrieval (was 10)
                     use_enhancement=True
                 ))
                 
@@ -1705,6 +1793,297 @@ def render_hybrid_retraining_interface():
     retraining_ui.render_retraining_interface()
 
 
+def render_auto_retraining_page():
+    """Render the auto-retraining dashboard page."""
+    st.title("🚀 Auto-Retraining Pipeline")
+    st.markdown("**Automated model improvement based on user feedback**")
+    st.markdown("---")
+    
+    # Check if pipeline is initialized
+    if 'auto_retraining_pipeline' not in st.session_state:
+        st.error("❌ Auto-retraining pipeline not initialized. Please refresh the page.")
+        return
+    
+    if 'auto_retraining_ui' not in st.session_state:
+        st.error("❌ Auto-retraining UI not initialized. Please refresh the page.")
+        return
+    
+    # Check if hybrid model provider is initialized
+    if 'hybrid_model_provider' not in st.session_state:
+        st.warning("⚠️ **Hybrid Model Provider Not Initialized**")
+        st.markdown("To generate dual responses, you need to initialize the hybrid model provider first.")
+        
+        # Check API availability
+        settings = get_cached_settings()
+        if settings:
+            # Check API keys availability
+            google_available = bool(settings.google_api_key)
+            aws_available = bool(settings.aws_access_key_id and settings.aws_secret_access_key)
+            at_least_one_available = google_available or aws_available
+            
+            if at_least_one_available:
+                # Show API status
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Google API", "✅" if google_available else "❌")
+                with col2:
+                    st.metric("AWS API", "✅" if aws_available else "❌")
+                
+                st.info("✅ API keys are available. Click the button below to initialize the hybrid model provider.")
+                
+                if st.button("🚀 Initialize Hybrid Model Provider", type="primary"):
+                    with st.spinner("Initializing hybrid model provider..."):
+                        try:
+                            # Initialize config manager
+                            config_manager = HybridConfigManager()
+                            
+                            # Initialize model provider
+                            model_provider = ModelProvider()
+                            st.session_state.hybrid_model_provider = model_provider
+                            
+                            # Initialize query router
+                            query_router = QueryRouter(config_manager)
+                            st.session_state.hybrid_query_router = query_router
+                            
+                            # Initialize comparison UI
+                            comparison_ui = ComparisonUI(model_provider, query_router)
+                            st.session_state.hybrid_comparison_ui = comparison_ui
+                            
+                            st.session_state.hybrid_config_manager = config_manager
+                            
+                            st.success("✅ Hybrid model provider initialized successfully!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Initialization failed: {e}")
+            else:
+                st.error("❌ No API keys found. Please set GOOGLE_API_KEY or AWS credentials.")
+                st.info("Set environment variables or add to .env file")
+                return
+        else:
+            st.error("❌ Settings not available. Please check your configuration.")
+            return
+    
+    # Render the auto-retraining dashboard
+    st.session_state.auto_retraining_ui.render_auto_retraining_dashboard()
+    
+    # Add dual response generation section
+    st.markdown("---")
+    st.subheader("🤖 Generate Dual Response")
+    
+    # Query input for dual response generation
+    query_input = st.text_area(
+        "Enter your query to generate responses from both models:",
+        value="How do I set up Adobe Analytics tracking?",
+        height=100,
+        help="This will generate responses from both Gemini and Claude models for comparison"
+    )
+    
+    # Generate dual response button
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        generate_button = st.button("🚀 Generate Dual Response", type="primary", use_container_width=True)
+    
+    # Initialize session state for generated responses
+    if 'generated_responses' not in st.session_state:
+        st.session_state.generated_responses = None
+    
+    # Generate responses when button is clicked
+    if generate_button and query_input.strip():
+        with st.spinner("🔄 Generating responses from both models..."):
+            try:
+                # Get settings and clients
+                settings = get_cached_settings()
+                aws_clients = get_cached_aws_clients(settings) if settings else None
+                knowledge_base_id = settings.bedrock_knowledge_base_id if settings else None
+                
+                # Generate responses using the hybrid model provider
+                if hasattr(st.session_state, 'hybrid_model_provider'):
+                    result = st.session_state.hybrid_model_provider.query_both_models_with_kb(
+                        query=query_input,
+                        knowledge_base_id=knowledge_base_id,
+                        aws_clients=aws_clients,
+                        temperature=0.1,
+                        max_tokens={'gemini': 4096, 'claude': 4096}
+                    )
+                    
+                    if result['success']:
+                        # Safely extract token information
+                        gemini_tokens = result['results']['gemini'].get('total_tokens', 
+                                                                      result['results']['gemini'].get('tokens_used', 0))
+                        claude_tokens = result['results']['claude'].get('total_tokens', 
+                                                                        result['results']['claude'].get('tokens_used', 0))
+                        
+                        st.session_state.generated_responses = {
+                            'query': query_input,
+                            'gemini_response': result['results']['gemini']['response'],
+                            'claude_response': result['results']['claude']['response'],
+                            'gemini_metrics': {
+                                'response_time': result['results']['gemini']['response_time'],
+                                'tokens_used': gemini_tokens,
+                                'cost': result['results']['gemini']['cost']
+                            },
+                            'claude_metrics': {
+                                'response_time': result['results']['claude']['response_time'],
+                                'tokens_used': claude_tokens,
+                                'cost': result['results']['claude']['cost']
+                            }
+                        }
+                        st.success("✅ Dual response generated successfully!")
+                    else:
+                        st.error(f"❌ Failed to generate responses: {result.get('error', 'Unknown error')}")
+                else:
+                    st.error("❌ Hybrid model provider not available. Please check your configuration.")
+                    
+            except Exception as e:
+                st.error(f"❌ Error generating responses: {str(e)}")
+    
+    # Display generated responses if available
+    if st.session_state.generated_responses:
+        st.markdown("---")
+        st.subheader("📊 Generated Responses")
+        
+        # Add clear responses button
+        col1, col2, col3 = st.columns([1, 1, 1])
+        with col2:
+            if st.button("🗑️ Clear Responses", type="secondary"):
+                st.session_state.generated_responses = None
+                st.rerun()
+        
+        responses = st.session_state.generated_responses
+        
+        # Display responses side by side
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 🤖 Gemini Response")
+            st.write(responses['gemini_response'])
+            
+            # Display Gemini metrics
+            st.markdown("**Performance Metrics:**")
+            col1a, col1b, col1c = st.columns(3)
+            with col1a:
+                st.metric("Time", f"{responses['gemini_metrics']['response_time']:.2f}s")
+            with col1b:
+                st.metric("Tokens", f"{responses['gemini_metrics']['tokens_used']:,}")
+            with col1c:
+                st.metric("Cost", f"${responses['gemini_metrics']['cost']:.4f}")
+        
+        with col2:
+            st.markdown("### 🧠 Claude Response")
+            st.write(responses['claude_response'])
+            
+            # Display Claude metrics
+            st.markdown("**Performance Metrics:**")
+            col2a, col2b, col2c = st.columns(3)
+            with col2a:
+                st.metric("Time", f"{responses['claude_metrics']['response_time']:.2f}s")
+            with col2b:
+                st.metric("Tokens", f"{responses['claude_metrics']['tokens_used']:,}")
+            with col2c:
+                st.metric("Cost", f"${responses['claude_metrics']['cost']:.4f}")
+    
+    # Add feedback submission section directly below dual response table
+    if st.session_state.generated_responses:
+        st.markdown("---")
+        st.subheader("📝 Provide Feedback")
+        
+        # Get the generated responses for feedback
+        responses = st.session_state.generated_responses
+        query = responses['query']
+        gemini_response = responses['gemini_response']
+        claude_response = responses['claude_response']
+        
+        # Feedback fields without form wrapper
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            selected_model = st.selectbox("Which response do you prefer?", ["gemini", "claude", "both"])
+        
+        with col2:
+            user_rating = st.slider("Overall Rating", 1, 5, 4)
+        
+        st.subheader("Response Quality")
+        col1, col2 = st.columns(2)
+        with col1:
+            accuracy = st.slider("Accuracy", 1, 5, 4)
+            relevance = st.slider("Relevance", 1, 5, 4)
+        with col2:
+            clarity = st.slider("Clarity", 1, 5, 4)
+            completeness = st.slider("Completeness", 1, 5, 4)
+        
+        # Submit button
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            submit_button = st.button("🚀 Submit Feedback & Trigger Auto-Retraining", type="primary", use_container_width=True)
+        
+        if submit_button:
+            # Show processing indicator
+            with st.spinner("🔄 Processing feedback..."):
+                # Prepare feedback data
+                feedback = {
+                    'query': query,
+                    'gemini_response': gemini_response,
+                    'claude_response': claude_response,
+                    'selected_model': selected_model,
+                    'user_rating': user_rating,
+                    'response_quality': {
+                        'accuracy': accuracy,
+                        'relevance': relevance,
+                        'clarity': clarity,
+                        'completeness': completeness
+                    },
+                    'timestamp': datetime.now().isoformat()
+                }
+                
+                # Process feedback through auto-retraining pipeline
+                pipeline = st.session_state.auto_retraining_pipeline
+                result = asyncio.run(pipeline.process_feedback_async(feedback))
+            
+            # Enhanced visual feedback
+            if result['status'] == 'queued':
+                st.success(f"✅ **Feedback Queued Successfully!**")
+                st.info(f"📝 {result['message']}")
+                
+                # Show current queue status
+                status = pipeline.get_pipeline_status()
+                progress = min(status['queue_size'] / status['retraining_threshold'], 1.0)
+                st.progress(progress, text=f"Queue Progress: {status['queue_size']}/{status['retraining_threshold']} items")
+                
+                # Show what happens next
+                remaining = status['retraining_threshold'] - status['queue_size']
+                if remaining > 0:
+                    st.info(f"🎯 **Next Steps:** Submit {remaining} more high-quality feedback items to trigger automatic retraining!")
+                else:
+                    st.warning("⚠️ **Note:** Queue is full but retraining may be on cooldown. Check the dashboard for details.")
+                
+            elif result['status'] == 'retraining_started':
+                st.success(f"🚀 **Auto-Retraining Started!**")
+                st.info(f"📊 Training data size: {result['training_data_size']} examples")
+                st.info(f"🔧 Jobs started: {len(result['jobs'])} models")
+                
+                # Show job details
+                for job in result['jobs']:
+                    if job.get('status') == 'started':
+                        st.success(f"✅ {job['model_type'].title()} retraining job started: {job.get('job_name', 'N/A')}")
+                
+                # Show what happens next
+                st.info("🔄 **What's happening:** The pipeline is now training your models with the collected feedback. This may take some time.")
+                
+            else:
+                st.error(f"❌ **Error Processing Feedback**")
+                st.error(f"Details: {result['message']}")
+                st.info("💡 **Troubleshooting:** Check the pipeline configuration and ensure all required services are available.")
+            
+            st.rerun()
+    
+    # Add a refresh button
+    st.markdown("---")
+    col1, col2, col3 = st.columns([1, 1, 1])
+    with col2:
+        if st.button("🔄 Refresh Dashboard", type="secondary"):
+            st.rerun()
+
+
 def render_about_page():
     """Render the About page with application information."""
     st.title("ℹ️ About This Application")
@@ -2344,6 +2723,18 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
             }
             # Fix links in the response before saving
             fixed_response = fix_markdown_links(full_response)
+            
+            # Add citations if available
+            if CITATION_MANAGER_AVAILABLE and citation_manager and documents:
+                try:
+                    citations = citation_manager.extract_citations(documents)
+                    if citations:
+                        # Format citations as markdown and append
+                        citations_markdown = citation_manager.format_citations_markdown(citations)
+                        fixed_response += citations_markdown
+                except Exception as e:
+                    logger.error(f"Error adding citations: {e}")
+            
             save_chat_message('assistant', fixed_response, assistant_metadata)
             
             # Clear the streaming response placeholder since it will be shown in chat history
@@ -2686,14 +3077,24 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
             
             with spinner_placeholder:
                 with st.spinner("🤖 Processing your question with AI..."):
-                    # Process query with optimized smart routing (includes caching)
-                    result = process_query_optimized(
+                    # Process query with STREAMING for real-time response display
+                    answer_placeholder = st.empty()
+                    full_answer = ""
+                    
+                    for result in process_query_stream(
                         query,
                         settings.bedrock_knowledge_base_id,
                         smart_router,
                         aws_clients,
                         user_id=st.session_state.get('user_id', 'anonymous')
-                    )
+                    ):
+                        # Display streaming answer in real-time
+                        if result.get('success') and result.get('answer'):
+                            full_answer = result['answer']
+                            answer_placeholder.markdown(f"**🤖 AI Response:**\n\n{full_answer}")
+                    
+                    # Final result for metadata
+                    result = result  # Keep last result for metadata display
             
             # Calculate processing time (for internal use only)
             processing_time = time.time() - start_time
@@ -2727,7 +3128,7 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                 
                 # Estimate tokens and cost (rough estimation)
                 model_used = result.get('model_used', 'haiku')
-                answer_length = len(result.get('answer', ''))
+                answer_length = len(full_answer if full_answer else result.get('answer', ''))
                 query_length = len(query)
                 
                 # Rough token estimation (1 token ≈ 4 characters)
@@ -2761,7 +3162,20 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                     'processing_time': time.time() - st.session_state.get('query_start_time', time.time())
                 }
                 # Fix links in the response before saving
-                fixed_answer = fix_markdown_links(result['answer'])
+                answer_to_save = full_answer if full_answer else result.get('answer', '')
+                fixed_answer = fix_markdown_links(answer_to_save)
+                
+                # Add citations if available
+                if CITATION_MANAGER_AVAILABLE and citation_manager and result.get('documents'):
+                    try:
+                        citations = citation_manager.extract_citations(result['documents'])
+                        if citations:
+                            # Format citations as markdown and append
+                            citations_markdown = citation_manager.format_citations_markdown(citations)
+                            fixed_answer += citations_markdown
+                    except Exception as e:
+                        logger.error(f"Error adding citations: {e}")
+                
                 save_chat_message('assistant', fixed_answer, assistant_metadata)
                 
                 # Show success message
@@ -3041,12 +3455,12 @@ def render_hybrid_demo_page():
             2. **Compare Models**: Use the "Compare Models" tab to test both models side-by-side
             3. **Smart Routing**: Use the "Smart Routing" tab to let the system choose the best model
             4. **Test Suite**: Use the "Test Suite" tab to run predefined test queries
-            5. **Analytics**: Use the "Analytics" tab to view performance metrics
+            5. **Auto-Retraining**: Use the "Retraining" tab to monitor model improvement
             """)
         return
     
     # Main interface
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["🔄 Compare Models", "🧭 Smart Routing", "🧪 Test Suite", "📊 Analytics", "📝 Feedback", "🔄 Retraining"])
+    tab1, tab2, tab3, tab4 = st.tabs(["🔄 Compare Models", "🧭 Smart Routing", "🧪 Test Suite", "🔄 Retraining"])
     
     with tab1:
         # Pass knowledge base info to comparison UI
@@ -3067,12 +3481,6 @@ def render_hybrid_demo_page():
         render_hybrid_test_suite_interface()
     
     with tab4:
-        render_hybrid_analytics_interface()
-    
-    with tab5:
-        render_hybrid_feedback_interface()
-    
-    with tab6:
         render_hybrid_retraining_interface()
 
 
@@ -3085,11 +3493,23 @@ def main():
     if HYBRID_MODELS_AVAILABLE:
         page_options.append("🔄 Hybrid Demo")
     
+    # Add auto-retraining dashboard if available
+    if AUTO_RETRAINING_AVAILABLE:
+        page_options.append("🚀 Auto-Retraining")
+    
     page = st.sidebar.selectbox(
         "Navigate to:",
         page_options,
         index=0
     )
+    
+    # Initialize auto-retraining pipeline if available
+    if AUTO_RETRAINING_AVAILABLE and 'auto_retraining_pipeline' not in st.session_state:
+        try:
+            st.session_state.auto_retraining_pipeline = AutoRetrainingPipeline(AUTO_RETRAINING_CONFIG)
+            st.session_state.auto_retraining_ui = AutoRetrainingUI()
+        except Exception as e:
+            st.sidebar.error(f"Failed to initialize auto-retraining pipeline: {e}")
     
     # Debug Mode Toggle in Sidebar
     st.sidebar.markdown("---")
@@ -3171,6 +3591,13 @@ def main():
             st.error("❌ Hybrid model components not available. Please check your installation.")
             st.stop()
         render_hybrid_demo_page()
+    
+    elif page == "🚀 Auto-Retraining":
+        # Render Auto-Retraining Dashboard
+        if not AUTO_RETRAINING_AVAILABLE:
+            st.error("❌ Auto-retraining components not available. Please check your installation.")
+            st.stop()
+        render_auto_retraining_page()
     
     else:  # Admin Dashboard - full initialization
         # Check admin access first

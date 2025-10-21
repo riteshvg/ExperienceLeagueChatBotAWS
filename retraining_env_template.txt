@@ -1,0 +1,26 @@
+# Auto-Retraining Pipeline Environment Configuration
+# Copy this file to .env and fill in your actual credentials
+
+# AWS Configuration for Claude Retraining
+AWS_DEFAULT_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your_aws_access_key_here
+AWS_SECRET_ACCESS_KEY=your_aws_secret_key_here
+RETRAINING_S3_BUCKET=your-retraining-bucket-name
+BEDROCK_ROLE_ARN=arn:aws:iam::YOUR_ACCOUNT:role/BedrockCustomModelRole
+
+# GCP Configuration for Gemini Retraining
+GCP_PROJECT_ID=your-gcp-project-id
+RETRAINING_GCS_BUCKET=your-retraining-bucket-name
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/your/service-account-key.json
+
+# Feature Flags
+ENABLE_CLAUDE_RETRAINING=true
+ENABLE_GEMINI_RETRAINING=true
+
+# Optional: Local Data Storage
+SAVE_TRAINING_DATA_LOCALLY=true
+LOCAL_DATA_PATH=./training_data
+
+
+
+

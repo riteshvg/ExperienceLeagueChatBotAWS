@@ -55,6 +55,11 @@ class Settings(BaseSettings):
     embedding_model: str = Field(default="sentence-transformers/all-MiniLM-L6-v2", env="EMBEDDING_MODEL")
     vector_store_path: str = Field(default="./vector_store", env="VECTOR_STORE_PATH")
     
+    # Retrieval Configuration
+    similarity_threshold: float = Field(default=0.6, env="SIMILARITY_THRESHOLD")
+    min_retrieval_results: int = Field(default=3, env="MIN_RETRIEVAL_RESULTS")
+    max_retrieval_results: int = Field(default=8, env="MAX_RETRIEVAL_RESULTS")
+    
     # Data Pipeline Configuration
     data_refresh_interval: int = Field(default=3600, env="DATA_REFRESH_INTERVAL")  # 1 hour
     max_documents: int = Field(default=10000, env="MAX_DOCUMENTS")
@@ -70,10 +75,20 @@ class Settings(BaseSettings):
     google_api_key: Optional[str] = Field(None, env="GOOGLE_API_KEY")
     demo_password: str = Field(default="demo123", env="DEMO_PASSWORD")
     
+    # Auto-Retraining Configuration
+    retraining_s3_bucket: Optional[str] = Field(None, env="RETRAINING_S3_BUCKET")
+    bedrock_role_arn: Optional[str] = Field(None, env="BEDROCK_ROLE_ARN")
+    retraining_threshold: int = Field(default=3, env="RETRAINING_THRESHOLD")
+    quality_threshold: int = Field(default=3, env="QUALITY_THRESHOLD")
+    retraining_cooldown: int = Field(default=60, env="RETRAINING_COOLDOWN")
+    enable_claude_retraining: bool = Field(default=True, env="ENABLE_CLAUDE_RETRAINING")
+    enable_gemini_retraining: bool = Field(default=False, env="ENABLE_GEMINI_RETRAINING")
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"  # Allow extra fields to be ignored
 
 
 def get_settings() -> Settings:

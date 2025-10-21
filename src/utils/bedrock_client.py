@@ -124,21 +124,21 @@ class BedrockClient:
             raise
     
     def _generate_claude_text(self, prompt: str, max_tokens: int, temperature: float, top_p: float, system_prompt: str = None) -> str:
-        """Generate text using Claude models."""
-        messages = []
-        
-        if system_prompt:
-            messages.append({"role": "user", "content": f"System: {system_prompt}\n\nUser: {prompt}"})
-        else:
-            messages.append({"role": "user", "content": prompt})
-        
+        """Generate text using Claude models with proper system prompt handling."""
+        # Claude API uses separate system parameter (not in messages)
         body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": top_p,
-            "messages": messages
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
         }
+        
+        # Add system prompt as separate parameter (Claude API best practice)
+        if system_prompt:
+            body["system"] = system_prompt
         
         response = self.client.invoke_model(
             modelId=self.model_id,
@@ -188,21 +188,20 @@ class BedrockClient:
         return response_body['generation']
     
     def _generate_claude_text_stream(self, prompt: str, max_tokens: int, temperature: float, top_p: float, system_prompt: str = None):
-        """Generate text using Claude models with streaming."""
-        messages = []
-        
-        if system_prompt:
-            messages.append({"role": "user", "content": f"System: {system_prompt}\n\nUser: {prompt}"})
-        else:
-            messages.append({"role": "user", "content": prompt})
-        
+        """Generate text using Claude models with streaming and proper system prompt handling."""
         body = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": top_p,
-            "messages": messages
+            "messages": [
+                {"role": "user", "content": prompt}
+            ]
         }
+        
+        # Add system prompt as separate parameter (Claude API best practice)
+        if system_prompt:
+            body["system"] = system_prompt
         
         # Use invoke_model_with_response_stream for streaming
         response = self.client.invoke_model_with_response_stream(

@@ -5,6 +5,7 @@ Provides interfaces for rating responses and managing feedback data.
 
 import streamlit as st
 import json
+import asyncio
 from datetime import datetime
 from typing import Dict, Any, Optional
 from .feedback_manager import FeedbackManager
@@ -161,7 +162,7 @@ class FeedbackUI:
                     "completeness": completeness_rating
                 }
                 
-                # Submit feedback
+                # Submit feedback to storage
                 feedback_id = self.feedback_manager.submit_feedback(
                     query=query,
                     gemini_response=gemini_response,
@@ -175,6 +176,60 @@ class FeedbackUI:
                 
                 st.success(f"✅ Feedback submitted successfully! ID: {feedback_id}")
                 st.session_state.feedback_submitted = True
+                
+                # Process feedback through auto-retraining pipeline if available
+                if 'auto_retraining_pipeline' in st.session_state:
+                    with st.spinner("🔄 Processing feedback through auto-retraining pipeline..."):
+                        try:
+                            # Prepare feedback data for pipeline
+                            feedback_data = {
+                                'query': query,
+                                'gemini_response': gemini_response,
+                                'claude_response': claude_response,
+                                'selected_model': selected_model,
+                                'user_rating': overall_rating,
+                                'response_quality': response_quality,
+                                'timestamp': datetime.now().isoformat()
+                            }
+                            
+                            # Process feedback asynchronously
+                            pipeline = st.session_state.auto_retraining_pipeline
+                            result = asyncio.run(pipeline.process_feedback_async(feedback_data))
+                            
+                            # Show pipeline result
+                            if result['status'] == 'queued':
+                                st.info(f"📝 {result['message']}")
+                                
+                                # Show queue progress
+                                status = pipeline.get_pipeline_status()
+                                progress = min(status['queue_size'] / status['retraining_threshold'], 1.0)
+                                st.progress(progress, text=f"Queue Progress: {status['queue_size']}/{status['retraining_threshold']} items")
+                                
+                                # Show what happens next
+                                remaining = status['retraining_threshold'] - status['queue_size']
+                                if remaining > 0:
+                                    st.info(f"🎯 Submit {remaining} more high-quality feedback items to trigger automatic retraining!")
+                                else:
+                                    st.warning("⚠️ Queue is full! Retraining may be triggered on next submission.")
+                                    
+                            elif result['status'] == 'retraining_started':
+                                st.success(f"🚀 **Auto-Retraining Started!**")
+                                st.info(f"📊 Training data size: {result['training_data_size']} examples")
+                                st.info(f"🔧 Jobs started: {len(result['jobs'])} models")
+                                
+                                # Show job details
+                                for job in result['jobs']:
+                                    if job.get('status') == 'started':
+                                        st.success(f"✅ {job['model_type'].title()} retraining job: {job.get('job_name', 'N/A')}")
+                                
+                                st.info("🔄 Models are being trained with collected feedback. This may take some time.")
+                                
+                            else:
+                                st.warning(f"⚠️ Pipeline Status: {result['message']}")
+                                
+                        except Exception as e:
+                            st.warning(f"⚠️ Could not process feedback through auto-retraining pipeline: {str(e)}")
+                            st.info("💡 Feedback was saved successfully. You can process it later from the Auto-Retraining page.")
                 
                 return feedback_id
         
