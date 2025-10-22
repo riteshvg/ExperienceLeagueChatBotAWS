@@ -201,16 +201,18 @@ def _map_adobe_analytics_url(path: str) -> str:
 
 def _map_cja_url(path: str) -> str:
     """
-    Map Customer Journey Analytics path to Experience League URL keeping FULL path.
+    Map Customer Journey Analytics path to Experience League URL with proper CJA structure.
     
-    Pattern: help/{section}/{subsection}/{file}.md
-    → https://experienceleague.adobe.com/en/docs/analytics-platform/{section}/{subsection}/{file}
+    Pattern: help/cja-main/{section}/{subsection}/{file}.md
+    → https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-{section}/{subsection}/{file}
     
     Examples:
         help/cja-main/data-views/create-dataview.md 
-            → /data-views/create-dataview
+            → /using/cja-dataviews/create-dataview
         help/cja-main/connections/overview.md 
-            → /connections/overview
+            → /using/cja-connections/overview
+        help/cja-main/components/filters/filters-overview.md
+            → /using/cja-components/filters/filters-overview
     """
     # Remove various prefixes
     path = path.replace('adobe-docs/customer-journey-analytics/', '')
@@ -228,10 +230,40 @@ def _map_cja_url(path: str) -> str:
     elif path.endswith('.html'):
         path = path[:-5]
     
-    # IMPORTANT: Keep full path including all subfolders!
-    # CJA docs have been reorganized, using simple mapping
-    base_url = "https://experienceleague.adobe.com/en/docs/analytics-platform"
-    return f"{base_url}/{path}"
+    # Extract section (first folder)
+    parts = path.split('/')
+    if not parts:
+        return f"https://experienceleague.adobe.com/en/docs/analytics-platform/using/{path}"
+    
+    section = parts[0]
+    rest_of_path = '/'.join(parts[1:]) if len(parts) > 1 else ''
+    
+    # Map sections to CJA format
+    section_mapping = {
+        'data-views': 'cja-dataviews',
+        'connections': 'cja-connections', 
+        'components': 'cja-components',
+        'getting-started': 'cja-overview',
+        'analysis-workspace': 'cja-workspace',
+        'use-cases': 'cja-usecases',
+        'architecture': 'cja-architecture',
+        'exporting': 'cja-exporting',
+        'video-clips': 'cja-videos'
+    }
+    
+    # Apply mapping
+    if section in section_mapping:
+        section = section_mapping[section]
+    elif not section.startswith('cja-'):
+        section = f'cja-{section}'
+    
+    # Build full path with /using/ prefix
+    if rest_of_path:
+        full_path = f"using/{section}/{rest_of_path}"
+    else:
+        full_path = f"using/{section}"
+    
+    return f"https://experienceleague.adobe.com/en/docs/analytics-platform/{full_path}"
 
 
 def _map_aep_url(path: str) -> str:
