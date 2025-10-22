@@ -61,6 +61,15 @@ except ImportError as e:
     print(f"Warning: Citation mapper not available: {e}")
     CITATION_MAPPER_AVAILABLE = False
 
+# Import URL validator for real-time citation validation
+try:
+    from src.utils.url_validator import filter_valid_citations, get_cache_stats, clear_url_cache
+    URL_VALIDATOR_AVAILABLE = True
+    print("✅ URL validator loaded successfully")
+except ImportError as e:
+    print(f"Warning: URL validator not available: {e}")
+    URL_VALIDATOR_AVAILABLE = False
+
 # Import hybrid model components
 try:
     from src.models.model_provider import ModelProvider
@@ -2744,18 +2753,32 @@ def process_query_with_full_initialization(query, settings, aws_clients, smart_r
                         )
                         citations.append(citation_info)
                     
+                    # Validate URLs in real-time and filter out 404s
+                    if URL_VALIDATOR_AVAILABLE and citations and settings.validate_citation_urls:
+                        logger.info(f"Validating {len(citations)} citation URLs...")
+                        citations = filter_valid_citations(
+                            citations, 
+                            validate_urls=True, 
+                            timeout=settings.citation_url_timeout
+                        )
+                        logger.info(f"After validation: {len(citations)} valid citations")
+                    
                     if citations:
                         # Format citations as markdown
                         citations_markdown = "\n\n---\n\n### 📚 Sources\n\n"
-                        for citation in citations:
-                            citations_markdown += f"{len([c for c in citations if citations.index(c) < citations.index(citation)]) + 1}. **[{citation['title']}]({citation['url']})** "
+                        for idx, citation in enumerate(citations, 1):
+                            citations_markdown += f"{idx}. **[{citation['title']}]({citation['url']})** "
                             citations_markdown += f"(Relevance: {citation['score']:.2%})"
+                            # Show validation status if available
+                            if citation.get('url_validated'):
+                                status = citation.get('url_status', 0)
+                                citations_markdown += f" ✓"
                             if citation.get('github_url'):
                                 citations_markdown += f" • [View on GitHub →]({citation['github_url']})"
                             citations_markdown += "\n"
                         
                         fixed_response += citations_markdown
-                        logger.info(f"Added {len(citations)} citations to response")
+                        logger.info(f"Added {len(citations)} validated citations to response")
                 except Exception as e:
                     logger.error(f"Error adding citations: {e}")
             
@@ -3200,18 +3223,32 @@ def render_main_page(settings, aws_clients, aws_error, kb_status, kb_error, smar
                             )
                             citations.append(citation_info)
                         
+                        # Validate URLs in real-time and filter out 404s
+                        if URL_VALIDATOR_AVAILABLE and citations and settings.validate_citation_urls:
+                            logger.info(f"Validating {len(citations)} citation URLs...")
+                            citations = filter_valid_citations(
+                                citations, 
+                                validate_urls=True, 
+                                timeout=settings.citation_url_timeout
+                            )
+                            logger.info(f"After validation: {len(citations)} valid citations")
+                        
                         if citations:
                             # Format citations as markdown
                             citations_markdown = "\n\n---\n\n### 📚 Sources\n\n"
                             for idx, citation in enumerate(citations, 1):
                                 citations_markdown += f"{idx}. **[{citation['title']}]({citation['url']})** "
                                 citations_markdown += f"(Relevance: {citation['score']:.2%})"
+                                # Show validation status if available
+                                if citation.get('url_validated'):
+                                    status = citation.get('url_status', 0)
+                                    citations_markdown += f" ✓"
                                 if citation.get('github_url'):
                                     citations_markdown += f" • [View on GitHub →]({citation['github_url']})"
                                 citations_markdown += "\n"
                             
                             fixed_answer += citations_markdown
-                            logger.info(f"Added {len(citations)} citations to response")
+                            logger.info(f"Added {len(citations)} validated citations to response")
                     except Exception as e:
                         logger.error(f"Error adding citations: {e}")
                 

@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     min_retrieval_results: int = Field(default=3, env="MIN_RETRIEVAL_RESULTS")
     max_retrieval_results: int = Field(default=8, env="MAX_RETRIEVAL_RESULTS")
     
+    # Citation URL Validation
+    validate_citation_urls: bool = Field(default=True, env="VALIDATE_CITATION_URLS")
+    citation_url_timeout: int = Field(default=3, env="CITATION_URL_TIMEOUT")
+    
     # Data Pipeline Configuration
     data_refresh_interval: int = Field(default=3600, env="DATA_REFRESH_INTERVAL")  # 1 hour
     max_documents: int = Field(default=10000, env="MAX_DOCUMENTS")
