@@ -137,17 +137,17 @@ def map_to_experience_league_url(document_metadata: dict) -> str:
     result_url = None
     
     # Adobe Analytics
-    if 'adobe-docs/adobe-analytics/help' in path or 'analytics.en/help' in path:
+    if 'adobe-docs/adobe-analytics' in path or 'analytics.en' in path:
         result_url = _map_adobe_analytics_url(path)
         logger.info(f"Adobe Analytics mapping: {path} → {result_url}")
     
     # Customer Journey Analytics
-    elif 'customer-journey-analytics' in path or 'analytics-platform.en' in path:
+    elif 'customer-journey-analytics' in path or 'analytics-platform' in path:
         result_url = _map_cja_url(path)
         logger.info(f"CJA mapping: {path} → {result_url}")
     
-    # Adobe Experience Platform
-    elif 'experience-platform.en' in path or path.startswith('aep/'):
+    # Adobe Experience Platform (check for both variations)
+    elif 'experience-platform' in path or path.startswith('aep/'):
         result_url = _map_aep_url(path)
         logger.info(f"AEP mapping: {path} → {result_url}")
     
@@ -169,10 +169,16 @@ def map_to_experience_league_url(document_metadata: dict) -> str:
 
 def _map_adobe_analytics_url(path: str) -> str:
     """
-    Map Adobe Analytics path to Experience League URL.
+    Map Adobe Analytics path to Experience League URL keeping FULL path.
     
     Pattern: help/{section}/{subsection}/{file}.md
     → https://experienceleague.adobe.com/en/docs/analytics/{section}/{subsection}/{file}
+    
+    Examples:
+        help/components/segmentation/seg-workflow.md 
+            → /components/segmentation/seg-workflow
+        help/admin/admin-console/permissions/product-profile.md 
+            → /admin/admin-console/permissions/product-profile
     """
     # Remove various prefixes
     path = path.replace('adobe-docs/adobe-analytics/', '')
@@ -180,25 +186,31 @@ def _map_adobe_analytics_url(path: str) -> str:
     
     # Remove 'help/' prefix
     if path.startswith('help/'):
-        path = path[5:]  # Remove 'help/'
+        path = path[5:]
     
-    # Remove .md extension
+    # Remove .md and .html extensions
     if path.endswith('.md'):
         path = path[:-3]
+    elif path.endswith('.html'):
+        path = path[:-5]
     
-    # Build URL
+    # IMPORTANT: Keep full path including all subfolders!
     base_url = "https://experienceleague.adobe.com/en/docs/analytics"
     return f"{base_url}/{path}"
 
 
 def _map_cja_url(path: str) -> str:
     """
-    Map Customer Journey Analytics path to Experience League URL.
+    Map Customer Journey Analytics path to Experience League URL keeping FULL path.
     
-    Pattern: help/{section}/{file}.md
-    → https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-{section}/{file}
+    Pattern: help/{section}/{subsection}/{file}.md
+    → https://experienceleague.adobe.com/en/docs/analytics-platform/{section}/{subsection}/{file}
     
-    Note: CJA uses 'cja-' prefix for sections
+    Examples:
+        help/cja-main/data-views/create-dataview.md 
+            → /data-views/create-dataview
+        help/cja-main/connections/overview.md 
+            → /connections/overview
     """
     # Remove various prefixes
     path = path.replace('adobe-docs/customer-journey-analytics/', '')
@@ -210,38 +222,49 @@ def _map_cja_url(path: str) -> str:
     elif path.startswith('help/'):
         path = path[5:]  # Remove 'help/'
     
-    # Remove .md extension
+    # Remove .md and .html extensions
     if path.endswith('.md'):
         path = path[:-3]
+    elif path.endswith('.html'):
+        path = path[:-5]
     
-    # For CJA, we'll use the simple mapping without forcing cja- prefix
-    # since the docs have been reorganized
+    # IMPORTANT: Keep full path including all subfolders!
+    # CJA docs have been reorganized, using simple mapping
     base_url = "https://experienceleague.adobe.com/en/docs/analytics-platform"
     return f"{base_url}/{path}"
 
 
 def _map_aep_url(path: str) -> str:
     """
-    Map Adobe Experience Platform path to Experience League URL.
+    Map Adobe Experience Platform path to Experience League URL keeping FULL path.
     
     Pattern: help/{service}/{subsection}/{file}.md
     → https://experienceleague.adobe.com/en/docs/experience-platform/{service}/{subsection}/{file}
-    """
-    # Remove prefix
-    if path.startswith('aep/'):
-        path = path[4:]  # Remove 'aep/'
     
+    Examples:
+        help/datastreams/configure.md → /datastreams/configure
+        help/sources/connectors/adobe-applications/analytics.md 
+            → /sources/connectors/adobe-applications/analytics
+    """
+    # Remove various prefixes
+    path = path.replace('adobe-docs/experience-platform/', '')
     path = path.replace('experience-platform.en/', '')
+    
+    # Remove 'aep/' prefix if present
+    if path.startswith('aep/'):
+        path = path[4:]
     
     # Remove 'help/' prefix
     if path.startswith('help/'):
         path = path[5:]
     
-    # Remove .md extension
+    # Remove .md and .html extensions
     if path.endswith('.md'):
         path = path[:-3]
+    elif path.endswith('.html'):
+        path = path[:-5]
     
-    # Build URL
+    # IMPORTANT: Keep full path - don't strip anything!
     base_url = "https://experienceleague.adobe.com/en/docs/experience-platform"
     return f"{base_url}/{path}"
 
