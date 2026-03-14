@@ -12,6 +12,12 @@ cmds = [
     "cd frontend && npm run build"
 ]
 
+# Explicitly set start command to prevent Streamlit auto-detection
+# Railway/Nixpacks will NOT auto-detect app.py as Streamlit if start command is set
 [start]
 cmd = "./start.sh"
+
+# Variables to prevent auto-detection
+[variables]
+NIXPACKS_NO_AUTO_DETECT = "true"
 
