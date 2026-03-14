@@ -1,4 +1,4 @@
-import { Box, Paper, Typography, Chip, Link, List, ListItem, ListItemText } from '@mui/material'
+import { Box, Paper, Typography, Chip, Link, List, ListItem } from '@mui/material'
 import ReactMarkdown from 'react-markdown'
 import rehypeRaw from 'rehype-raw'
 import OpenInNewIcon from '@mui/icons-material/OpenInNew'
