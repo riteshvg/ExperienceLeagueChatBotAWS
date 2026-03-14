@@ -55,6 +55,15 @@ if [ ! -f "app/main.py" ]; then
     exit 1
 fi
 
+# Activate virtual environment if it exists (created during build)
+if [ -d "venv" ]; then
+    echo "✅ Activating virtual environment..."
+    source venv/bin/activate
+    echo "✅ Virtual environment activated"
+else
+    echo "⚠️  Warning: Virtual environment not found, using system Python"
+fi
+
 # Start FastAPI with uvicorn
 # Use 0.0.0.0 to bind to all interfaces (required for Railway)
 # The backend will serve both API endpoints and static frontend files
