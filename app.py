@@ -1586,36 +1586,79 @@ def render_main_page_minimal():
                 return
             # Lazy initialization - only when needed
             settings = get_cached_settings()
-            if settings:
-                aws_clients = get_cached_aws_clients(settings)
-                if aws_clients:
-                    # Quick KB test
-                    kb_status, kb_error = test_knowledge_base_connection(
-                        settings.bedrock_knowledge_base_id,
-                        aws_clients['bedrock_agent_client']
-                    )
-                    
-                    if kb_status:
-                        # Initialize smart router
-                        haiku_only_mode = st.session_state.get('haiku_only_mode', False)
-                        smart_router = SmartRouter(haiku_only_mode=haiku_only_mode)
-                        
-                        # Initialize analytics service
-                        analytics_service = None
-                        if ANALYTICS_AVAILABLE:
-                            try:
-                                analytics_service = initialize_analytics_service()
-                                st.session_state.analytics_available = analytics_service is not None
-                            except Exception as e:
-                                st.session_state.analytics_available = False
-                        
-                        # Debug analytics before processing
-                        print(f"🔍 [MAIN] About to process query: {query[:50]}...")
-                        print(f"🔍 [MAIN] Analytics available: {st.session_state.get('analytics_available', False)}")
-                        print(f"🔍 [MAIN] Analytics service: {analytics_service is not None}")
-                        
-                        # Process the query
-                        process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service)
+            if not settings:
+                st.error("❌ **Configuration Error:** Failed to load application settings. Please check your .env file.")
+                st.stop()
+                return
+            
+            aws_clients = get_cached_aws_clients(settings)
+            if not aws_clients:
+                st.error("❌ **AWS Connection Error:** Failed to initialize AWS clients. Please check your AWS credentials in the .env file.")
+                st.stop()
+                return
+            
+            # Check Knowledge Base configuration
+            if not settings.bedrock_knowledge_base_id:
+                st.error("""
+                ❌ **Knowledge Base Not Configured**
+                
+                The application requires a Bedrock Knowledge Base to process queries.
+                
+                **To fix this:**
+                1. Create a Knowledge Base in AWS Bedrock Console
+                2. Add `BEDROCK_KNOWLEDGE_BASE_ID=your_kb_id` to your `.env` file
+                3. Restart the application
+                
+                **Alternative:** You can still use the Admin Dashboard to configure the Knowledge Base.
+                """)
+                st.stop()
+                return
+            
+            # Quick KB test
+            kb_status, kb_error = test_knowledge_base_connection(
+                settings.bedrock_knowledge_base_id,
+                aws_clients['bedrock_agent_client']
+            )
+            
+            if not kb_status:
+                st.error(f"""
+                ❌ **Knowledge Base Connection Failed**
+                
+                **Error:** {kb_error}
+                
+                **Possible causes:**
+                1. Knowledge Base ID is incorrect
+                2. Knowledge Base is not accessible with current AWS credentials
+                3. Knowledge Base is still syncing/indexing
+                
+                **To fix:**
+                1. Verify the Knowledge Base ID in your `.env` file
+                2. Check AWS Bedrock Console to ensure the Knowledge Base exists
+                3. Verify your AWS credentials have access to Bedrock Knowledge Bases
+                """)
+                st.stop()
+                return
+            
+            # Initialize smart router
+            haiku_only_mode = st.session_state.get('haiku_only_mode', False)
+            smart_router = SmartRouter(haiku_only_mode=haiku_only_mode)
+            
+            # Initialize analytics service
+            analytics_service = None
+            if ANALYTICS_AVAILABLE:
+                try:
+                    analytics_service = initialize_analytics_service()
+                    st.session_state.analytics_available = analytics_service is not None
+                except Exception as e:
+                    st.session_state.analytics_available = False
+            
+            # Debug analytics before processing
+            print(f"🔍 [MAIN] About to process query: {query[:50]}...")
+            print(f"🔍 [MAIN] Analytics available: {st.session_state.get('analytics_available', False)}")
+            print(f"🔍 [MAIN] Analytics service: {analytics_service is not None}")
+            
+            # Process the query
+            process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service)
 
 def process_query_with_full_initialization(query, settings, aws_clients, smart_router, analytics_service):
     """Process query with full initialization (called only when needed)."""
