@@ -6,12 +6,27 @@
 
 set -e  # Exit on error
 
+echo "=========================================="
 echo "🚀 Starting Experience League Chatbot on Railway..."
 echo "📋 This is the FastAPI backend (NOT Streamlit)"
+echo "=========================================="
 
-# Verify we're not accidentally running Streamlit
+# CRITICAL: Verify we're NOT running Streamlit
 if command -v streamlit &> /dev/null; then
-    echo "⚠️  Streamlit is installed but we're using FastAPI"
+    echo "⚠️  WARNING: Streamlit is installed but we're using FastAPI"
+    echo "⚠️  This should NOT trigger Streamlit auto-detection"
+fi
+
+# Verify we're in the right directory and using FastAPI
+echo "✅ Verifying FastAPI setup..."
+if [ ! -f "backend/app/main.py" ]; then
+    echo "❌ ERROR: FastAPI app not found at backend/app/main.py"
+    exit 1
+fi
+
+# Check if this is accidentally trying to run Streamlit
+if [ -f "app_streamlit.py" ] && [ ! -f "app.py" ]; then
+    echo "✅ Confirmed: app.py renamed to app_streamlit.py (Streamlit disabled)"
 fi
 
 # Get the port from Railway (defaults to 8000 if not set)

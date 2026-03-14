@@ -1,8 +1,10 @@
 # Core dependencies for Railway deployment
+# NOTE: This file is NOT used - Railway uses backend/requirements.txt
+# Streamlit removed - we use FastAPI now
 boto3>=1.34.0
 requests>=2.31.0
 python-dotenv>=1.0.0
-streamlit>=1.28.0
+# streamlit>=1.28.0  # REMOVED - Using FastAPI instead
 pandas>=2.1.0
 
 # Database dependencies

@@ -1,0 +1,15 @@
+# Railway ignore file
+# Prevent Railway from auto-detecting Streamlit
+
+# Ignore old Streamlit app
+app_streamlit.py
+*.streamlit
+
+# Ignore root requirements files that might have streamlit
+requirements.txt
+requirements-railway.txt
+requirements-minimal.txt
+requirements-performance.txt
+
+# Use backend/requirements.txt instead (which doesn't have streamlit)
+

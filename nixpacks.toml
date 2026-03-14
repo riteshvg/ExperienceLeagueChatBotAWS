@@ -12,12 +12,15 @@ cmds = [
     "cd frontend && npm run build"
 ]
 
-# Explicitly set start command to prevent Streamlit auto-detection
-# Railway/Nixpacks will NOT auto-detect app.py as Streamlit if start command is set
+# CRITICAL: Explicitly set start command to prevent Streamlit auto-detection
+# Railway/Nixpacks will NOT auto-detect Streamlit if start command is explicitly set
+# This MUST be set to use FastAPI, not Streamlit
 [start]
 cmd = "./start.sh"
 
 # Variables to prevent auto-detection
 [variables]
 NIXPACKS_NO_AUTO_DETECT = "true"
+# Explicitly tell Nixpacks this is NOT a Streamlit app
+NIXPACKS_PROVIDER = "nixpacks"
 

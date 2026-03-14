@@ -1,0 +1,4 @@
+# This file forces Railway to rebuild
+# Updated: $(date)
+# Purpose: Force clean rebuild to use FastAPI instead of Streamlit
+
