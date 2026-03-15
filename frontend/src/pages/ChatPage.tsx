@@ -130,7 +130,11 @@ export default function ChatPage() {
     try {
       // Construct WebSocket URL
       let wsUrl: string
-      if (API_BASE_URL.startsWith('http://')) {
+      if (API_BASE_URL === '' || !API_BASE_URL) {
+        // Production: use same origin with wss:// or ws:// based on current protocol
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+        wsUrl = `${protocol}//${window.location.host}/api/v1/chat/stream`
+      } else if (API_BASE_URL.startsWith('http://')) {
         wsUrl = API_BASE_URL.replace('http://', 'ws://') + '/api/v1/chat/stream'
       } else if (API_BASE_URL.startsWith('https://')) {
         wsUrl = API_BASE_URL.replace('https://', 'wss://') + '/api/v1/chat/stream'
