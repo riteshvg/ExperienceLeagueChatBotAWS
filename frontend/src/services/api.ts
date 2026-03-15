@@ -1,6 +1,21 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+// In production (Railway), frontend and backend are served from the same domain
+// Use relative URLs in production, absolute URLs in development
+const getApiBaseUrl = (): string => {
+  const envUrl = import.meta.env.VITE_API_URL
+  if (envUrl) {
+    return envUrl
+  }
+  // In production, use relative URLs (empty string means same origin)
+  // In development, use localhost
+  if (import.meta.env.PROD) {
+    return '' // Empty string = same origin (relative URLs)
+  }
+  return 'http://localhost:8000'
+}
+
+const API_BASE_URL = getApiBaseUrl()
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,

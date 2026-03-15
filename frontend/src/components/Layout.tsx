@@ -18,7 +18,19 @@ export default function Layout({ children }: LayoutProps) {
     // Fetch Knowledge Base update date
     const fetchKbUpdateDate = async () => {
       try {
-        const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000'
+        // In production, use relative URLs (same origin)
+        // In development, use localhost
+        const getApiBaseUrl = (): string => {
+          const envUrl = (import.meta as any).env?.VITE_API_URL
+          if (envUrl) {
+            return envUrl
+          }
+          if (import.meta.env.PROD) {
+            return '' // Empty string = same origin (relative URLs)
+          }
+          return 'http://localhost:8000'
+        }
+        const API_BASE_URL = getApiBaseUrl()
         const response = await axios.get(`${API_BASE_URL}/api/v1/kb/update-date`)
         
         if (response.data.success && response.data.last_updated) {

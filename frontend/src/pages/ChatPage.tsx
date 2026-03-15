@@ -20,7 +20,19 @@ export default function ChatPage() {
   const [streamingMetadata, setStreamingMetadata] = useState<any>(null)
   const { messages, addMessage, sessionId, setSessionId } = useChatStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const API_BASE_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000'
+  // In production, use relative URLs (same origin)
+  // In development, use localhost
+  const getApiBaseUrl = (): string => {
+    const envUrl = (import.meta as any).env?.VITE_API_URL
+    if (envUrl) {
+      return envUrl
+    }
+    if (import.meta.env.PROD) {
+      return '' // Empty string = same origin (relative URLs)
+    }
+    return 'http://localhost:8000'
+  }
+  const API_BASE_URL = getApiBaseUrl()
 
   // Initialize session ID if not set
   useEffect(() => {
