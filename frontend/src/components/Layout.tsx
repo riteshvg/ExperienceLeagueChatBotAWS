@@ -55,7 +55,7 @@ export default function Layout({ children }: LayoutProps) {
       <AppBar position="static">
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            📊 Adobe Experience League Chatbot
+            📊 Adobe Experience League Chatbot (Unofficial)
           </Typography>
           {kbUpdateDate && (
             <Chip
@@ -116,7 +116,7 @@ export default function Layout({ children }: LayoutProps) {
         }}
       >
         <Typography variant="body2" color="text.secondary" align="center">
-          Adobe Experience League Chatbot - Powered by AWS Bedrock
+          Adobe Experience League Chatbot (Unofficial) - Powered by AWS Bedrock
         </Typography>
       </Box>
     </Box>

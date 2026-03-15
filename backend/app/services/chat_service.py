@@ -37,12 +37,19 @@ class ChatService:
     """Service for processing chat queries with caching and session management"""
     
     def __init__(self, aws_clients: dict, settings):
-        self.aws_clients = aws_clients
+        # Store AWS clients - they're already initialized by dependency injection
+        # This allows lazy access if needed in the future
+        self._aws_clients = aws_clients
         self.settings = settings
         self.smart_router = SmartRouter(haiku_only_mode=False)
         # Initialize cache and session services
         self.cache_service = CacheService(max_size=1000, default_ttl=3600)  # 1 hour TTL
         self.session_service = SessionService(max_sessions=1000, session_ttl=86400)  # 24 hour TTL
+    
+    @property
+    def aws_clients(self) -> dict:
+        """Access AWS clients - lazy initialization wrapper for future use"""
+        return self._aws_clients
     
     def validate_query(self, query: str) -> Dict[str, Any]:
         """Validate query before processing"""

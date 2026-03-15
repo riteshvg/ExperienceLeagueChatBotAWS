@@ -21,18 +21,6 @@ Copy `.env` from project root (already configured).
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 4. Run Tests
-
-```bash
-# All tests
-pytest
-
-# Unit tests only
-pytest tests/unit
-
-# With coverage
-pytest --cov=app --cov-report=html
-```
 
 ## API Documentation
 
@@ -50,23 +38,10 @@ backend/
 │   ├── models/           # Pydantic schemas
 │   ├── services/         # Business logic
 │   └── main.py           # FastAPI app
-└── tests/
-    ├── unit/             # Unit tests
-    └── integration/      # Integration tests
+└── requirements.txt      # Production dependencies
 ```
 
 ## Development
 
-### Code Quality
-
-```bash
-# Format code
-black app tests
-
-# Lint
-flake8 app tests
-
-# Type check
-mypy app
-```
+For development dependencies, see `requirements-dev.txt`.
 

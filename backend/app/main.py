@@ -106,7 +106,11 @@ async def root():
     if frontend_dist_path.exists():
         index_path = frontend_dist_path / "index.html"
         if index_path.exists():
-            return FileResponse(str(index_path))
+            return FileResponse(
+                str(index_path),
+                media_type="text/html",
+                headers={"Cache-Control": "no-cache, no-store, must-revalidate"}
+            )
     return {
         "message": "Adobe Experience League Chatbot API",
         "version": VERSION,
@@ -118,18 +122,21 @@ async def root():
 # Mount static files if frontend build exists
 if frontend_dist_path.exists():
     # Mount assets directory (Vite outputs JS, CSS, etc. to dist/assets/)
+    # CRITICAL: This must be mounted BEFORE the catch-all route
     assets_path = frontend_dist_path / "assets"
     if assets_path.exists():
-        app.mount("/assets", StaticFiles(directory=str(assets_path)), name="assets")
+        app.mount("/assets", StaticFiles(directory=str(assets_path), html=False), name="assets")
+        print(f"[OK] Mounted /assets from {assets_path}")
     
     # Mount any other static directories that might exist
     for static_dir in ["static", "public"]:
         static_path = frontend_dist_path / static_dir
         if static_path.exists():
-            app.mount(f"/{static_dir}", StaticFiles(directory=str(static_path)), name=static_dir)
+            app.mount(f"/{static_dir}", StaticFiles(directory=str(static_path), html=False), name=static_dir)
+            print(f"[OK] Mounted /{static_dir} from {static_path}")
     
     # Serve index.html for all non-API routes (SPA routing)
-    # This must be registered LAST so it doesn't catch API routes
+    # This must be registered LAST so it doesn't catch API routes or assets
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         """
@@ -138,17 +145,28 @@ if frontend_dist_path.exists():
         """
         # Don't serve frontend for API routes
         if full_path.startswith("api/"):
-            return {"error": "Not found"}
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not found")
         
         # Don't serve frontend for asset routes (handled by mounts above)
         if full_path.startswith(("assets/", "static/", "public/")):
-            return {"error": "Not found"}
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not found")
         
-        # Serve index.html for all other routes
+        # Serve index.html for all other routes (SPA fallback)
         index_path = frontend_dist_path / "index.html"
         if index_path.exists():
-            return FileResponse(str(index_path))
-        return {"error": "Frontend not found"}
+            return FileResponse(
+                str(index_path),
+                media_type="text/html",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Frontend not found")
 
 # Startup event - log that app is ready
 @app.on_event("startup")

@@ -81,17 +81,6 @@ if ! python -c "import uvicorn" 2>/dev/null; then
     pip install uvicorn[standard]
 fi
 
-# Verify uvicorn can import the app
-echo "🔍 Verifying app can be imported..."
-if ! python -c "from app.main import app" 2>/dev/null; then
-    echo "❌ Error: Cannot import app from app.main"
-    echo "Attempting to diagnose..."
-    python -c "import sys; print('Python path:', sys.path)"
-    python -c "from app.main import app" || true
-    exit 1
-fi
-echo "✅ App import verified"
-
 # Run uvicorn in the foreground (Railway expects the process to stay running)
 # Use exec to replace shell process with uvicorn
 echo "🚀 Starting uvicorn server..."

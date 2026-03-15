@@ -31,11 +31,20 @@ if Settings is None:
         aws_secret_access_key = None
         aws_s3_bucket = None
         database_url = "sqlite:///./adobe_analytics_rag.db"
+        def validate_aws_config(self):
+            return ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_S3_BUCKET"]
     settings = MinimalSettings()
 else:
     try:
         settings = Settings()
         print("[OK] Settings instance created successfully")
+        # Validate AWS configuration at startup
+        missing_aws = settings.validate_aws_config()
+        if missing_aws:
+            print(f"[WARN] Missing AWS environment variables: {', '.join(missing_aws)}")
+            print("[WARN] AWS features will not work until these are configured")
+        else:
+            print("[OK] AWS environment variables configured")
     except Exception as e:
         print(f"[WARN] Failed to create Settings instance: {e}")
         print("[WARN] Using default values - some features may not work")
@@ -50,6 +59,8 @@ else:
             aws_secret_access_key = None
             aws_s3_bucket = None
             database_url = "sqlite:///./adobe_analytics_rag.db"
+            def validate_aws_config(self):
+                return ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_S3_BUCKET"]
         settings = MinimalSettings()
 
 # API Configuration

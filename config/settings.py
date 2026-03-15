@@ -4,7 +4,7 @@ Configuration management for Adobe Analytics RAG Chatbot.
 
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 try:
     from pydantic_settings import BaseSettings
 except ImportError:
@@ -20,6 +20,19 @@ class Settings(BaseSettings):
     aws_secret_access_key: Optional[str] = Field(None, env="AWS_SECRET_ACCESS_KEY")
     aws_default_region: str = Field(default="us-east-1", env="AWS_DEFAULT_REGION")
     aws_s3_bucket: Optional[str] = Field(None, env="AWS_S3_BUCKET")
+    
+    def validate_aws_config(self) -> List[str]:
+        """Validate AWS configuration and return list of missing variables"""
+        missing = []
+        if not self.aws_access_key_id:
+            missing.append("AWS_ACCESS_KEY_ID")
+        if not self.aws_secret_access_key:
+            missing.append("AWS_SECRET_ACCESS_KEY")
+        if not self.aws_default_region:
+            missing.append("AWS_DEFAULT_REGION")
+        if not self.aws_s3_bucket:
+            missing.append("AWS_S3_BUCKET")
+        return missing
     
     # Adobe Analytics API Configuration (OAuth Server-to-Server)
     adobe_client_id: Optional[str] = Field(None, env="ADOBE_CLIENT_ID")
@@ -68,10 +81,19 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get application settings instance."""
     try:
-        return Settings()
+        settings = Settings()
+        # Validate AWS configuration at startup (log warnings, don't crash)
+        missing_aws = settings.validate_aws_config()
+        if missing_aws:
+            print(f"[WARN] Missing AWS environment variables: {', '.join(missing_aws)}")
+            print("[WARN] AWS features will not work until these are configured")
+            print("[WARN] Set these in Railway environment variables or .env file")
+        else:
+            print("[OK] AWS environment variables configured")
+        return settings
     except Exception as e:
-        print(f"⚠️  Warning: Some environment variables are missing: {e}")
-        print("🔧 Using default values for missing configuration")
+        print(f"[WARN] Warning: Some environment variables are missing: {e}")
+        print("[WARN] Using default values for missing configuration")
         return Settings()
 
 

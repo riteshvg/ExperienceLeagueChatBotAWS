@@ -103,9 +103,12 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.template
 .venv
 env/
 venv/
+backend/venv/
 ENV/
 env.bak/
 venv.bak/
@@ -157,10 +160,27 @@ models/
 embeddings/
 vector_store/
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+
+# Backend
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.coverage
+backend/htmlcov/
+
 # Adobe Analytics specific
 private.key
 *.pem
 credentials.json
+*.p12
+*.key
 
 # Environment and secrets
 .env*
@@ -169,6 +189,8 @@ credentials.json
 *.bak
 secrets/
 credentials/
+*.secret
+*.token
 
 # Documentation upload guide
 upload.md
