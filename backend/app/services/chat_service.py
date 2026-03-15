@@ -14,29 +14,16 @@ project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "src"))
 
-# Import SmartRouter and retrieve_documents_from_kb from app_streamlit.py
-# Import helper functions from chat_helpers
-import importlib.util
-app_streamlit_path = project_root / "app_streamlit.py"
-if not app_streamlit_path.exists():
-    raise FileNotFoundError(
-        f"app_streamlit.py not found at {app_streamlit_path}. "
-        "This file is required for SmartRouter and retrieve_documents_from_kb."
-    )
-spec = importlib.util.spec_from_file_location("app_module", app_streamlit_path)
-app_module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(app_module)
-
-SmartRouter = app_module.SmartRouter
-retrieve_documents_from_kb = app_module.retrieve_documents_from_kb
-
-# Import helper functions
+# Import helper functions and classes from chat_helpers
+# All FastAPI-compatible, no Streamlit dependencies
 from app.services.chat_helpers import (
     check_query_relevance,
     select_best_documents,
     process_document_content,
     invoke_bedrock_model,
-    invoke_bedrock_model_stream
+    invoke_bedrock_model_stream,
+    SmartRouter,
+    retrieve_documents_from_kb
 )
 
 # Import cache and session services

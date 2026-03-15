@@ -3,6 +3,7 @@ Helper functions extracted from app.py for chat service
 These are standalone functions that don't depend on Streamlit
 """
 import sys
+import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 
@@ -10,6 +11,8 @@ from typing import Dict, Any, Optional, List, Tuple
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "src"))
+
+logger = logging.getLogger(__name__)
 
 
 def check_query_relevance(query: str) -> bool:
@@ -359,4 +362,191 @@ def invoke_bedrock_model_stream(
                 yield chunk, None
         except Exception as fallback_error:
             yield "", f"Model error: {str(e)}. Fallback failed: {str(fallback_error)}"
+
+
+class SmartRouter:
+    """Smart router for selecting appropriate Bedrock models based on query analysis."""
+    
+    def __init__(self, haiku_only_mode=False):
+        self.models = {
+            "haiku": "us.anthropic.claude-3-haiku-20240307-v1:0",
+            "sonnet": "us.anthropic.claude-3-7-sonnet-20250219-v1:0", 
+            "opus": "us.anthropic.claude-3-opus-20240229-v1:0"
+        }
+        
+        self.haiku_only_mode = haiku_only_mode
+        
+        # Query complexity indicators
+        self.simple_keywords = ["what", "define", "explain", "how to", "tutorial", "guide"]
+        self.complex_keywords = ["analyze", "compare", "difference", "troubleshoot", "debug", "optimize", "implement"]
+        self.creative_keywords = ["best", "recommend", "suggest", "trends", "future", "strategy", "design"]
+        
+        # Knowledge Base relevance thresholds
+        self.high_relevance_threshold = 0.7
+        self.medium_relevance_threshold = 0.3
+    
+    def analyze_query_complexity(self, query: str) -> str:
+        """Analyze query complexity based on keywords and structure."""
+        query_lower = query.lower()
+        word_count = len(query.split())
+        
+        # Check for creative/open-ended queries
+        if any(keyword in query_lower for keyword in self.creative_keywords):
+            return "extremely_complex"
+        
+        # Check for analytical queries
+        if any(keyword in query_lower for keyword in self.complex_keywords):
+            return "complex"
+        
+        # Check query length and structure
+        if word_count < 5:
+            return "simple"
+        elif word_count > 15:
+            return "complex"
+        elif "?" in query and word_count > 8:
+            return "complex"
+        else:
+            return "simple"
+    
+    def check_kb_relevance(self, query: str, documents: list) -> float:
+        """Check Knowledge Base relevance based on retrieved documents."""
+        if not documents:
+            return 0.0
+        
+        # Calculate average relevance score
+        scores = [doc.get('score', 0) for doc in documents]
+        avg_score = sum(scores) / len(scores) if scores else 0.0
+        
+        return avg_score
+    
+    def select_model(self, query: str, documents: list = None) -> dict:
+        """Select appropriate model based on query analysis."""
+        complexity = self.analyze_query_complexity(query)
+        relevance = self.check_kb_relevance(query, documents or [])
+        
+        # HAIKU-ONLY MODE: Force all queries to use Haiku for cost optimization
+        if self.haiku_only_mode:
+            selected_model = "haiku"
+            reasoning = f"HAIKU-ONLY MODE: Using Haiku for all queries (cost optimization test - 92% cost reduction)"
+        else:
+            # Original model selection logic with fallback for unavailable models
+            if relevance < self.medium_relevance_threshold:
+                # Low KB relevance - prefer Opus, fallback to Sonnet
+                selected_model = "opus"
+                reasoning = f"Low KB relevance ({relevance:.2f}) - using Opus for general knowledge"
+            elif complexity == "simple":
+                # Simple queries - use fast, cost-effective model
+                selected_model = "haiku"
+                reasoning = f"Simple query - using Haiku for fast response"
+            elif complexity == "complex":
+                # Complex queries - use balanced model
+                selected_model = "sonnet"
+                reasoning = f"Complex query - using Sonnet for detailed analysis"
+            else:  # extremely_complex
+                # Extremely complex queries - prefer Opus, fallback to Sonnet
+                selected_model = "opus"
+                reasoning = f"Extremely complex query - using Opus for maximum capability"
+        
+        return {
+            "model": selected_model,
+            "model_id": self.models[selected_model],
+            "complexity": complexity,
+            "relevance": relevance,
+            "reasoning": reasoning
+        }
+    
+    def select_available_model(self, query: str, documents: list = None, available_models: list = None) -> dict:
+        """Select appropriate model with fallback to available models."""
+        if available_models is None:
+            available_models = ["haiku", "sonnet"]  # Default available models
+        
+        # HAIKU-ONLY MODE: Override available models to only include Haiku
+        if self.haiku_only_mode:
+            available_models = ["haiku"]
+        
+        # Get initial selection
+        selection = self.select_model(query, documents)
+        
+        # Check if selected model is available, fallback if not
+        if selection["model"] not in available_models:
+            if "sonnet" in available_models:
+                selection["model"] = "sonnet"
+                selection["model_id"] = self.models["sonnet"]
+                selection["reasoning"] += " (fallback to Sonnet - Opus not available)"
+            elif "haiku" in available_models:
+                selection["model"] = "haiku"
+                selection["model_id"] = self.models["haiku"]
+                selection["reasoning"] += " (fallback to Haiku - preferred model not available)"
+        
+        return selection
+
+
+def retrieve_documents_from_kb(
+    query: str,
+    knowledge_base_id: str,
+    bedrock_agent_client,
+    max_results: int = 3
+) -> Tuple[List[Dict], Optional[str]]:
+    """
+    Retrieve relevant documents from Knowledge Base.
+    FastAPI-compatible version without Streamlit dependencies.
+    """
+    try:
+        # Optional security validation (if available, but don't fail if not)
+        try:
+            from src.security.input_validator import security_validator
+            from src.security.security_monitor import security_monitor
+            
+            # Comprehensive security validation
+            is_valid, sanitized_query, threats_detected = security_validator.validate_chat_query(query)
+            
+            # Monitor the validation attempt
+            security_monitor.monitor_input_validation(
+                user_input=query,
+                threats_detected=threats_detected,
+                blocked=not is_valid
+            )
+            
+            # Block malicious queries
+            if not is_valid:
+                error_msg = f"Security validation failed. Detected threats: {', '.join(threats_detected)}"
+                logger.warning(f"Blocked malicious query: {error_msg}")
+                return [], "Invalid query detected. Please provide a legitimate question about Adobe Analytics, Customer Journey Analytics, or Adobe Experience Platform."
+            
+            # Use sanitized query for processing
+            query = sanitized_query
+        except ImportError:
+            # Security modules not available - continue without validation
+            logger.debug("Security validation modules not available, skipping validation")
+        except Exception as e:
+            # Security validation failed but don't block the request
+            logger.warning(f"Security validation error (non-blocking): {e}")
+        
+        # Additional validation for AWS Bedrock limits
+        MAX_QUERY_LENGTH = 20000
+        if len(query) > MAX_QUERY_LENGTH:
+            query = query[:MAX_QUERY_LENGTH - 100] + "... [truncated]"
+            logger.info(f"Query truncated to {len(query)} characters for AWS Bedrock compatibility")
+        
+        response = bedrock_agent_client.retrieve(
+            knowledgeBaseId=knowledge_base_id,
+            retrievalQuery={
+                'text': query
+            },
+            retrievalConfiguration={
+                'vectorSearchConfiguration': {
+                    'numberOfResults': max_results
+                }
+            }
+        )
+        return response.get('retrievalResults', []), None
+    except Exception as e:
+        # Enhanced error handling for specific AWS errors
+        error_msg = str(e)
+        if "ValidationException" in error_msg and "length less than or equal to 20000" in error_msg:
+            return [], f"Query too long for processing. Maximum allowed: {MAX_QUERY_LENGTH} characters. Please provide a more specific question."
+        elif "ValidationException" in error_msg:
+            return [], f"Invalid query format: {error_msg}"
+        else:
+            return [], f"Retrieval error: {error_msg}"
 
