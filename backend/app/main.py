@@ -2,20 +2,47 @@
 FastAPI main application
 """
 import os
+import sys
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from app.core.config import (
-    PROJECT_NAME,
-    VERSION,
-    API_V1_PREFIX,
-    CORS_ORIGINS
-)
-from app.api.v1 import health, chat
+
+# CRITICAL: Add startup logging at the very top
+print("=" * 60)
+print("🚀 FastAPI Application Starting...")
+print("=" * 60)
+print(f"Python version: {sys.version}")
+print(f"Working directory: {os.getcwd()}")
+print(f"Environment: {os.getenv('ENVIRONMENT', 'development')}")
+print("=" * 60)
+
+try:
+    from app.core.config import (
+        PROJECT_NAME,
+        VERSION,
+        API_V1_PREFIX,
+        CORS_ORIGINS
+    )
+    print(f"✅ Configuration loaded: {PROJECT_NAME} v{VERSION}")
+except Exception as e:
+    print(f"❌ ERROR: Failed to load configuration: {e}")
+    print("⚠️  Continuing with defaults...")
+    PROJECT_NAME = "Adobe Experience League Chatbot API"
+    VERSION = "1.0.0"
+    API_V1_PREFIX = "/api/v1"
+    CORS_ORIGINS = ["*"]
+
+try:
+    from app.api.v1 import health, chat
+    print("✅ API routers imported successfully")
+except Exception as e:
+    print(f"❌ ERROR: Failed to import API routers: {e}")
+    raise
 
 # Create FastAPI app
+print("🔧 Creating FastAPI application...")
 app = FastAPI(
     title=PROJECT_NAME,
     version=VERSION,
@@ -23,8 +50,10 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc"
 )
+print("✅ FastAPI app created")
 
 # Configure CORS
+print("🔧 Configuring CORS...")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -32,10 +61,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+print(f"✅ CORS configured with origins: {CORS_ORIGINS}")
 
 # Include routers
+print("🔧 Registering API routers...")
 app.include_router(health.router, prefix=API_V1_PREFIX, tags=["health"])
 app.include_router(chat.router, prefix=API_V1_PREFIX, tags=["chat"])
+print(f"✅ Routers registered at {API_V1_PREFIX}")
 
 # Serve static files from frontend/dist in production
 # This allows Railway to serve both API and frontend from a single service
@@ -89,4 +121,14 @@ if frontend_dist_path.exists():
         if index_path.exists():
             return FileResponse(str(index_path))
         return {"error": "Frontend not found"}
+
+# Startup event - log that app is ready
+@app.on_event("startup")
+async def startup_event():
+    """Log application startup"""
+    print("=" * 60)
+    print("✅ FastAPI Application Started Successfully!")
+    print(f"📡 Health check available at: /api/v1/health")
+    print(f"📚 API docs available at: /api/docs")
+    print("=" * 60)
 

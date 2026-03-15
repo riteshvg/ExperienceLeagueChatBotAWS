@@ -35,7 +35,23 @@ except ImportError:
 
 def get_settings() -> AppSettings:
     """Dependency to get application settings"""
-    return AppSettings()
+    try:
+        return AppSettings()
+    except Exception as e:
+        print(f"⚠️  Warning: Failed to load settings: {e}")
+        print("⚠️  Using default settings - some features may not work")
+        # Return a minimal settings object to prevent crashes
+        class MinimalSettings:
+            aws_default_region = "us-east-1"
+            bedrock_region = "us-east-1"
+            bedrock_model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+            bedrock_embedding_model_id = "amazon.titan-embed-text-v2:0"
+            bedrock_knowledge_base_id = None
+            aws_access_key_id = None
+            aws_secret_access_key = None
+            aws_s3_bucket = None
+            database_url = "sqlite:///./adobe_analytics_rag.db"
+        return MinimalSettings()
 
 
 def get_aws_clients(settings: AppSettings = Depends(get_settings)):

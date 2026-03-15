@@ -9,10 +9,32 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from config.settings import Settings
+try:
+    from config.settings import Settings
+    print("✅ Settings module imported successfully")
+except Exception as e:
+    print(f"⚠️  Warning: Failed to import Settings: {e}")
+    raise
 
-# Create global settings instance
-settings = Settings()
+# Create global settings instance with error handling
+try:
+    settings = Settings()
+    print("✅ Settings instance created successfully")
+except Exception as e:
+    print(f"⚠️  Warning: Failed to create Settings instance: {e}")
+    print("⚠️  Using default values - some features may not work")
+    # Create a minimal settings object to prevent crashes
+    class MinimalSettings:
+        aws_default_region = "us-east-1"
+        bedrock_region = "us-east-1"
+        bedrock_model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+        bedrock_embedding_model_id = "amazon.titan-embed-text-v2:0"
+        bedrock_knowledge_base_id = None
+        aws_access_key_id = None
+        aws_secret_access_key = None
+        aws_s3_bucket = None
+        database_url = "sqlite:///./adobe_analytics_rag.db"
+    settings = MinimalSettings()
 
 # API Configuration
 API_V1_PREFIX = "/api/v1"
