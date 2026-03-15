@@ -150,7 +150,10 @@ logs/
 *.db
 *.sqlite
 *.sqlite3
+# Ignore ML model files/directories at root level, but not backend/app/models/ (Pydantic schemas)
+/models/
 models/
+!backend/app/models/
 embeddings/
 vector_store/
 
