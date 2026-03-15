@@ -38,8 +38,8 @@ def get_settings() -> AppSettings:
     try:
         return AppSettings()
     except Exception as e:
-        print(f"⚠️  Warning: Failed to load settings: {e}")
-        print("⚠️  Using default settings - some features may not work")
+        print(f"[WARN] Failed to load settings: {e}")
+        print("[WARN] Using default settings - some features may not work")
         # Return a minimal settings object to prevent crashes
         class MinimalSettings:
             aws_default_region = "us-east-1"

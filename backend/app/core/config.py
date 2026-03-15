@@ -11,19 +11,16 @@ sys.path.insert(0, str(project_root))
 
 try:
     from config.settings import Settings
-    print("✅ Settings module imported successfully")
+    print("[OK] Settings module imported successfully")
 except Exception as e:
-    print(f"⚠️  Warning: Failed to import Settings: {e}")
-    raise
+    print(f"[WARN] Failed to import Settings: {e}")
+    print("[WARN] This may cause issues - attempting to continue...")
+    # Don't raise - let the Settings() call below handle it with fallback
+    Settings = None
 
 # Create global settings instance with error handling
-try:
-    settings = Settings()
-    print("✅ Settings instance created successfully")
-except Exception as e:
-    print(f"⚠️  Warning: Failed to create Settings instance: {e}")
-    print("⚠️  Using default values - some features may not work")
-    # Create a minimal settings object to prevent crashes
+if Settings is None:
+    print("[WARN] Settings class not available - using minimal defaults")
     class MinimalSettings:
         aws_default_region = "us-east-1"
         bedrock_region = "us-east-1"
@@ -35,6 +32,25 @@ except Exception as e:
         aws_s3_bucket = None
         database_url = "sqlite:///./adobe_analytics_rag.db"
     settings = MinimalSettings()
+else:
+    try:
+        settings = Settings()
+        print("[OK] Settings instance created successfully")
+    except Exception as e:
+        print(f"[WARN] Failed to create Settings instance: {e}")
+        print("[WARN] Using default values - some features may not work")
+        # Create a minimal settings object to prevent crashes
+        class MinimalSettings:
+            aws_default_region = "us-east-1"
+            bedrock_region = "us-east-1"
+            bedrock_model_id = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+            bedrock_embedding_model_id = "amazon.titan-embed-text-v2:0"
+            bedrock_knowledge_base_id = None
+            aws_access_key_id = None
+            aws_secret_access_key = None
+            aws_s3_bucket = None
+            database_url = "sqlite:///./adobe_analytics_rag.db"
+        settings = MinimalSettings()
 
 # API Configuration
 API_V1_PREFIX = "/api/v1"

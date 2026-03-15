@@ -11,11 +11,11 @@ from fastapi.responses import FileResponse
 
 # CRITICAL: Add startup logging at the very top
 print("=" * 60)
-print("🚀 FastAPI Application Starting...")
+print("[STARTUP] FastAPI Application Starting...")
 print("=" * 60)
-print(f"Python version: {sys.version}")
-print(f"Working directory: {os.getcwd()}")
-print(f"Environment: {os.getenv('ENVIRONMENT', 'development')}")
+print(f"[INFO] Python version: {sys.version.split()[0]}")
+print(f"[INFO] Working directory: {os.getcwd()}")
+print(f"[INFO] Environment: {os.getenv('ENVIRONMENT', 'development')}")
 print("=" * 60)
 
 try:
@@ -25,10 +25,10 @@ try:
         API_V1_PREFIX,
         CORS_ORIGINS
     )
-    print(f"✅ Configuration loaded: {PROJECT_NAME} v{VERSION}")
+    print(f"[OK] Configuration loaded: {PROJECT_NAME} v{VERSION}")
 except Exception as e:
-    print(f"❌ ERROR: Failed to load configuration: {e}")
-    print("⚠️  Continuing with defaults...")
+    print(f"[ERROR] Failed to load configuration: {e}")
+    print("[WARN] Continuing with defaults...")
     PROJECT_NAME = "Adobe Experience League Chatbot API"
     VERSION = "1.0.0"
     API_V1_PREFIX = "/api/v1"
@@ -36,13 +36,15 @@ except Exception as e:
 
 try:
     from app.api.v1 import health, chat
-    print("✅ API routers imported successfully")
+    print("[OK] API routers imported successfully")
 except Exception as e:
-    print(f"❌ ERROR: Failed to import API routers: {e}")
+    print(f"[ERROR] Failed to import API routers: {e}")
+    import traceback
+    traceback.print_exc()
     raise
 
 # Create FastAPI app
-print("🔧 Creating FastAPI application...")
+print("[INFO] Creating FastAPI application...")
 app = FastAPI(
     title=PROJECT_NAME,
     version=VERSION,
@@ -50,10 +52,10 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc"
 )
-print("✅ FastAPI app created")
+print("[OK] FastAPI app created")
 
 # Configure CORS
-print("🔧 Configuring CORS...")
+print("[INFO] Configuring CORS...")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -61,13 +63,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-print(f"✅ CORS configured with origins: {CORS_ORIGINS}")
+print(f"[OK] CORS configured with origins: {CORS_ORIGINS}")
 
 # Include routers
-print("🔧 Registering API routers...")
+print("[INFO] Registering API routers...")
 app.include_router(health.router, prefix=API_V1_PREFIX, tags=["health"])
 app.include_router(chat.router, prefix=API_V1_PREFIX, tags=["chat"])
-print(f"✅ Routers registered at {API_V1_PREFIX}")
+print(f"[OK] Routers registered at {API_V1_PREFIX}")
 
 # Serve static files from frontend/dist in production
 # This allows Railway to serve both API and frontend from a single service
@@ -127,8 +129,8 @@ if frontend_dist_path.exists():
 async def startup_event():
     """Log application startup"""
     print("=" * 60)
-    print("✅ FastAPI Application Started Successfully!")
-    print(f"📡 Health check available at: /api/v1/health")
-    print(f"📚 API docs available at: /api/docs")
+    print("[OK] FastAPI Application Started Successfully!")
+    print(f"[INFO] Health check available at: /api/v1/health")
+    print(f"[INFO] API docs available at: /api/docs")
     print("=" * 60)
 
