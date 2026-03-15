@@ -73,7 +73,31 @@ print(f"[OK] Routers registered at {API_V1_PREFIX}")
 
 # Serve static files from frontend/dist in production
 # This allows Railway to serve both API and frontend from a single service
-frontend_dist_path = Path(__file__).parent.parent.parent.parent / "frontend" / "dist"
+# Calculate path: backend/app/main.py -> backend/app -> backend -> project root -> frontend/dist
+# __file__ is at backend/app/main.py, so:
+#   parent = backend/app
+#   parent.parent = backend
+#   parent.parent.parent = project root
+frontend_dist_path = Path(__file__).parent.parent.parent / "frontend" / "dist"
+
+# Log frontend path for debugging
+print(f"[INFO] Frontend dist path: {frontend_dist_path}")
+print(f"[INFO] Frontend dist absolute path: {frontend_dist_path.resolve()}")
+print(f"[INFO] Frontend dist exists: {frontend_dist_path.exists()}")
+if frontend_dist_path.exists():
+    try:
+        contents = list(frontend_dist_path.iterdir())
+        print(f"[INFO] Frontend dist contents ({len(contents)} items): {[str(c.name) for c in contents[:10]]}")
+        index_path = frontend_dist_path / "index.html"
+        print(f"[INFO] index.html exists: {index_path.exists()}")
+        if index_path.exists():
+            print(f"[INFO] index.html size: {index_path.stat().st_size} bytes")
+    except Exception as e:
+        print(f"[WARN] Error reading frontend dist: {e}")
+else:
+    print("[WARN] Frontend dist directory not found - API-only mode")
+    print(f"[WARN] Current working directory: {os.getcwd()}")
+    print(f"[WARN] __file__ location: {__file__}")
 
 # Root endpoint - serves frontend if available, otherwise returns API info
 @app.get("/")
@@ -86,7 +110,9 @@ async def root():
     return {
         "message": "Adobe Experience League Chatbot API",
         "version": VERSION,
-        "docs": "/api/docs"
+        "docs": "/api/docs",
+        "frontend_status": "not_found",
+        "frontend_path": str(frontend_dist_path)
     }
 
 # Mount static files if frontend build exists
