@@ -12,10 +12,11 @@ router = APIRouter()
 # Import chat service dependency (avoid circular import)
 def get_chat_service():
     """Lazy import to avoid circular dependencies"""
-    from app.core.dependencies import verify_aws_connection, get_settings
+    from app.core.dependencies import verify_aws_connection_direct, get_settings
     from app.services.chat_service import ChatService
-    aws_info = verify_aws_connection()
+    # Use direct functions (not Depends) since this is called outside FastAPI route
     settings = get_settings()
+    aws_info = verify_aws_connection_direct(settings)
     return ChatService(aws_info["clients"], settings)
 
 

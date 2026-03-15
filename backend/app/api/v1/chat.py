@@ -101,9 +101,10 @@ async def chat_stream(websocket: WebSocket):
     await websocket.accept()
     
     try:
-        # Get settings and AWS clients
+        # Get settings and AWS clients (use direct functions, not Depends, for WebSocket)
+        from app.core.dependencies import verify_aws_connection_direct
         settings = get_settings()
-        aws_info = verify_aws_connection()
+        aws_info = verify_aws_connection_direct(settings)
         chat_service = ChatService(aws_info["clients"], settings)
         
         # Receive query from client

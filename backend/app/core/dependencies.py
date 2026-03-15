@@ -80,9 +80,56 @@ def get_aws_clients(settings: AppSettings = Depends(get_settings)):
         )
 
 
+def _get_aws_clients_direct(settings: Optional[AppSettings] = None) -> dict:
+    """Helper function to get AWS clients directly (without Depends)"""
+    if settings is None:
+        settings = get_settings()
+    try:
+        clients = {
+            "sts": get_sts_client(settings.aws_default_region),
+            "bedrock": get_bedrock_client(settings.bedrock_region),
+            "bedrock_agent": get_bedrock_agent_client(settings.bedrock_region),
+            "s3": get_s3_client(settings.aws_default_region),
+            "cost_explorer": get_cost_explorer_client(settings.aws_default_region),
+        }
+        
+        # Add BedrockClient if available
+        if BedrockClient:
+            clients["bedrock_client"] = BedrockClient(
+                model_id=settings.bedrock_model_id,
+                region=settings.bedrock_region
+            )
+        
+        return clients
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Failed to initialize AWS clients: {str(e)}"
+        )
+
+
 def verify_aws_connection(aws_clients: dict = Depends(get_aws_clients)):
     """Dependency to verify AWS connection is working"""
     try:
+        identity = aws_clients["sts"].get_caller_identity()
+        return {
+            "account_id": identity.get("Account"),
+            "arn": identity.get("Arn"),
+            "clients": aws_clients
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AWS connection failed: {str(e)}"
+        )
+
+
+def verify_aws_connection_direct(settings: Optional[AppSettings] = None) -> dict:
+    """Helper function to verify AWS connection directly (without Depends)"""
+    if settings is None:
+        settings = get_settings()
+    try:
+        aws_clients = _get_aws_clients_direct(settings)
         identity = aws_clients["sts"].get_caller_identity()
         return {
             "account_id": identity.get("Account"),
