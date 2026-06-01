@@ -62,26 +62,35 @@ export function ChatMessage({ message }: Props) {
                       </a>
                     )
                   },
-                  // Render video links as inline play cards
+                  // Render Adobe video links as inline iframe embeds
                   a: ({ href, children }) => {
                     if (href && VIDEO_URL_RE.test(href)) {
-                      const label = String(children).replace(/^▶\s*Watch:\s*/i, '').trim()
-                      return (
-                        <a
-                          href={href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 my-2 px-3 py-2 rounded-lg
-                            bg-slate-50 border border-slate-200 hover:border-blue-300
-                            hover:bg-blue-50 transition-colors no-underline text-slate-700
-                            hover:text-blue-700 text-xs font-medium"
-                        >
-                          <span className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                            <Play className="w-3 h-3 text-red-600 fill-red-600 ml-0.5" />
+                      const match = href.match(/video\.tv\.adobe\.com\/v\/([^/?]+)/)
+                      if (match) {
+                        const videoId = match[1]
+                        const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
+                        const label = String(children).replace(/^▶\s*Watch:\s*/i, '').trim()
+                        return (
+                          <span className="block my-3 rounded-xl overflow-hidden border border-slate-200 not-prose">
+                            {label && (
+                              <span className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-600">
+                                <Play className="w-3 h-3 text-red-500 fill-red-500 flex-shrink-0" />
+                                {label}
+                              </span>
+                            )}
+                            <span className="block relative w-full" style={{ paddingBottom: '56.25%' }}>
+                              <iframe
+                                src={embedUrl}
+                                className="absolute inset-0 w-full h-full"
+                                frameBorder="0"
+                                allow="autoplay; fullscreen"
+                                allowFullScreen
+                                title={label || 'Video'}
+                              />
+                            </span>
                           </span>
-                          <span>{label || 'Watch video'}</span>
-                        </a>
-                      )
+                        )
+                      }
                     }
                     return (
                       <a href={href} target="_blank" rel="noopener noreferrer">
