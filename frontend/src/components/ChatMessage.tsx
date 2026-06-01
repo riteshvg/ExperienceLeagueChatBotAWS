@@ -28,7 +28,15 @@ export function ChatMessage({ message }: Props) {
             <p>{message.content}</p>
           ) : (
             <div className={cn('prose prose-sm max-w-none', message.streaming && 'streaming-cursor')}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  // Replace broken relative image paths with styled alt text
+                  img: ({ alt }) => alt
+                    ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-500 font-medium">{alt}</span>
+                    : null,
+                }}
+              >
                 {message.content || ' '}
               </ReactMarkdown>
             </div>

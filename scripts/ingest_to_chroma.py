@@ -26,7 +26,6 @@ from typing import Optional
 import boto3
 import chromadb
 from chromadb.config import Settings as ChromaSettings
-from sentence_transformers import SentenceTransformer
 
 # ── project root ─────────────────────────────────────────────────────────────
 _ROOT = Path(__file__).parent.parent
@@ -42,7 +41,7 @@ logger = logging.getLogger(__name__)
 REGISTRY_PATH = _ROOT / "data" / "metadata_registry.json"
 CHROMA_DIR = _ROOT / "chroma_db"
 COLLECTION_NAME = "experience_league"
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+TITAN_MODEL_ID = "amazon.titan-embed-text-v2:0"
 CHUNK_SIZE = 500        # approximate token ceiling per chunk
 CHUNK_OVERLAP = 50      # tokens of overlap between consecutive chunks
 BATCH_SIZE = 64         # ChromaDB upsert batch size
@@ -194,9 +193,23 @@ def main():
     )
     logger.info(f"Collection '{COLLECTION_NAME}' has {collection.count()} existing chunks")
 
-    # ── Embedding model ────────────────────────────────────────────────────
-    logger.info(f"Loading embedding model '{EMBEDDING_MODEL}'…")
-    embedder = SentenceTransformer(EMBEDDING_MODEL)
+    # ── Bedrock client for Titan embeddings ───────────────────────────────
+    logger.info(f"Using Titan Embed v2 via Bedrock for embeddings…")
+    bedrock = boto3.client(
+        "bedrock-runtime",
+        region_name=os.getenv("BEDROCK_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+    )
+
+    def embed(text: str) -> list:
+        import json as _json
+        body = _json.dumps({"inputText": text[:8000], "dimensions": 1024, "normalize": True})
+        resp = bedrock.invoke_model(
+            modelId=TITAN_MODEL_ID, body=body,
+            contentType="application/json", accept="application/json"
+        )
+        return _json.loads(resp["body"].read())["embedding"]
 
     # ── Ingest loop ────────────────────────────────────────────────────────
     ids_batch: list[str] = []
@@ -229,7 +242,7 @@ def main():
 
         for chunk_idx, chunk in enumerate(chunks):
             chunk_id = f"{s3_key}#{chunk_idx}"
-            embedding = embedder.encode(chunk, show_progress_bar=False).tolist()
+            embedding = embed(chunk)
 
             ids_batch.append(chunk_id)
             docs_batch.append(chunk)

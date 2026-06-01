@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 _settings = get_settings()
 
 # Model IDs
-_HAIKU_MODEL = "us.anthropic.claude-3-haiku-20240307-v1:0"
+_HAIKU_MODEL = "anthropic.claude-3-haiku-20240307-v1:0"
 _SONNET_MODEL = _settings.bedrock_model_id  # 3.7 Sonnet by default
 
 
@@ -99,7 +99,15 @@ class RAGPipeline:
 
             # 6. Pick model
             model_id = _HAIKU_MODEL if haiku_only else _SONNET_MODEL
-            model_label = "haiku" if haiku_only else "sonnet"
+            # Derive label from actual model ID
+            if "haiku" in model_id:
+                model_label = "haiku"
+            elif "sonnet" in model_id:
+                model_label = "sonnet"
+            elif "opus" in model_id:
+                model_label = "opus"
+            else:
+                model_label = model_id.split(".")[-1]
 
             # 7. Stream generation
             client = StreamingBedrockClient(
@@ -107,7 +115,7 @@ class RAGPipeline:
                 region=_settings.bedrock_region,
             )
             full_response = ""
-            for chunk in client.generate_streaming_text(prompt, max_tokens=2000):
+            for chunk in client.generate_streaming_text(prompt, max_tokens=4000):
                 full_response += chunk
                 yield {"type": "token", "content": chunk}
 

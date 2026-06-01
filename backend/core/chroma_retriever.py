@@ -1,25 +1,38 @@
 """
-ChromaDB-backed retriever replacing AWS Bedrock Knowledge Base retrieval.
+ChromaDB-backed retriever using Amazon Titan Embed Text v2 for embeddings.
 
 Returns documents in the same shape the rest of the pipeline expects:
   [{"content": str, "location": {"s3Location": {"uri": str}}, "score": float}]
 """
 
+import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Optional
 
+import boto3
 import chromadb
 from chromadb.config import Settings as ChromaSettings
-from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
-# Default persist directory relative to project root
 _DEFAULT_PERSIST_DIR = str(Path(__file__).parent.parent.parent / "chroma_db")
-
 COLLECTION_NAME = "experience_league"
+TITAN_MODEL_ID = "amazon.titan-embed-text-v2:0"
+
+
+def _get_titan_embedding(text: str, bedrock_client) -> list[float]:
+    """Embed text using Amazon Titan Embed Text v2."""
+    body = json.dumps({"inputText": text, "dimensions": 1024, "normalize": True})
+    resp = bedrock_client.invoke_model(
+        modelId=TITAN_MODEL_ID,
+        body=body,
+        contentType="application/json",
+        accept="application/json",
+    )
+    return json.loads(resp["body"].read())["embedding"]
 
 
 class ChromaRetriever:
@@ -29,8 +42,11 @@ class ChromaRetriever:
             path=persist_dir,
             settings=ChromaSettings(anonymized_telemetry=False),
         )
-        logger.info("Loading sentence-transformer model (all-MiniLM-L6-v2)…")
-        self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+
+        region = os.getenv("BEDROCK_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+        self.bedrock = boto3.client("bedrock-runtime", region_name=region)
+        logger.info(f"Using Titan Embed v2 for embeddings (region: {region})")
+
         self.collection = self.client.get_or_create_collection(
             name=COLLECTION_NAME,
             metadata={"hnsw:space": "cosine"},
@@ -45,19 +61,13 @@ class ChromaRetriever:
         similarity_threshold: float = 0.0,
         where: Optional[dict] = None,
     ) -> list[dict]:
-        """
-        Embed *query* and return the top-n_results matching chunks.
-
-        Returns the same shape as Bedrock KB retrieve:
-          [{"content": str, "location": {"s3Location": {"uri": str}}, "score": float}]
-        """
         count = self.collection.count()
         if count == 0:
             logger.warning("ChromaDB collection is empty — no documents ingested yet")
             return []
 
         n = min(n_results, count)
-        embedding = self.embedder.encode(query, show_progress_bar=False).tolist()
+        embedding = _get_titan_embedding(query, self.bedrock)
 
         kwargs: dict = dict(
             query_embeddings=[embedding],
@@ -75,19 +85,15 @@ class ChromaRetriever:
 
         output = []
         for doc, meta, dist in zip(docs, metas, dists):
-            score = 1.0 - dist  # cosine distance → similarity
+            score = 1.0 - dist
             if score < similarity_threshold:
                 continue
-            output.append(
-                {
-                    "content": doc,
-                    "location": {
-                        "s3Location": {"uri": meta.get("s3_key", "")}
-                    },
-                    "score": score,
-                    "metadata": meta,
-                }
-            )
+            output.append({
+                "content": doc,
+                "location": {"s3Location": {"uri": meta.get("s3_key", "")}},
+                "score": score,
+                "metadata": meta,
+            })
 
         return output
 
@@ -98,6 +104,5 @@ class ChromaRetriever:
         return {
             "collection": COLLECTION_NAME,
             "document_count": self.collection.count(),
-            "persist_dir": str(self.client._settings.persist_directory
-                               if hasattr(self.client, "_settings") else "unknown"),
+            "embedding_model": TITAN_MODEL_ID,
         }
