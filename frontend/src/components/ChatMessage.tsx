@@ -1,8 +1,8 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CitationCard } from './CitationCard'
-import { VideoCard } from './VideoCard'
 import { ModelBadge } from './ModelBadge'
 import { type Message } from '@/lib/api'
 
@@ -10,18 +10,10 @@ interface Props {
   message: Message
 }
 
+const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
+
 export function ChatMessage({ message }: Props) {
   const isUser = message.role === 'user'
-
-  const docCitations = message.citations?.filter((c) => !c.video_url) ?? []
-  const videoCitations = message.citations?.filter((c) => !!c.video_url) ?? []
-
-  // Collect unique image URLs from all citations (deduplicated)
-  const allImages = Array.from(
-    new Set(
-      message.citations?.flatMap((c) => c.image_urls ?? []) ?? []
-    )
-  ).slice(0, 6)
 
   return (
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
@@ -39,52 +31,58 @@ export function ChatMessage({ message }: Props) {
           {isUser ? (
             <p>{message.content}</p>
           ) : (
-            <>
-              {/* Answer text */}
-              <div className={cn('prose prose-sm max-w-none', message.streaming && 'streaming-cursor')}>
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    img: ({ alt }) => alt
-                      ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-500 font-medium">{alt}</span>
-                      : null,
-                  }}
-                >
-                  {message.content || ' '}
-                </ReactMarkdown>
-              </div>
-
-              {/* Related Videos — inside the bubble */}
-              {videoCitations.length > 0 && !message.streaming && (
-                <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Related Videos</p>
-                  <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
-                    {videoCitations.slice(0, 4).map((c, idx) => (
-                      <VideoCard key={c.url + idx} citation={c} />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Screenshots / images — inside the bubble */}
-              {allImages.length > 0 && !message.streaming && (
-                <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Screenshots</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {allImages.map((url, idx) => (
-                      <a key={url + idx} href={url} target="_blank" rel="noopener noreferrer">
+            <div className={cn('prose prose-sm max-w-none', message.streaming && 'streaming-cursor')}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  // Render images inline with error fallback
+                  img: ({ src, alt }) => {
+                    if (!src) return null
+                    return (
+                      <a href={src} target="_blank" rel="noopener noreferrer" className="block my-3">
                         <img
-                          src={url}
-                          alt={`Screenshot ${idx + 1}`}
-                          className="w-full rounded-lg border border-slate-200 hover:border-blue-300 transition-colors object-cover max-h-40"
-                          onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = 'none' }}
+                          src={src}
+                          alt={alt ?? ''}
+                          className="rounded-lg border border-slate-200 max-h-64 object-contain w-full"
+                          onError={(e) => {
+                            (e.currentTarget.closest('a') as HTMLElement).style.display = 'none'
+                          }}
                         />
                       </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
+                    )
+                  },
+                  // Render video links as inline play cards
+                  a: ({ href, children }) => {
+                    if (href && VIDEO_URL_RE.test(href)) {
+                      const label = String(children).replace(/^▶\s*Watch:\s*/i, '').trim()
+                      return (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 my-2 px-3 py-2 rounded-lg
+                            bg-slate-50 border border-slate-200 hover:border-blue-300
+                            hover:bg-blue-50 transition-colors no-underline text-slate-700
+                            hover:text-blue-700 text-xs font-medium"
+                        >
+                          <span className="w-6 h-6 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
+                            <Play className="w-3 h-3 text-red-600 fill-red-600 ml-0.5" />
+                          </span>
+                          <span>{label || 'Watch video'}</span>
+                        </a>
+                      )
+                    }
+                    return (
+                      <a href={href} target="_blank" rel="noopener noreferrer">
+                        {children}
+                      </a>
+                    )
+                  },
+                }}
+              >
+                {message.content || ' '}
+              </ReactMarkdown>
+            </div>
           )}
         </div>
 
@@ -96,11 +94,11 @@ export function ChatMessage({ message }: Props) {
         )}
 
         {/* Source pills */}
-        {!isUser && docCitations.length > 0 && (
+        {!isUser && message.citations && message.citations.length > 0 && (
           <div className="w-full space-y-1.5">
             <p className="text-xs text-slate-400 font-medium px-1">Sources</p>
             <div className="flex flex-wrap gap-1.5">
-              {docCitations.slice(0, 8).map((c, idx) => (
+              {message.citations.slice(0, 8).map((c, idx) => (
                 <CitationCard key={c.url + idx} citation={c} />
               ))}
             </div>
