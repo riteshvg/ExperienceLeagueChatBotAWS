@@ -11,6 +11,8 @@ import sys
 from pathlib import Path
 from typing import AsyncGenerator, Optional
 
+import anthropic
+
 # ── project root on sys.path so relative imports work ──────────────────────
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -22,16 +24,15 @@ from config.prompts import build_conversation_history, format_system_prompt, NO_
 from config.settings import get_settings
 from src.utils.citation_mapper import format_citation
 from src.utils.query_processor import QueryProcessor
-from src.utils.streaming_bedrock_client import StreamingBedrockClient
 from src.utils.url_validator import filter_valid_citations
 
 logger = logging.getLogger(__name__)
 
 _settings = get_settings()
 
-# Model IDs
-_HAIKU_MODEL = "anthropic.claude-3-haiku-20240307-v1:0"
-_SONNET_MODEL = _settings.bedrock_model_id  # 3.7 Sonnet by default
+# Anthropic model IDs (direct API)
+_HAIKU_MODEL = "claude-haiku-4-5-20251001"
+_SONNET_MODEL = "claude-sonnet-4-6"
 
 
 class RAGPipeline:
@@ -109,15 +110,17 @@ class RAGPipeline:
             else:
                 model_label = model_id.split(".")[-1]
 
-            # 7. Stream generation
-            client = StreamingBedrockClient(
-                model_id=model_id,
-                region=_settings.bedrock_region,
-            )
+            # 7. Stream generation via Anthropic API
+            anthropic_client = anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
             full_response = ""
-            for chunk in client.generate_streaming_text(prompt, max_tokens=4000):
-                full_response += chunk
-                yield {"type": "token", "content": chunk}
+            with anthropic_client.messages.stream(
+                model=model_id,
+                max_tokens=4000,
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream:
+                for chunk in stream.text_stream:
+                    full_response += chunk
+                    yield {"type": "token", "content": chunk}
 
             # 8. Persist turn
             self.session_store.append_turn(session_id, "user", query)

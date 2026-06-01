@@ -93,7 +93,7 @@ async def system_status(
 async def get_settings_view(_: Annotated[str, Depends(get_admin_user)]):
     """Return non-sensitive configuration values."""
     cfg = {
-        "bedrock_model_id": os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-3-7-sonnet-20250219-v1:0"),
+        "bedrock_model_id": os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0"),
         "bedrock_region": os.getenv("BEDROCK_REGION", "us-east-1"),
         "similarity_threshold": float(os.getenv("SIMILARITY_THRESHOLD", "0.6")),
         "max_retrieval_results": int(os.getenv("MAX_RETRIEVAL_RESULTS", "8")),

@@ -30,9 +30,12 @@ class Settings(BaseSettings):
     # AI/LLM Configuration
     # Option 1: OpenAI
     openai_api_key: Optional[str] = Field(None, env="OPENAI_API_KEY")
-    
-    # Option 2: AWS Bedrock (recommended for AWS-native setup)
-    bedrock_model_id: str = Field(default="us.anthropic.claude-3-7-sonnet-20250219-v1:0", env="BEDROCK_MODEL_ID")
+
+    # Option 2: Anthropic API (direct)
+    anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
+
+    # Option 3: AWS Bedrock (recommended for AWS-native setup)
+    bedrock_model_id: str = Field(default="us.anthropic.claude-sonnet-4-20250514-v1:0", env="BEDROCK_MODEL_ID")
     bedrock_region: str = Field(default="us-east-1", env="BEDROCK_REGION")
     bedrock_embedding_model_id: str = Field(default="amazon.titan-embed-text-v2:0", env="BEDROCK_EMBEDDING_MODEL_ID")
     bedrock_knowledge_base_id: Optional[str] = Field(None, env="BEDROCK_KNOWLEDGE_BASE_ID")
