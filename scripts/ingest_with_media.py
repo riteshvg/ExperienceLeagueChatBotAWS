@@ -129,8 +129,11 @@ def process_collection(collection, product_filter: str = "", dry_run: bool = Fal
     metas = results["metadatas"]
     logger.info(f"Total chunks: {len(ids)}")
 
-    # Group by URL, keeping the first chunk's content (has frontmatter)
+    # Group by URL
+    # chunk 0 → frontmatter (video, thumbnail)
+    # all chunks → search for images
     url_to_first_chunk: dict[str, dict] = {}
+    url_to_all_chunks: dict[str, list] = defaultdict(list)   # all docs for image search
     url_to_all_ids: dict[str, list] = defaultdict(list)
     url_to_all_metas: dict[str, list] = defaultdict(list)
 
@@ -143,6 +146,7 @@ def process_collection(collection, product_filter: str = "", dry_run: bool = Fal
 
         url_to_all_ids[url].append(cid)
         url_to_all_metas[url].append(meta)
+        url_to_all_chunks[url].append({"doc": doc, "meta": meta})
 
         if meta.get("chunk_index", 999) == 0:
             url_to_first_chunk[url] = {"doc": doc, "meta": meta}
@@ -152,9 +156,37 @@ def process_collection(collection, product_filter: str = "", dry_run: bool = Fal
     stats = {"pages": 0, "chunks": 0, "with_video": 0, "with_thumbnail": 0, "with_images": 0}
     results_log = []
 
-    for url, first in url_to_first_chunk.items():
-        s3_key = first["meta"].get("s3_key", "")
-        media = extract_media_from_markdown(first["doc"], url, s3_key=s3_key)
+    # Process all URLs that have at least one chunk (not just those with chunk 0)
+    all_urls = set(url_to_all_ids.keys())
+
+    for url in all_urls:
+        first = url_to_first_chunk.get(url)
+        s3_key = first["meta"].get("s3_key", "") if first else ""
+
+        # Extract video + thumbnail from frontmatter (chunk 0 only)
+        media = extract_media_from_markdown(first["doc"], url, s3_key=s3_key) if first else \
+                {"thumbnail_url": None, "video_url": None, "image_urls": []}
+
+        # Extract images from ALL chunks (screenshots appear in body, not just frontmatter)
+        if len(media["image_urls"]) < 4:
+            for chunk in url_to_all_chunks[url]:
+                if chunk["meta"].get("chunk_index", 0) == 0:
+                    continue  # already processed above
+                body_s3 = chunk["meta"].get("s3_key", s3_key)
+                for m in RE_IMG_ALL.finditer(chunk["doc"]):
+                    alt = m.group(1).lower()
+                    img_path = m.group(2)
+                    if any(x in alt for x in ["icon", "logo", "badge", "check", "smock"]):
+                        continue
+                    if any(x in img_path.lower() for x in ["icon", "logo", "smock", ".svg"]):
+                        continue
+                    resolved = resolve_image_url(img_path, body_s3)
+                    if resolved and resolved not in media["image_urls"]:
+                        media["image_urls"].append(resolved)
+                    if len(media["image_urls"]) >= 4:
+                        break
+                if len(media["image_urls"]) >= 4:
+                    break
 
         has_media = media["video_url"] or media["thumbnail_url"] or media["image_urls"]
         if not has_media:
