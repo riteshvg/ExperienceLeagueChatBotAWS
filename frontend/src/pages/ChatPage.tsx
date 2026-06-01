@@ -7,16 +7,16 @@ import { Sidebar } from '@/components/Sidebar'
 import { cn } from '@/lib/utils'
 
 export function ChatPage() {
-  const { messages, isStreaming, haikuOnly, setHaikuOnly, sendMessage, startNewChat, error } = useChatStore()
+  const { sessions, activeSessionId, isStreaming, haikuOnly, setHaikuOnly, sendMessage, error } = useChatStore()
+  const messages = sessions[activeSessionId]?.messages ?? []
+
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Focus input when streaming finishes
   useEffect(() => {
     if (!isStreaming && messages.length > 0) {
       inputRef.current?.focus()
@@ -25,9 +25,8 @@ export function ChatPage() {
 
   return (
     <div className="flex w-full h-screen overflow-hidden">
-      <Sidebar messages={messages} onNewChat={startNewChat} />
+      <Sidebar />
 
-      {/* Main chat area */}
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
         {/* Header */}
         <header className="flex-shrink-0 h-12 bg-white border-b border-slate-200 flex items-center justify-between px-4">
