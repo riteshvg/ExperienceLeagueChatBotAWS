@@ -1,4 +1,4 @@
-import { forwardRef, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Send } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -7,19 +7,34 @@ interface Props {
   disabled?: boolean
 }
 
-export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(function ChatInput({ onSend, disabled }, ref) {
+export interface ChatInputHandle {
+  fill: (text: string) => void
+  focus: () => void
+}
+
+export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, disabled }, ref) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const resolvedRef = (ref as React.RefObject<HTMLTextAreaElement>) ?? textareaRef
+
+  useImperativeHandle(ref, () => ({
+    fill: (text: string) => {
+      setValue(text)
+      textareaRef.current?.focus()
+      // Reset height to fit new content
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto'
+        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 160)}px`
+      }
+    },
+    focus: () => textareaRef.current?.focus(),
+  }))
 
   const submit = () => {
     const q = value.trim()
     if (!q || disabled) return
     onSend(q)
     setValue('')
-    if (resolvedRef.current) {
-      resolvedRef.current.style.height = 'auto'
-    }
+    if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -30,7 +45,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(function ChatInp
   }
 
   const handleInput = () => {
-    const el = resolvedRef.current
+    const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`
@@ -42,7 +57,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(function ChatInp
       className="flex items-end gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-2.5 shadow-sm focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400 transition"
     >
       <textarea
-        ref={resolvedRef}
+        ref={textareaRef}
         rows={1}
         value={value}
         onChange={(e) => setValue(e.target.value)}

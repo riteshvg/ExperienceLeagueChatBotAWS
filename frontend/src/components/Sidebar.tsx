@@ -1,7 +1,13 @@
-import { MessageSquare, Plus, Settings, Trash2 } from 'lucide-react'
+import { useState } from 'react'
+import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useChatStore, type ChatSession } from '@/store/chatStore'
+import { PROMPT_LIBRARY } from '@/lib/prompts'
+
+interface Props {
+  onSelectPrompt: (text: string) => void
+}
 
 function groupByDate(sessions: ChatSession[]): { label: string; items: ChatSession[] }[] {
   const now = Date.now()
@@ -24,11 +30,16 @@ function groupByDate(sessions: ChatSession[]): { label: string; items: ChatSessi
   ].filter((g) => g.items.length > 0)
 }
 
-export function Sidebar() {
+export function Sidebar({ onSelectPrompt }: Props) {
   const { sessions, activeSessionId, isStreaming, startNewChat, switchSession, deleteSession } = useChatStore()
+  const [showPrompts, setShowPrompts] = useState(false)
+  const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
 
   const sorted = Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt)
   const groups = groupByDate(sorted)
+
+  const toggleCategory = (cat: string) =>
+    setOpenCategories((prev) => ({ ...prev, [cat]: !prev[cat] }))
 
   return (
     <aside className="w-64 flex-shrink-0 bg-slate-900 text-white flex flex-col h-full">
@@ -49,9 +60,7 @@ export function Sidebar() {
           disabled={isStreaming}
           className={cn(
             'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
-            isStreaming
-              ? 'text-slate-500 cursor-not-allowed'
-              : 'text-slate-300 hover:bg-slate-700 hover:text-white',
+            isStreaming ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 hover:bg-slate-700 hover:text-white',
           )}
         >
           <Plus className="w-4 h-4" />
@@ -59,8 +68,10 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* Session list */}
+      {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-4">
+
+        {/* Session list */}
         {groups.map((group) => (
           <div key={group.label}>
             <p className="text-xs text-slate-500 uppercase tracking-wider px-2 mb-1">{group.label}</p>
@@ -72,9 +83,7 @@ export function Sidebar() {
                     key={session.id}
                     className={cn(
                       'group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors',
-                      isActive
-                        ? 'bg-slate-700 text-white'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200',
+                      isActive ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200',
                     )}
                     onClick={() => switchSession(session.id)}
                   >
@@ -93,6 +102,51 @@ export function Sidebar() {
             </div>
           </div>
         ))}
+
+        {/* Prompt Library */}
+        <div className="border-t border-slate-700 pt-3">
+          <button
+            onClick={() => setShowPrompts((v) => !v)}
+            className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+          >
+            <BookOpen className="w-4 h-4 flex-shrink-0 text-violet-400" />
+            <span className="flex-1 text-left font-medium">Prompt Library</span>
+            {showPrompts ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+          </button>
+
+          {showPrompts && (
+            <div className="mt-1 space-y-1">
+              {PROMPT_LIBRARY.map((cat) => (
+                <div key={cat.category}>
+                  <button
+                    onClick={() => toggleCategory(cat.category)}
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+                  >
+                    {openCategories[cat.category]
+                      ? <ChevronDown className="w-3 h-3" />
+                      : <ChevronRight className="w-3 h-3" />}
+                    {cat.category}
+                  </button>
+
+                  {openCategories[cat.category] && (
+                    <div className="ml-2 space-y-0.5">
+                      {cat.prompts.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => onSelectPrompt(p.text)}
+                          className="w-full text-left px-2 py-1.5 rounded-md text-xs text-slate-400 hover:bg-slate-700 hover:text-white transition-colors truncate"
+                          title={p.text}
+                        >
+                          {p.title}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Footer */}

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { Zap } from 'lucide-react'
 import { useChatStore } from '@/store/chatStore'
-import { ChatInput } from '@/components/ChatInput'
+import { ChatInput, type ChatInputHandle } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { Sidebar } from '@/components/Sidebar'
 import { cn } from '@/lib/utils'
@@ -11,7 +11,7 @@ export function ChatPage() {
   const messages = sessions[activeSessionId]?.messages ?? []
 
   const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const inputRef = useRef<ChatInputHandle>(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -23,9 +23,13 @@ export function ChatPage() {
     }
   }, [isStreaming, messages.length])
 
+  const handleSelectPrompt = (text: string) => {
+    inputRef.current?.fill(text)
+  }
+
   return (
     <div className="flex w-full h-screen overflow-hidden">
-      <Sidebar />
+      <Sidebar onSelectPrompt={handleSelectPrompt} />
 
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
         {/* Header */}
