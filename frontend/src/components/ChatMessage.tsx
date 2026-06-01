@@ -19,6 +19,7 @@ export function ChatMessage({ message }: Props) {
   return (
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
       <div className={cn('max-w-[85%] space-y-2', isUser ? 'items-end' : 'items-start')}>
+
         {/* Bubble */}
         <div
           className={cn(
@@ -31,29 +32,44 @@ export function ChatMessage({ message }: Props) {
           {isUser ? (
             <p>{message.content}</p>
           ) : (
-            <div className={cn('prose prose-sm max-w-none', message.streaming && 'streaming-cursor')}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  img: ({ alt }) => alt
-                    ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-500 font-medium">{alt}</span>
-                    : null,
-                }}
-              >
-                {message.content || ' '}
-              </ReactMarkdown>
-            </div>
+            <>
+              {/* Answer text */}
+              <div className={cn('prose prose-sm max-w-none', message.streaming && 'streaming-cursor')}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    img: ({ alt }) => alt
+                      ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-500 font-medium">{alt}</span>
+                      : null,
+                  }}
+                >
+                  {message.content || ' '}
+                </ReactMarkdown>
+              </div>
+
+              {/* Related Videos — inside the bubble, below the text */}
+              {videoCitations.length > 0 && !message.streaming && (
+                <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Related Videos</p>
+                  <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
+                    {videoCitations.slice(0, 4).map((c, idx) => (
+                      <VideoCard key={c.url + idx} citation={c} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
-        {/* Footer: model badge */}
+        {/* Model badge */}
         {!isUser && message.model && !message.streaming && (
           <div className="flex items-center gap-2 px-1">
             <ModelBadge model={message.model} />
           </div>
         )}
 
-        {/* Doc citations as pills */}
+        {/* Source pills */}
         {!isUser && docCitations.length > 0 && (
           <div className="w-full space-y-1.5">
             <p className="text-xs text-slate-400 font-medium px-1">Sources</p>
@@ -65,17 +81,6 @@ export function ChatMessage({ message }: Props) {
           </div>
         )}
 
-        {/* Video citations as cards */}
-        {!isUser && videoCitations.length > 0 && !message.streaming && (
-          <div className="w-full space-y-1.5">
-            <p className="text-xs text-slate-400 font-medium px-1">Related Videos</p>
-            <div className="flex gap-3 overflow-x-auto pb-1">
-              {videoCitations.slice(0, 4).map((c, idx) => (
-                <VideoCard key={c.url + idx} citation={c} />
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )
