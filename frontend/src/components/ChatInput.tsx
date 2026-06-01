@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { forwardRef, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Send } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -7,17 +7,18 @@ interface Props {
   disabled?: boolean
 }
 
-export function ChatInput({ onSend, disabled }: Props) {
+export const ChatInput = forwardRef<HTMLTextAreaElement, Props>(function ChatInput({ onSend, disabled }, ref) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const resolvedRef = (ref as React.RefObject<HTMLTextAreaElement>) ?? textareaRef
 
   const submit = () => {
     const q = value.trim()
     if (!q || disabled) return
     onSend(q)
     setValue('')
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto'
+    if (resolvedRef.current) {
+      resolvedRef.current.style.height = 'auto'
     }
   }
 
@@ -29,7 +30,7 @@ export function ChatInput({ onSend, disabled }: Props) {
   }
 
   const handleInput = () => {
-    const el = textareaRef.current
+    const el = resolvedRef.current
     if (!el) return
     el.style.height = 'auto'
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`
@@ -41,7 +42,7 @@ export function ChatInput({ onSend, disabled }: Props) {
       className="flex items-end gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-2.5 shadow-sm focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400 transition"
     >
       <textarea
-        ref={textareaRef}
+        ref={resolvedRef}
         rows={1}
         value={value}
         onChange={(e) => setValue(e.target.value)}
@@ -70,4 +71,4 @@ export function ChatInput({ onSend, disabled }: Props) {
       </button>
     </form>
   )
-}
+})

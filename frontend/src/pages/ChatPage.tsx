@@ -9,11 +9,19 @@ import { cn } from '@/lib/utils'
 export function ChatPage() {
   const { messages, isStreaming, haikuOnly, setHaikuOnly, sendMessage, startNewChat, error } = useChatStore()
   const bottomRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Focus input when streaming finishes
+  useEffect(() => {
+    if (!isStreaming && messages.length > 0) {
+      inputRef.current?.focus()
+    }
+  }, [isStreaming, messages.length])
 
   return (
     <div className="flex w-full h-screen overflow-hidden">
@@ -92,7 +100,7 @@ export function ChatPage() {
 
         {/* Input */}
         <div className="flex-shrink-0 px-4 py-3 bg-slate-50 border-t border-slate-200">
-          <ChatInput onSend={sendMessage} disabled={isStreaming} />
+          <ChatInput ref={inputRef} onSend={sendMessage} disabled={isStreaming} />
           <p className="text-center text-xs text-slate-400 mt-2">
             Answers are grounded in Adobe Experience League documentation
           </p>

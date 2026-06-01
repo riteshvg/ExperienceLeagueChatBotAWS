@@ -34,6 +34,12 @@ class Settings(BaseSettings):
     # Option 2: Anthropic API (direct)
     anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
 
+    # LangSmith tracing
+    langchain_tracing_v2: bool = Field(default=False, env="LANGCHAIN_TRACING_V2")
+    langchain_api_key: Optional[str] = Field(None, env="LANGCHAIN_API_KEY")
+    langchain_project: str = Field(default="experienceleague-chatbot", env="LANGCHAIN_PROJECT")
+    langchain_endpoint: str = Field(default="https://api.smith.langchain.com", env="LANGCHAIN_ENDPOINT")
+
     # Option 3: AWS Bedrock (recommended for AWS-native setup)
     bedrock_model_id: str = Field(default="us.anthropic.claude-sonnet-4-20250514-v1:0", env="BEDROCK_MODEL_ID")
     bedrock_region: str = Field(default="us-east-1", env="BEDROCK_REGION")

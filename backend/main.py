@@ -5,6 +5,7 @@ Run:  uvicorn backend.main:app --reload --port 8000
 """
 
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,6 +24,22 @@ from backend.api.routes.health import router as health_router
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
+from config.settings import get_settings
+
+
+def _configure_langsmith() -> None:
+    """Set LangSmith env vars from settings so LangChain picks them up automatically."""
+    s = get_settings()
+    if s.langchain_tracing_v2 and s.langchain_api_key:
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGCHAIN_API_KEY"] = s.langchain_api_key
+        os.environ["LANGCHAIN_PROJECT"] = s.langchain_project
+        os.environ["LANGCHAIN_ENDPOINT"] = s.langchain_endpoint
+        logging.getLogger(__name__).info(
+            f"LangSmith tracing enabled — project: {s.langchain_project}"
+        )
+    else:
+        logging.getLogger(__name__).info("LangSmith tracing disabled (set LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY to enable)")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    _configure_langsmith()
     logger.info("Starting up — loading ChromaDB and models…")
     retriever = ChromaRetriever()
     session_store = SessionStore()
