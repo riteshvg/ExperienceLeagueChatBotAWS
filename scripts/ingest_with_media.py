@@ -39,9 +39,9 @@ ADOBE_THUMB_CDN = "https://cdn.experienceleague.adobe.com/thumb"
 
 # S3 key prefix → GitHub raw CDN base URL
 GITHUB_RAW_BASES = {
-    "adobe-docs/adobe-analytics/": "https://raw.githubusercontent.com/AdobeDocs/analytics.en/master/",
-    "adobe-docs/customer-journey-analytics/": "https://raw.githubusercontent.com/AdobeDocs/analytics-platform.en/master/",
-    "adobe-docs/experience-platform/": "https://raw.githubusercontent.com/AdobeDocs/experience-platform.en/master/",
+    "adobe-docs/adobe-analytics/": "https://raw.githubusercontent.com/AdobeDocs/analytics.en/main/",
+    "adobe-docs/customer-journey-analytics/": "https://raw.githubusercontent.com/AdobeDocs/analytics-platform.en/main/",
+    "adobe-docs/experience-platform/": "https://raw.githubusercontent.com/AdobeDocs/experience-platform.en/main/",
 }
 
 # Regex patterns
