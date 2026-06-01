@@ -160,12 +160,25 @@ class RAGPipeline:
                 yield {"type": "done", "model": "none", "session_id": session_id}
                 return
 
-            # 4. Build context + extract citations
+            # 4. Build context + extract citations (with media fields from ChromaDB metadata)
             context = "\n\n---\n\n".join(doc["content"] for doc in raw_docs)
-            citations = [
-                c for doc in raw_docs
-                if (c := format_citation(doc, doc_title=doc.get("metadata", {}).get("title"))).get("url", "").startswith("https://experienceleague.adobe.com")
-            ]
+            citations = []
+            for doc in raw_docs:
+                meta = doc.get("metadata", {})
+                c = format_citation(doc, doc_title=meta.get("title"))
+                if not c.get("url", "").startswith("https://experienceleague.adobe.com"):
+                    continue
+                if meta.get("video_url"):
+                    c["video_url"] = meta["video_url"]
+                if meta.get("thumbnail_url"):
+                    c["thumbnail_url"] = meta["thumbnail_url"]
+                if meta.get("image_urls"):
+                    try:
+                        import json as _json
+                        c["image_urls"] = _json.loads(meta["image_urls"])
+                    except Exception:
+                        pass
+                citations.append(c)
 
             # 5. Convert session history to LangChain messages
             lc_history = _to_lc_history(history)

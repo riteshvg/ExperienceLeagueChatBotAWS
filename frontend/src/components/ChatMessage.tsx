@@ -2,6 +2,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
 import { CitationCard } from './CitationCard'
+import { VideoCard } from './VideoCard'
 import { ModelBadge } from './ModelBadge'
 import { type Message } from '@/lib/api'
 
@@ -11,6 +12,9 @@ interface Props {
 
 export function ChatMessage({ message }: Props) {
   const isUser = message.role === 'user'
+
+  const docCitations = message.citations?.filter((c) => !c.video_url) ?? []
+  const videoCitations = message.citations?.filter((c) => !!c.video_url) ?? []
 
   return (
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
@@ -31,7 +35,6 @@ export function ChatMessage({ message }: Props) {
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  // Replace broken relative image paths with styled alt text
                   img: ({ alt }) => alt
                     ? <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-500 font-medium">{alt}</span>
                     : null,
@@ -50,13 +53,25 @@ export function ChatMessage({ message }: Props) {
           </div>
         )}
 
-        {/* Citations as pills */}
-        {!isUser && message.citations && message.citations.length > 0 && (
+        {/* Doc citations as pills */}
+        {!isUser && docCitations.length > 0 && (
           <div className="w-full space-y-1.5">
             <p className="text-xs text-slate-400 font-medium px-1">Sources</p>
             <div className="flex flex-wrap gap-1.5">
-              {message.citations.slice(0, 8).map((c, idx) => (
+              {docCitations.slice(0, 8).map((c, idx) => (
                 <CitationCard key={c.url + idx} citation={c} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Video citations as cards */}
+        {!isUser && videoCitations.length > 0 && !message.streaming && (
+          <div className="w-full space-y-1.5">
+            <p className="text-xs text-slate-400 font-medium px-1">Related Videos</p>
+            <div className="flex gap-3 overflow-x-auto pb-1">
+              {videoCitations.slice(0, 4).map((c, idx) => (
+                <VideoCard key={c.url + idx} citation={c} />
               ))}
             </div>
           </div>
