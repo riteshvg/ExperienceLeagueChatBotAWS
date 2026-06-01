@@ -12,6 +12,17 @@ interface Props {
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
 
+// Transform Adobe doc markup into renderable markdown before passing to ReactMarkdown
+function sanitizeAdobeMarkup(text: string): string {
+  return text
+    // [!UICONTROL label] → `label` (inline code renders as a UI badge in prose)
+    .replace(/\[!UICONTROL\s+([^\]]+)\]/g, '`$1`')
+    // [!DNL product name] → **product name** (bold)
+    .replace(/\[!DNL\s+([^\]]+)\]/g, '**$1**')
+    // [!IMPORTANT], [!NOTE], [!TIP], [!WARNING] callout blocks → blockquote
+    .replace(/>\[!(IMPORTANT|NOTE|TIP|WARNING)\]\s*/g, '> **$1:** ')
+}
+
 export function ChatMessage({ message }: Props) {
   const isUser = message.role === 'user'
 
@@ -80,7 +91,7 @@ export function ChatMessage({ message }: Props) {
                   },
                 }}
               >
-                {message.content || ' '}
+                {sanitizeAdobeMarkup(message.content || ' ')}
               </ReactMarkdown>
             </div>
           )}
