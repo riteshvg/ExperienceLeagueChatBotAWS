@@ -82,10 +82,9 @@ class StreamingBedrockClient:
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": max_tokens,
             "temperature": temperature,
-            "top_p": top_p,
             "messages": messages
         }
-        
+
         try:
             # Use invoke_model_with_response_stream for streaming
             response = self.client.invoke_model_with_response_stream(
@@ -115,7 +114,6 @@ class StreamingBedrockClient:
                 "anthropic_version": "bedrock-2023-05-31",
                 "max_tokens": max_tokens,
                 "temperature": temperature,
-                "top_p": top_p,
                 "messages": [{"role": "user", "content": prompt}]
             }
             

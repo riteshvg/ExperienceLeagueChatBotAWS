@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     vector_store_path: str = Field(default="./vector_store", env="VECTOR_STORE_PATH")
     
     # Retrieval Configuration
-    similarity_threshold: float = Field(default=0.6, env="SIMILARITY_THRESHOLD")
+    similarity_threshold: float = Field(default=0.3, env="SIMILARITY_THRESHOLD")
     min_retrieval_results: int = Field(default=3, env="MIN_RETRIEVAL_RESULTS")
     max_retrieval_results: int = Field(default=8, env="MAX_RETRIEVAL_RESULTS")
     

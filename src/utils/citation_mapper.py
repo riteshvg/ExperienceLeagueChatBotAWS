@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 # Global metadata registry
 METADATA_REGISTRY = {}
 
+# In-memory citation coverage counters (reset on process restart)
+_citation_stats: Dict[str, int] = {
+    "registry_hits": 0,
+    "fallback_misses": 0,
+}
+
 
 def load_metadata_registry(registry_path: str = 'data/metadata_registry.json'):
     """Load metadata registry from JSON file"""
@@ -155,7 +161,7 @@ def format_citation(doc_metadata: dict, doc_title: Optional[str] = None) -> Dict
     metadata = lookup_metadata_by_path(source_path)
     
     if metadata:
-        # ✅ Use metadata from registry
+        _citation_stats["registry_hits"] += 1
         citation = {
             'url': metadata['experience_league_url'],
             'github_url': metadata.get('github_url', ''),
@@ -172,12 +178,11 @@ def format_citation(doc_metadata: dict, doc_title: Optional[str] = None) -> Dict
             'metadata_source': 'registry',
             'display': f"**[{metadata['title']}]({metadata['experience_league_url']})** (Relevance: {score:.2%})"
         }
-        
         logger.info(f"✅ Citation from registry: {metadata['title']} → {metadata['experience_league_url']}")
         return citation
-    
+
     else:
-        # ⚠️ Fallback to pattern-based URL generation
+        _citation_stats["fallback_misses"] += 1
         logger.warning(f"⚠️ Using fallback URL mapping for: {source_path}")
         return _create_fallback_citation(doc_metadata, score)
 
@@ -263,6 +268,24 @@ def get_registry_stats() -> Dict:
         'doc_types': doc_types,
         'has_registry': True
     }
+
+
+def get_citation_coverage_stats() -> Dict:
+    """Return hit/miss counters accumulated since process start."""
+    total = _citation_stats["registry_hits"] + _citation_stats["fallback_misses"]
+    hit_rate = (_citation_stats["registry_hits"] / total * 100) if total > 0 else 0.0
+    return {
+        "registry_hits": _citation_stats["registry_hits"],
+        "fallback_misses": _citation_stats["fallback_misses"],
+        "total_citations": total,
+        "hit_rate_pct": round(hit_rate, 1),
+    }
+
+
+def reset_citation_stats() -> None:
+    """Reset counters (useful for testing or admin resets)."""
+    _citation_stats["registry_hits"] = 0
+    _citation_stats["fallback_misses"] = 0
 
 
 # Backward compatibility functions

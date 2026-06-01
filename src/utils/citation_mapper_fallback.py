@@ -233,7 +233,7 @@ def _map_cja_url(path: str) -> str:
     # Extract section (first folder)
     parts = path.split('/')
     if not parts:
-        return f"https://experienceleague.adobe.com/en/docs/analytics-platform/using/{path}"
+        return f"https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-overview"
     
     section = parts[0]
     rest_of_path = '/'.join(parts[1:]) if len(parts) > 1 else ''
@@ -248,7 +248,8 @@ def _map_cja_url(path: str) -> str:
         'use-cases': 'cja-usecases',
         'architecture': 'cja-architecture',
         'exporting': 'cja-exporting',
-        'video-clips': 'cja-videos'
+        'video-clips': 'cja-videos',
+        'cja-basics': 'cja-basics'
     }
     
     # Apply mapping
@@ -257,13 +258,21 @@ def _map_cja_url(path: str) -> str:
     elif not section.startswith('cja-'):
         section = f'cja-{section}'
     
-    # Build full path with /using/ prefix
+    # For CJA, use more generic URLs that are more likely to work
+    # Instead of specific files, use section overviews
     if rest_of_path:
-        full_path = f"using/{section}/{rest_of_path}"
+        # Try to map to known working patterns
+        if section == 'cja-dataviews' and 'create' in rest_of_path.lower():
+            return f"https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-dataviews/create-dataview"
+        elif section == 'cja-connections' and 'create' in rest_of_path.lower():
+            return f"https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-connections/create-connection"
+        elif section == 'cja-connections' and 'overview' in rest_of_path.lower():
+            return f"https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-connections/overview"
+        else:
+            # For other cases, use the section overview
+            return f"https://experienceleague.adobe.com/en/docs/analytics-platform/using/{section}"
     else:
-        full_path = f"using/{section}"
-    
-    return f"https://experienceleague.adobe.com/en/docs/analytics-platform/{full_path}"
+        return f"https://experienceleague.adobe.com/en/docs/analytics-platform/using/{section}"
 
 
 def _map_aep_url(path: str) -> str:

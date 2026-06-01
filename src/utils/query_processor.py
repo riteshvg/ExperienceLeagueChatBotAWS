@@ -130,11 +130,15 @@ class QueryProcessor:
         enhanced_query, abbreviation_changes = self._expand_abbreviations(enhanced_query)
         changes.extend(abbreviation_changes)
         
-        # Step 2: Add contextual enhancements
+        # Step 2: Add product-specific enhancements
+        enhanced_query, product_changes = self._add_product_specific_enhancements(enhanced_query)
+        changes.extend(product_changes)
+        
+        # Step 3: Add contextual enhancements
         enhanced_query, context_changes = self._add_contextual_enhancements(enhanced_query)
         changes.extend(context_changes)
         
-        # Step 3: Clean up the query
+        # Step 4: Clean up the query
         enhanced_query = self._clean_query(enhanced_query)
         
         # Create metadata
@@ -143,6 +147,7 @@ class QueryProcessor:
             'enhanced': enhanced_query,
             'changes': changes,
             'abbreviation_expansions': len([c for c in changes if c['type'] == 'abbreviation']),
+            'product_specific_enhancements': len([c for c in changes if c['type'] == 'product_specific']),
             'contextual_enhancements': len([c for c in changes if c['type'] == 'context']),
             'was_modified': enhanced_query != original_query
         }
@@ -157,60 +162,45 @@ class QueryProcessor:
     def _expand_abbreviations(self, query: str) -> Tuple[str, List[Dict]]:
         """
         Expand Adobe-specific abbreviations in the query.
-        
-        Args:
-            query: Query to process
-            
-        Returns:
-            Tuple of (processed_query, changes)
+
+        Matches are collected first on a stable snapshot of the string, then
+        applied right-to-left so that earlier positions remain valid throughout.
         """
         changes = []
         processed_query = query
-        
-        # Sort abbreviations by length (longest first) to avoid partial matches
+
+        # Longest abbreviation first to avoid clobbering substrings
         sorted_abbreviations = sorted(
             self.abbreviations.items(),
             key=lambda x: len(x[0]),
-            reverse=True
+            reverse=True,
         )
-        
+
         for abbreviation, expansion in sorted_abbreviations:
-            # Use word boundaries to avoid partial matches
             pattern = r'\b' + re.escape(abbreviation) + r'\b'
-            
-            # Case-insensitive matching
-            matches = re.finditer(pattern, processed_query, re.IGNORECASE)
-            
-            for match in matches:
-                # Check if this is inside quotes (preserve original)
-                if self._is_inside_quotes(processed_query, match.start()):
-                    continue
-                
-                # Check if this would create a redundant expansion
-                if self._would_create_redundancy(processed_query, match, expansion):
-                    continue
-                
-                # Replace the abbreviation
+
+            # Snapshot all valid matches in the current string before mutating it
+            candidates = [
+                m for m in re.finditer(pattern, processed_query, re.IGNORECASE)
+                if not self._is_inside_quotes(processed_query, m.start())
+                and not self._would_create_redundancy(processed_query, m, expansion)
+            ]
+
+            # Replace right-to-left so left-side positions stay valid
+            for match in reversed(candidates):
                 original_text = match.group()
                 processed_query = (
-                    processed_query[:match.start()] +
-                    expansion +
-                    processed_query[match.end():]
+                    processed_query[:match.start()]
+                    + expansion
+                    + processed_query[match.end():]
                 )
-                
                 changes.append({
                     'type': 'abbreviation',
                     'original': original_text,
                     'replacement': expansion,
-                    'position': match.start()
+                    'position': match.start(),
                 })
-                
-                # Recalculate positions for subsequent matches
-                offset = len(expansion) - len(original_text)
-                for change in changes:
-                    if change['position'] > match.start():
-                        change['position'] += offset
-        
+
         return processed_query, changes
     
     def _add_contextual_enhancements(self, query: str) -> Tuple[str, List[Dict]]:
@@ -244,6 +234,87 @@ class QueryProcessor:
                             'pattern_matched': pattern
                         })
                     break  # Only add one enhancement per context type
+        
+        return enhanced_query, changes
+    
+    def _add_product_specific_enhancements(self, query: str) -> Tuple[str, List[Dict]]:
+        """
+        Add product-specific enhancements to distinguish between Adobe products.
+        
+        Args:
+            query: Query to process
+            
+        Returns:
+            Tuple of (enhanced_query, changes)
+        """
+        enhanced_query = query
+        changes = []
+        
+        # Detect Customer Journey Analytics queries
+        cja_patterns = [
+            r'\bcustomer journey analytics\b',
+            r'\bcja\b',
+            r'\bjourney analytics\b',
+            r'\bcross-device analytics\b',
+            r'\bdata view\b',
+            r'\bconnection\b.*\bcja\b',
+            r'\bcja.*\bconnection\b',
+            r'\bcustomer.*journey.*analytics\b'
+        ]
+        
+        # Detect Adobe Analytics queries
+        aa_patterns = [
+            r'\badobe analytics\b',
+            r'\banalytics\b(?!.*\bjourney\b)(?!.*\bcustomer\b)',
+            r'\breport suite\b',
+            r'\bevar\b',
+            r'\bprop\b',
+            r'\bsegments?\b',
+            r'\bcalculated metrics?\b',
+            r'\battribution\b',
+            r'\bcohort\b',
+            r'\bflow\b',
+            r'\bfallout\b'
+        ]
+        
+        # Check for CJA patterns first (higher priority)
+        is_cja_query = any(re.search(pattern, query.lower()) for pattern in cja_patterns)
+        
+        # Check for Adobe Analytics patterns (only if not CJA)
+        is_aa_query = False
+        if not is_cja_query:
+            is_aa_query = any(re.search(pattern, query.lower()) for pattern in aa_patterns)
+        
+        # Add product-specific keywords to disambiguate
+        if is_cja_query and not is_aa_query:
+            # This is clearly a CJA query - add CJA-specific terms
+            enhanced_query += " Customer Journey Analytics CJA cross-device analytics"
+            changes.append({
+                'type': 'product_specific',
+                'action': 'added_cja_keywords',
+                'description': 'Added CJA-specific keywords to disambiguate from Adobe Analytics'
+            })
+            logger.info(f"CJA query detected, adding CJA-specific keywords")
+            
+        elif is_aa_query and not is_cja_query:
+            # This is clearly an Adobe Analytics query - add AA-specific terms
+            enhanced_query += " Adobe Analytics report suite segments calculated metrics"
+            changes.append({
+                'type': 'product_specific',
+                'action': 'added_aa_keywords',
+                'description': 'Added Adobe Analytics-specific keywords to disambiguate from CJA'
+            })
+            logger.info(f"Adobe Analytics query detected, adding AA-specific keywords")
+            
+        elif 'journey' in query.lower() and not is_cja_query:
+            # Ambiguous journey query - clarify it's about Adobe Analytics Journey features
+            enhanced_query += " Adobe Analytics journey analysis workspace"
+            changes.append({
+                'type': 'product_specific',
+                'action': 'clarified_journey',
+                'description': 'Clarified journey query as Adobe Analytics Journey features'
+            })
+            logger.info(f"Ambiguous journey query detected, clarifying as Adobe Analytics")
         
         return enhanced_query, changes
     
