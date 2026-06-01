@@ -1,49 +1,88 @@
 """
-RAG pipeline: composes existing src/ utilities with ChromaDB retrieval.
+RAG pipeline — LangChain LCEL edition.
 
-This replaces the monolithic query handler in app.py, delegating to the
-same modules (query_processor, citation_mapper, prompts, streaming_bedrock_client)
-so no business logic needs to be re-implemented.
+Architecture:
+  QueryProcessor → ChromaRetriever → LangChain chain (prompt | ChatAnthropic | StrOutputParser)
+
+LangChain components used:
+  - ChatAnthropic       : streaming LLM
+  - ChatPromptTemplate  : structured prompt with context + history placeholders
+  - MessagesPlaceholder : injects conversation history as typed messages
+  - StrOutputParser     : extracts text from AIMessage chunks
+  - LCEL (|)            : composes the chain declaratively
 """
 
 import logging
 import sys
 from pathlib import Path
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator
 
-import anthropic
+from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-# ── project root on sys.path so relative imports work ──────────────────────
+# ── project root on sys.path ────────────────────────────────────────────────
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.session_store import SessionStore
-from config.prompts import build_conversation_history, format_system_prompt, NO_CONTEXT_MESSAGE
+from config.prompts import NO_CONTEXT_MESSAGE
 from config.settings import get_settings
 from src.utils.citation_mapper import format_citation
 from src.utils.query_processor import QueryProcessor
-from src.utils.url_validator import filter_valid_citations
 
 logger = logging.getLogger(__name__)
 
-_settings = get_settings()
-
-# Anthropic model IDs (direct API)
 _HAIKU_MODEL = "claude-haiku-4-5-20251001"
 _SONNET_MODEL = "claude-sonnet-4-6"
 
+# ── LangChain prompt template ────────────────────────────────────────────────
+_SYSTEM_TEMPLATE = """You are an Adobe Experience League documentation assistant. \
+Answer questions accurately using only the retrieved documentation context below. \
+If the context does not contain enough information to answer, say so clearly — do not hallucinate.
+
+Retrieved context:
+{context}"""
+
+_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", _SYSTEM_TEMPLATE),
+    MessagesPlaceholder("history"),
+    ("human", "{query}"),
+])
+
+
+def _build_chain(model_id: str, api_key: str):
+    """Return a streaming LCEL chain: prompt | llm | parser."""
+    llm = ChatAnthropic(
+        model=model_id,
+        api_key=api_key,
+        max_tokens=4000,
+        streaming=True,
+    )
+    return _PROMPT | llm | StrOutputParser()
+
+
+def _to_lc_history(history: list[dict]) -> list:
+    """Convert SessionStore turns to LangChain HumanMessage / AIMessage objects."""
+    messages = []
+    for turn in history:
+        if turn["role"] == "user":
+            messages.append(HumanMessage(content=turn["content"]))
+        else:
+            messages.append(AIMessage(content=turn["content"]))
+    return messages
+
 
 class RAGPipeline:
-    """Orchestrates retrieval → prompt assembly → streaming generation."""
+    """Orchestrates retrieval → LangChain chain → SSE streaming."""
 
     def __init__(self, retriever: ChromaRetriever, session_store: SessionStore):
         self.retriever = retriever
         self.session_store = session_store
         self.query_processor = QueryProcessor()
-
-    # ── Public streaming interface ──────────────────────────────────────────
 
     async def stream(
         self,
@@ -53,22 +92,22 @@ class RAGPipeline:
     ) -> AsyncGenerator[dict, None]:
         """
         Async generator yielding SSE-style dicts:
-          {"type": "token", "content": str}
+          {"type": "token",     "content": str}
           {"type": "citations", "citations": list[dict]}
-          {"type": "done", "model": str, "session_id": str}
-          {"type": "error", "message": str}
+          {"type": "done",      "model": str, "session_id": str}
+          {"type": "error",     "message": str}
         """
         try:
+            settings = get_settings()
+
             # 1. Expand Adobe abbreviations
             enhanced_query, _ = self.query_processor.preprocess_query(query)
-            logger.debug(f"Enhanced query: {enhanced_query!r}")
 
-            # 2. Vector retrieval — re-read settings each call so .env changes take effect
-            live_settings = get_settings()
+            # 2. Vector retrieval via existing ChromaRetriever (Titan embeddings)
             raw_docs = self.retriever.retrieve(
                 enhanced_query,
-                n_results=live_settings.max_retrieval_results,
-                similarity_threshold=live_settings.similarity_threshold,
+                n_results=settings.max_retrieval_results,
+                similarity_threshold=settings.similarity_threshold,
             )
 
             if not raw_docs:
@@ -76,58 +115,36 @@ class RAGPipeline:
                 yield {"type": "done", "model": "none", "session_id": session_id}
                 return
 
-            # 3. Build context string + citations
-            context_parts: list[str] = []
-            citations: list[dict] = []
-            for doc in raw_docs:
-                context_parts.append(doc["content"])
-                citation = format_citation(doc, doc_title=doc.get("metadata", {}).get("title"))
-                if citation.get("url"):
-                    citations.append(citation)
+            # 3. Build context + extract citations from retrieved doc metadata
+            context = "\n\n---\n\n".join(doc["content"] for doc in raw_docs)
+            citations = [
+                c for doc in raw_docs
+                if (c := format_citation(doc, doc_title=doc.get("metadata", {}).get("title"))).get("url", "").startswith("https://experienceleague.adobe.com")
+            ]
 
-            retrieved_context = "\n\n---\n\n".join(context_parts)
+            # 4. Convert session history to LangChain messages
+            lc_history = _to_lc_history(self.session_store.get_history(session_id))
 
-            # 4. Build conversation history
-            history = self.session_store.get_history(session_id)
-            conversation_history = build_conversation_history(history)
-
-            # 5. Assemble prompt
-            prompt = format_system_prompt(
-                retrieved_context=retrieved_context,
-                user_query=query,
-                conversation_history=conversation_history,
-            )
-
-            # 6. Pick model
+            # 5. Pick model + build LCEL chain
             model_id = _HAIKU_MODEL if haiku_only else _SONNET_MODEL
-            # Derive label from actual model ID
-            if "haiku" in model_id:
-                model_label = "haiku"
-            elif "sonnet" in model_id:
-                model_label = "sonnet"
-            elif "opus" in model_id:
-                model_label = "opus"
-            else:
-                model_label = model_id.split(".")[-1]
+            model_label = "haiku" if "haiku" in model_id else "sonnet" if "sonnet" in model_id else "opus"
+            chain = _build_chain(model_id, settings.anthropic_api_key)
 
-            # 7. Stream generation via Anthropic API
-            anthropic_client = anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
+            # 6. Stream via LangChain LCEL .astream()
             full_response = ""
-            with anthropic_client.messages.stream(
-                model=model_id,
-                max_tokens=4000,
-                messages=[{"role": "user", "content": prompt}],
-            ) as stream:
-                for chunk in stream.text_stream:
-                    full_response += chunk
-                    yield {"type": "token", "content": chunk}
+            async for chunk in chain.astream({
+                "context": context,
+                "history": lc_history,
+                "query": query,
+            }):
+                full_response += chunk
+                yield {"type": "token", "content": chunk}
 
-            # 8. Persist turn
+            # 7. Persist turn to session store
             self.session_store.append_turn(session_id, "user", query)
             self.session_store.append_turn(session_id, "assistant", full_response)
 
-            # 9. Emit citations — only include ones with a non-empty URL
-            citations = [c for c in citations if c.get("url", "").startswith("https://experienceleague.adobe.com")]
+            # 8. Emit citations + done
             yield {"type": "citations", "citations": citations}
             yield {"type": "done", "model": model_label, "session_id": session_id}
 

@@ -1,13 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { Zap } from 'lucide-react'
-import { useChat } from '@/hooks/useChat'
+import { useChatStore } from '@/store/chatStore'
 import { ChatInput } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { Sidebar } from '@/components/Sidebar'
 import { cn } from '@/lib/utils'
 
 export function ChatPage() {
-  const { messages, isStreaming, haikuOnly, setHaikuOnly, sendMessage, startNewChat, error } = useChat()
+  const { messages, isStreaming, haikuOnly, setHaikuOnly, sendMessage, startNewChat, error } = useChatStore()
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom on new messages

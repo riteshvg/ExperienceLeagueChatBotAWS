@@ -50,13 +50,13 @@ export function ChatMessage({ message }: Props) {
           </div>
         )}
 
-        {/* Citations */}
+        {/* Citations as pills */}
         {!isUser && message.citations && message.citations.length > 0 && (
-          <div className="w-full space-y-1">
+          <div className="w-full space-y-1.5">
             <p className="text-xs text-slate-400 font-medium px-1">Sources</p>
-            <div className="grid grid-cols-1 gap-1.5">
-              {message.citations.slice(0, 5).map((c, i) => (
-                <CitationCard key={c.url + i} citation={c} index={i} />
+            <div className="flex flex-wrap gap-1.5">
+              {message.citations.slice(0, 8).map((c, idx) => (
+                <CitationCard key={c.url + idx} citation={c} />
               ))}
             </div>
           </div>
