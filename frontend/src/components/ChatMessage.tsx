@@ -16,6 +16,13 @@ export function ChatMessage({ message }: Props) {
   const docCitations = message.citations?.filter((c) => !c.video_url) ?? []
   const videoCitations = message.citations?.filter((c) => !!c.video_url) ?? []
 
+  // Collect unique image URLs from all citations (deduplicated)
+  const allImages = Array.from(
+    new Set(
+      message.citations?.flatMap((c) => c.image_urls ?? []) ?? []
+    )
+  ).slice(0, 6)
+
   return (
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
       <div className={cn('max-w-[85%] space-y-2', isUser ? 'items-end' : 'items-start')}>
@@ -47,13 +54,32 @@ export function ChatMessage({ message }: Props) {
                 </ReactMarkdown>
               </div>
 
-              {/* Related Videos — inside the bubble, below the text */}
+              {/* Related Videos — inside the bubble */}
               {videoCitations.length > 0 && !message.streaming && (
                 <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
                   <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Related Videos</p>
                   <div className="flex gap-3 overflow-x-auto pb-1 -mx-1 px-1">
                     {videoCitations.slice(0, 4).map((c, idx) => (
                       <VideoCard key={c.url + idx} citation={c} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Screenshots / images — inside the bubble */}
+              {allImages.length > 0 && !message.streaming && (
+                <div className="mt-4 pt-3 border-t border-slate-100 space-y-2">
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Screenshots</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {allImages.map((url, idx) => (
+                      <a key={url + idx} href={url} target="_blank" rel="noopener noreferrer">
+                        <img
+                          src={url}
+                          alt={`Screenshot ${idx + 1}`}
+                          className="w-full rounded-lg border border-slate-200 hover:border-blue-300 transition-colors object-cover max-h-40"
+                          onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = 'none' }}
+                        />
+                      </a>
                     ))}
                   </div>
                 </div>

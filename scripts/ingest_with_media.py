@@ -37,14 +37,53 @@ COLLECTION_NAME = "experience_league"
 
 ADOBE_THUMB_CDN = "https://cdn.experienceleague.adobe.com/thumb"
 
+# S3 key prefix → GitHub raw CDN base URL
+GITHUB_RAW_BASES = {
+    "adobe-docs/adobe-analytics/": "https://raw.githubusercontent.com/AdobeDocs/analytics.en/master/",
+    "adobe-docs/customer-journey-analytics/": "https://raw.githubusercontent.com/AdobeDocs/analytics-platform.en/master/",
+    "adobe-docs/experience-platform/": "https://raw.githubusercontent.com/AdobeDocs/experience-platform.en/master/",
+}
+
 # Regex patterns
 RE_THUMBNAIL = re.compile(r"^thumbnail:\s*(\S+)", re.MULTILINE)
 RE_VIDEO_TAG = re.compile(r">\[!VIDEO\]\(([^)]+)\)")
-RE_IMG_URL = re.compile(r"!\[.*?\]\((https://[^)\s]+\.(?:png|jpg|jpeg|gif|svg|webp)[^)]*)\)", re.IGNORECASE)
-RE_IMG_ASSET = re.compile(r"!\[.*?\]\((\./[^)]+\.(?:png|jpg|jpeg|gif|svg|webp)[^)]*)\)", re.IGNORECASE)
+RE_IMG_ALL = re.compile(r"!\[([^\]]*)\]\(([^)]+\.(?:png|jpg|jpeg|gif|webp))[^)]*\)", re.IGNORECASE)
 
 
-def extract_media_from_markdown(content: str, page_url: str) -> dict:
+def resolve_image_url(img_path: str, s3_key: str) -> str | None:
+    """Resolve a relative markdown image path to an absolute GitHub CDN URL."""
+    if img_path.startswith("http"):
+        return img_path  # already absolute
+
+    # Find the GitHub base for this s3_key
+    github_base = None
+    for prefix, base in GITHUB_RAW_BASES.items():
+        if s3_key.startswith(prefix):
+            # Strip the s3 prefix to get the repo-relative path
+            repo_path = s3_key[len(prefix):]
+            github_base = base + repo_path
+            break
+
+    if not github_base:
+        return None
+
+    # github_base is now the full path to the .md file, get its directory
+    doc_dir = github_base.rsplit("/", 1)[0] + "/"
+
+    if img_path.startswith("/"):
+        # Absolute repo path — resolve against GitHub base root
+        for prefix, base in GITHUB_RAW_BASES.items():
+            if s3_key.startswith(prefix):
+                return base + img_path.lstrip("/")
+    elif img_path.startswith("./"):
+        return doc_dir + img_path[2:]
+    else:
+        return doc_dir + img_path
+
+    return None
+
+
+def extract_media_from_markdown(content: str, page_url: str, s3_key: str = "") -> dict:
     """Parse markdown frontmatter and body for thumbnail, video, and image URLs."""
     media = {"thumbnail_url": None, "video_url": None, "image_urls": []}
 
@@ -59,12 +98,19 @@ def extract_media_from_markdown(content: str, page_url: str) -> dict:
         thumb_id = thumb_match.group(1).strip()
         media["thumbnail_url"] = f"{ADOBE_THUMB_CDN}/{thumb_id}"
 
-    # 3. Absolute image URLs in markdown body
-    for m in RE_IMG_URL.finditer(content):
-        url = m.group(1)
-        if url not in media["image_urls"] and "icon" not in url.lower():
-            media["image_urls"].append(url)
-        if len(media["image_urls"]) >= 5:
+    # 3. Image references — resolve relative paths to GitHub CDN absolute URLs
+    for m in RE_IMG_ALL.finditer(content):
+        alt = m.group(1).lower()
+        img_path = m.group(2)
+        # Skip icons and tiny decorative images
+        if any(x in alt for x in ["icon", "logo", "badge", "check", "smock"]):
+            continue
+        if any(x in img_path.lower() for x in ["icon", "logo", "smock", ".svg"]):
+            continue
+        resolved = resolve_image_url(img_path, s3_key)
+        if resolved and resolved not in media["image_urls"]:
+            media["image_urls"].append(resolved)
+        if len(media["image_urls"]) >= 4:
             break
 
     return media
@@ -107,7 +153,8 @@ def process_collection(collection, product_filter: str = "", dry_run: bool = Fal
     results_log = []
 
     for url, first in url_to_first_chunk.items():
-        media = extract_media_from_markdown(first["doc"], url)
+        s3_key = first["meta"].get("s3_key", "")
+        media = extract_media_from_markdown(first["doc"], url, s3_key=s3_key)
 
         has_media = media["video_url"] or media["thumbnail_url"] or media["image_urls"]
         if not has_media:
