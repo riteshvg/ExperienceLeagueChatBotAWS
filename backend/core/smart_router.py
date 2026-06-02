@@ -62,14 +62,15 @@ def classify_query(query: str) -> str:
     has_complexity = bool(_COMPLEX_KEYWORDS.search(q))
     has_override = bool(_SONNET_OVERRIDE.search(q))
 
-    # Comparisons, mechanism questions → always Sonnet
+    # Definition-started queries → Haiku as long as there's no creation verb
+    # Takes priority over comparison/override patterns — "What is the difference
+    # between X and Y?" is still a lookup, not a procedural task
+    if is_definition and not has_creation and word_count <= 25:
+        return "haiku"
+
+    # Comparisons and mechanism questions (non-definition) → Sonnet
     if has_override:
         return "sonnet"
-
-    # Simple definition of ANY topic (even complex ones) → Haiku
-    # e.g. "What is a segment?" stays Haiku; "How do I create a segment?" goes Sonnet
-    if is_definition and not has_creation and word_count <= 12:
-        return "haiku"
 
     # Explicit procedural / creation intent → always Sonnet
     if has_creation:
