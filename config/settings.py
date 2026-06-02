@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # Option 2: Anthropic API (direct)
     anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
 
+    # Site access credentials (login gate for public deployment)
+    site_username: Optional[str] = Field(None, env="SITE_USERNAME")
+    site_password: Optional[str] = Field(None, env="SITE_PASSWORD")
+
     # LangSmith tracing
     langchain_tracing_v2: bool = Field(default=False, env="LANGCHAIN_TRACING_V2")
     langchain_api_key: Optional[str] = Field(None, env="LANGCHAIN_API_KEY")

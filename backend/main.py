@@ -19,6 +19,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from backend.api.routes.admin import router as admin_router
+from backend.api.routes.auth import router as auth_router
 from backend.api.routes.chat import router as chat_router
 from backend.api.routes.health import router as health_router
 from backend.core.chroma_retriever import ChromaRetriever
@@ -85,6 +86,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(health_router, prefix="/api")

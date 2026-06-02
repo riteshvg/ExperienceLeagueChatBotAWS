@@ -5,6 +5,16 @@
 // In development, empty string → Vite proxy handles /api/* → localhost:8000
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
+function authHeaders(): Record<string, string> {
+  try {
+    const stored = localStorage.getItem('el-auth')
+    const token = stored ? JSON.parse(stored)?.state?.token : null
+    return token ? { Authorization: `Bearer ${token}` } : {}
+  } catch {
+    return {}
+  }
+}
+
 export interface Citation {
   url: string
   title: string
@@ -43,7 +53,7 @@ export async function* streamChat(
 ): AsyncGenerator<SSEEvent> {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ query, session_id: sessionId, haiku_only: haikuOnly }),
   })
 
@@ -82,7 +92,7 @@ export async function getFollowUps(query: string, answer: string): Promise<strin
   try {
     const res = await fetch(`${API_BASE}/api/chat/follow-ups`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ query, answer }),
     })
     if (!res.ok) return []
@@ -101,7 +111,7 @@ export async function submitFeedback(
 ): Promise<void> {
   await fetch(`${API_BASE}/api/chat/feedback`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({ message_id: messageId, session_id: sessionId, rating, query }),
   })
 }

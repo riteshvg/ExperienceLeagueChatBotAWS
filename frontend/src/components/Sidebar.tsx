@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight } from 'lucide-react'
-import { Link } from 'react-router-dom'
+import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useChatStore, type ChatSession } from '@/store/chatStore'
+import { useAuthStore } from '@/store/authStore'
 import { PROMPT_LIBRARY } from '@/lib/prompts'
 
 interface Props {
@@ -32,8 +33,15 @@ function groupByDate(sessions: ChatSession[]): { label: string; items: ChatSessi
 
 export function Sidebar({ onSelectPrompt }: Props) {
   const { sessions, activeSessionId, isStreaming, startNewChat, switchSession, deleteSession } = useChatStore()
+  const { logout } = useAuthStore()
+  const navigate = useNavigate()
   const [showPrompts, setShowPrompts] = useState(false)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
+
+  const handleLogout = () => {
+    logout()
+    navigate('/login')
+  }
 
   const sorted = Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt)
   const groups = groupByDate(sorted)
@@ -150,7 +158,7 @@ export function Sidebar({ onSelectPrompt }: Props) {
       </div>
 
       {/* Footer */}
-      <div className="px-3 py-3 border-t border-slate-700">
+      <div className="px-3 py-3 border-t border-slate-700 space-y-0.5">
         <Link
           to="/admin"
           className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-700 hover:text-white transition-colors no-underline"
@@ -158,6 +166,13 @@ export function Sidebar({ onSelectPrompt }: Props) {
           <Settings className="w-4 h-4" />
           Admin
         </Link>
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-700 hover:text-red-400 transition-colors"
+        >
+          <LogOut className="w-4 h-4" />
+          Sign out
+        </button>
       </div>
     </aside>
   )

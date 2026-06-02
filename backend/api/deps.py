@@ -33,6 +33,35 @@ def get_pipeline(request: Request):
     return request.app.state.pipeline
 
 
+def get_site_user(
+    credentials: Annotated[
+        Optional[HTTPAuthorizationCredentials], Depends(_security)
+    ] = None,
+) -> str:
+    """Validate Bearer JWT token issued by /api/auth/login (site access)."""
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Login required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    try:
+        payload = jwt.decode(
+            credentials.credentials, _secret(), algorithms=[_ALGORITHM]
+        )
+        sub: str = payload.get("sub", "")
+        exp: int = payload.get("exp", 0)
+        if not sub or datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(tz=timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
+            )
+        return sub
+    except JWTError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"
+        )
+
+
 def get_admin_user(
     credentials: Annotated[
         Optional[HTTPAuthorizationCredentials], Depends(_security)

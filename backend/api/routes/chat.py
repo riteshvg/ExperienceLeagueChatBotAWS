@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from backend.api.deps import get_pipeline, get_session_store
+from backend.api.deps import get_pipeline, get_session_store, get_site_user
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 
@@ -38,6 +38,7 @@ async def chat(
     body: ChatRequest,
     pipeline: Annotated[RAGPipeline, Depends(get_pipeline)],
     session_store: Annotated[SessionStore, Depends(get_session_store)],
+    _user: Annotated[str, Depends(get_site_user)],
 ):
     # Create a new session if none provided
     session_id = body.session_id or session_store.new_session()
@@ -84,7 +85,7 @@ class FollowUpsRequest(BaseModel):
 
 
 @router.post("/chat/follow-ups")
-async def get_follow_ups(body: FollowUpsRequest):
+async def get_follow_ups(body: FollowUpsRequest, _user: Annotated[str, Depends(get_site_user)]):
     """Generate 3 follow-up questions using Haiku."""
     import os
     from dotenv import load_dotenv
@@ -124,7 +125,7 @@ class FeedbackRequest(BaseModel):
 
 
 @router.post("/chat/feedback")
-async def submit_feedback(body: FeedbackRequest):
+async def submit_feedback(body: FeedbackRequest, _user: Annotated[str, Depends(get_site_user)]):
     """Store user feedback to data/feedback.jsonl."""
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
