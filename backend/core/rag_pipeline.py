@@ -307,12 +307,19 @@ class RAGPipeline:
                 {"messages": messages},
                 version="v2",
             ):
-                # Only stream tokens from the final answer LLM call
-                # (tool-calling steps produce tool_call_chunks with empty content)
                 if event["event"] == "on_chat_model_stream":
                     chunk = event["data"]["chunk"]
                     content = chunk.content
-                    if content and isinstance(content, str):
+                    # Claude with tool use returns content as a list of blocks
+                    # e.g. [{"type": "text", "text": "..."}] or [] for tool calls
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                text = block.get("text", "")
+                                if text:
+                                    full_response += text
+                                    yield {"type": "token", "content": text}
+                    elif isinstance(content, str) and content:
                         full_response += content
                         yield {"type": "token", "content": content}
 
