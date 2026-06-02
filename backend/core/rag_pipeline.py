@@ -28,6 +28,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.session_store import SessionStore
+from backend.core.smart_router import classify_query
 from config.prompts import NO_CONTEXT_MESSAGE
 from config.settings import get_settings
 from src.utils.citation_mapper import format_citation
@@ -194,8 +195,16 @@ class RAGPipeline:
                 citations.append(c)
 
             lc_history = _to_lc_history(history)
-            model_id = _HAIKU_MODEL if haiku_only else _SONNET_MODEL
-            model_label = "haiku" if "haiku" in model_id else "sonnet" if "sonnet" in model_id else "opus"
+
+            # Smart routing: haiku_only flag overrides auto-routing (fast mode toggle)
+            if haiku_only:
+                model_id = _HAIKU_MODEL
+            else:
+                routed = classify_query(query)
+                model_id = _HAIKU_MODEL if routed == "haiku" else _SONNET_MODEL
+
+            model_label = "haiku" if "haiku" in model_id else "sonnet"
+            logger.info(f"SmartRouter: '{query[:60]}' → {model_label}")
             chain = _build_chain(model_id, settings.anthropic_api_key)
 
             full_response = ""
