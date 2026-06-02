@@ -57,7 +57,12 @@ export function Sidebar({ onSelectPrompt }: Props) {
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
             <span className="text-white text-xs font-bold">EL</span>
           </div>
-          <span className="font-semibold text-sm">Experience League</span>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-sm">Experience League</span>
+              <span className="text-xs text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded-full leading-none">unofficial</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -155,6 +160,13 @@ export function Sidebar({ onSelectPrompt }: Props) {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Disclaimer */}
+      <div className="px-4 py-3 mx-3 mb-2 rounded-lg bg-slate-800 border border-slate-700">
+        <p className="text-xs text-slate-400 leading-relaxed">
+          Built for learning purposes only. Not affiliated with or endorsed by Adobe. All documentation belongs to Adobe.
+        </p>
       </div>
 
       {/* Footer */}

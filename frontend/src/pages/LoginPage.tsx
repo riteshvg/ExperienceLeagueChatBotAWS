@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
 
 export function LoginPage() {
@@ -6,6 +7,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const { login, error } = useAuthStore()
   const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -13,6 +15,10 @@ export function LoginPage() {
     setLoading(true)
     await login(username.trim(), password)
     setLoading(false)
+    // Navigate to app if login succeeded (no error in store)
+    if (useAuthStore.getState().isAuthenticated) {
+      navigate('/', { replace: true })
+    }
   }
 
   return (

@@ -32,7 +32,10 @@ export function ChatPage() {
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
         {/* Header */}
         <header className="flex-shrink-0 h-12 bg-white border-b border-slate-200 flex items-center px-4">
-          <h1 className="text-sm font-semibold text-slate-700">Adobe Docs Assistant</h1>
+          <h1 className="text-sm font-semibold text-slate-700">
+            Adobe Docs Assistant
+            <span className="ml-2 text-xs font-normal text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">unofficial</span>
+          </h1>
         </header>
 
         {/* Messages */}
