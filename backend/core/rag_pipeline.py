@@ -1,13 +1,12 @@
 """
-RAG pipeline — LangChain LCEL edition.
+RAG pipeline — LangChain LCEL + LangGraph Strands-style agent.
 
-Architecture:
-  QueryProcessor → query contextualization → ChromaRetriever → LangChain chain
+Routing:
+  Haiku queries → single-pass LCEL chain  (fast, cheap, definitions/lookups)
+  Sonnet queries → LangGraph ReAct agent  (multi-pass retrieval, complex tasks)
 
-Media handling:
-  Images and video URLs are extracted from ChromaDB metadata and injected into
-  the prompt context so Claude can embed them inline in the answer naturally,
-  rather than appending them as a separate section.
+The agent calls search_documentation() up to 3 times before answering,
+fixing shallow responses when the first retrieval misses key steps.
 """
 
 import json as _json
@@ -18,9 +17,11 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import tool
+from langgraph.prebuilt import create_react_agent
 
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -36,43 +37,129 @@ from src.utils.query_processor import QueryProcessor
 
 logger = logging.getLogger(__name__)
 
-_HAIKU_MODEL = "claude-haiku-4-5-20251001"
+_HAIKU_MODEL  = "claude-haiku-4-5-20251001"
 _SONNET_MODEL = "claude-sonnet-4-6"
 
 _FOLLOWUP_PATTERNS = re.compile(
     r'\b(it|this|that|one|them|they|those|these|the same|the above|do so|how do i|can i|steps|process)\b',
-    re.IGNORECASE
+    re.IGNORECASE,
 )
 
-_SYSTEM_TEMPLATE = """You are an expert Adobe Experience League documentation assistant. \
+# ── Shared system prompts ─────────────────────────────────────────────────────
+
+_HAIKU_SYSTEM = """You are an expert Adobe Experience League documentation assistant. \
 Give thorough, step-by-step answers grounded in the retrieved documentation below.
 
 Guidelines:
 - Answer as completely as possible using the retrieved context.
-- Use headers, bullet points, and numbered steps to make answers easy to follow.
+- Use headers, bullet points, and numbered steps where helpful.
 - Do NOT redirect users to "check the documentation" — synthesize the information.
 - Only say you don't know if the topic is completely absent from the context.
 
-Media embedding rules (IMPORTANT):
-- If images are provided in the context, embed them inline using standard markdown: ![description](url)
-- Place each image immediately after the paragraph or step it illustrates.
-- If a video is provided, embed it as a link inline: [▶ Watch: Brief Title](video_url)
-- Place media naturally where it helps comprehension — NOT all grouped at the end.
-- Only include media that directly illustrates the point being made.
+Media embedding rules:
+- Embed images inline using: ![description](url)
+- Embed videos inline using: [▶ Watch: Brief Title](video_url)
+- Place media naturally after the relevant paragraph.
 
 Retrieved documentation context:
 {context}"""
 
-_PROMPT = ChatPromptTemplate.from_messages([
-    ("system", _SYSTEM_TEMPLATE),
+_AGENT_SYSTEM = """You are a senior Adobe Experience Cloud solutions consultant with deep \
+expertise in Adobe Analytics, Customer Journey Analytics (CJA), and Adobe Experience Platform (AEP).
+
+Your audience is Adobe practitioners — analysts, data engineers, and implementation \
+consultants who expect precise, complete, actionable answers.
+
+INSTRUCTIONS:
+1. Always call search_documentation at least once before answering.
+2. After reviewing the results, if the context is incomplete or missing key steps, \
+call search_documentation again with a more specific or different query.
+3. You may search up to 3 times to gather sufficient context.
+4. Once you have enough context, synthesize a complete, step-by-step answer.
+5. Never invent features, UI paths, or procedures not in the retrieved documentation.
+6. For procedural questions: number every step, state prerequisites first.
+7. Use **bold** for UI elements and `code` for API/function names.
+8. Embed images inline using: ![description](url)
+9. Embed videos inline using: [▶ Watch: Brief Title](video_url)
+10. Place media naturally after the relevant paragraph — not all grouped at the end."""
+
+_HAIKU_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", _HAIKU_SYSTEM),
     MessagesPlaceholder("history"),
     ("human", "{query}"),
 ])
 
 
-def _build_chain(model_id: str, api_key: str):
-    llm = ChatAnthropic(model=model_id, api_key=api_key, max_tokens=4000, streaming=True)
-    return _PROMPT | llm | StrOutputParser()
+# ── LCEL chain (Haiku) ────────────────────────────────────────────────────────
+
+def _build_haiku_chain(api_key: str):
+    llm = ChatAnthropic(model=_HAIKU_MODEL, api_key=api_key, max_tokens=2000, streaming=True)
+    return _HAIKU_PROMPT | llm | StrOutputParser()
+
+
+# ── LangGraph agent (Sonnet) ─────────────────────────────────────────────────
+
+def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcessor,
+                      settings, citations_out: list):
+    """Create a search_documentation tool scoped to this request's retriever."""
+
+    @tool
+    def search_documentation(query: str) -> str:
+        """
+        Search Adobe Experience League documentation for the given query.
+        Call this whenever you need information about Adobe Analytics, CJA, or AEP.
+        Use specific Adobe terminology. Call multiple times with refined queries if needed.
+
+        Args:
+            query: The search query — be specific.
+        """
+        enhanced, _ = query_processor.preprocess_query(query)
+        docs = retriever.retrieve(
+            enhanced,
+            n_results=settings.max_retrieval_results,
+            similarity_threshold=settings.similarity_threshold,
+        )
+        if not docs:
+            return f"No documentation found for: {query}"
+
+        parts = []
+        for i, doc in enumerate(docs, 1):
+            meta = doc.get("metadata", {})
+            title = meta.get("title", f"Document {i}")
+
+            # Collect citations (deduplicated)
+            c = format_citation(doc, doc_title=title)
+            if c.get("url", "").startswith("https://experienceleague.adobe.com"):
+                if meta.get("video_url"):
+                    c["video_url"] = meta["video_url"]
+                if meta.get("thumbnail_url"):
+                    c["thumbnail_url"] = meta["thumbnail_url"]
+                if meta.get("image_urls"):
+                    try:
+                        c["image_urls"] = _json.loads(meta["image_urls"])
+                    except Exception:
+                        pass
+                if c not in citations_out:
+                    citations_out.append(c)
+
+            # Build text block with media hints for inline embedding
+            block = f"[{i}] {title}\n{doc['content']}"
+            media_hints = []
+            if meta.get("image_urls"):
+                try:
+                    for url in _json.loads(meta["image_urls"])[:2]:
+                        media_hints.append(f"Image: {url}")
+                except Exception:
+                    pass
+            if meta.get("video_url"):
+                media_hints.append(f"Video: {meta['video_url']} (Title: {title})")
+            if media_hints:
+                block += "\n\nAVAILABLE MEDIA (embed inline where relevant):\n" + "\n".join(media_hints)
+            parts.append(block)
+
+        return "\n\n---\n\n".join(parts)
+
+    return search_documentation
 
 
 def _to_lc_history(history: list[dict]) -> list:
@@ -95,51 +182,36 @@ def _contextualize_query(query: str, history: list[dict]) -> str:
 
 
 def _build_media_context(docs: list[dict]) -> str:
-    """
-    Collect unique images and videos from retrieved docs and format them
-    as a prompt section so Claude can embed them inline.
-    """
-    images: list[str] = []
-    videos: list[dict] = []
-    seen_images: set[str] = set()
-    seen_videos: set[str] = set()
-
+    images, videos = [], []
+    seen_imgs, seen_vids = set(), set()
     for doc in docs:
         meta = doc.get("metadata", {})
-
-        # Images
-        raw_imgs = meta.get("image_urls", "")
-        if raw_imgs:
+        raw = meta.get("image_urls", "")
+        if raw:
             try:
-                for url in _json.loads(raw_imgs):
-                    if url not in seen_images and len(images) < 4:
-                        images.append(url)
-                        seen_images.add(url)
+                for url in _json.loads(raw):
+                    if url not in seen_imgs and len(images) < 4:
+                        images.append(url); seen_imgs.add(url)
             except Exception:
                 pass
-
-        # Videos
-        video_url = meta.get("video_url", "")
-        title = meta.get("title", "Related video")
-        if video_url and video_url not in seen_videos and len(videos) < 2:
-            videos.append({"url": video_url, "title": title})
-            seen_videos.add(video_url)
-
+        v = meta.get("video_url", "")
+        if v and v not in seen_vids and len(videos) < 2:
+            videos.append({"url": v, "title": meta.get("title", "Video")}); seen_vids.add(v)
     if not images and not videos:
         return ""
-
     lines = ["\n---\nAvailable media — embed inline where relevant:"]
     if images:
-        lines.append("Images (use ![alt text](url) markdown inline):")
+        lines.append("Images (use ![alt](url) markdown):")
         for url in images:
             lines.append(f"  - {url}")
     if videos:
-        lines.append("Videos (embed as [▶ Watch: Short Title](url) inline):")
+        lines.append("Videos (embed as [▶ Watch: Short Title](url)):")
         for v in videos:
             lines.append(f"  - {v['title']} → {v['url']}")
-
     return "\n".join(lines)
 
+
+# ── Pipeline ──────────────────────────────────────────────────────────────────
 
 class RAGPipeline:
     def __init__(self, retriever: ChromaRetriever, session_store: SessionStore):
@@ -157,71 +229,120 @@ class RAGPipeline:
             settings = get_settings()
             history = self.session_store.get_history(session_id)
 
-            enhanced_query, _ = self.query_processor.preprocess_query(query)
-            search_query = _contextualize_query(enhanced_query, history)
+            # Route: haiku_only flag overrides auto-routing
+            routed = "haiku" if haiku_only else classify_query(query)
+            logger.info(f"SmartRouter: '{query[:60]}' → {routed}")
 
-            raw_docs = self.retriever.retrieve(
-                search_query,
-                n_results=settings.max_retrieval_results,
-                similarity_threshold=settings.similarity_threshold,
-            )
-
-            if not raw_docs:
-                yield {"type": "token", "content": NO_CONTEXT_MESSAGE}
-                yield {"type": "done", "model": "none", "session_id": session_id}
-                return
-
-            # Build text context + append media section for Claude to embed inline
-            text_context = "\n\n---\n\n".join(doc["content"] for doc in raw_docs)
-            media_context = _build_media_context(raw_docs)
-            context = text_context + media_context
-
-            # Build citations for source pills
-            citations = []
-            for doc in raw_docs:
-                meta = doc.get("metadata", {})
-                c = format_citation(doc, doc_title=meta.get("title"))
-                if not c.get("url", "").startswith("https://experienceleague.adobe.com"):
-                    continue
-                if meta.get("video_url"):
-                    c["video_url"] = meta["video_url"]
-                if meta.get("thumbnail_url"):
-                    c["thumbnail_url"] = meta["thumbnail_url"]
-                if meta.get("image_urls"):
-                    try:
-                        c["image_urls"] = _json.loads(meta["image_urls"])
-                    except Exception:
-                        pass
-                citations.append(c)
-
-            lc_history = _to_lc_history(history)
-
-            # Smart routing: haiku_only flag overrides auto-routing (fast mode toggle)
-            if haiku_only:
-                model_id = _HAIKU_MODEL
+            if routed == "sonnet":
+                async for event in self._stream_agent(query, session_id, history, settings):
+                    yield event
             else:
-                routed = classify_query(query)
-                model_id = _HAIKU_MODEL if routed == "haiku" else _SONNET_MODEL
-
-            model_label = "haiku" if "haiku" in model_id else "sonnet"
-            logger.info(f"SmartRouter: '{query[:60]}' → {model_label}")
-            chain = _build_chain(model_id, settings.anthropic_api_key)
-
-            full_response = ""
-            async for chunk in chain.astream({
-                "context": context,
-                "history": lc_history,
-                "query": query,
-            }):
-                full_response += chunk
-                yield {"type": "token", "content": chunk}
-
-            self.session_store.append_turn(session_id, "user", query)
-            self.session_store.append_turn(session_id, "assistant", full_response)
-
-            yield {"type": "citations", "citations": citations}
-            yield {"type": "done", "model": model_label, "session_id": session_id}
+                async for event in self._stream_chain(query, session_id, history, settings):
+                    yield event
 
         except Exception as exc:
             logger.exception("RAG pipeline error")
             yield {"type": "error", "message": str(exc)}
+
+    # ── Haiku: single-pass LCEL chain ─────────────────────────────────────────
+
+    async def _stream_chain(self, query, session_id, history, settings):
+        enhanced, _ = self.query_processor.preprocess_query(query)
+        search_query = _contextualize_query(enhanced, history)
+
+        raw_docs = self.retriever.retrieve(
+            search_query,
+            n_results=settings.max_retrieval_results,
+            similarity_threshold=settings.similarity_threshold,
+        )
+        if not raw_docs:
+            yield {"type": "token", "content": NO_CONTEXT_MESSAGE}
+            yield {"type": "done", "model": "none", "session_id": session_id}
+            return
+
+        context = "\n\n---\n\n".join(doc["content"] for doc in raw_docs)
+        context += _build_media_context(raw_docs)
+
+        citations = self._extract_citations(raw_docs)
+        lc_history = _to_lc_history(history)
+        chain = _build_haiku_chain(settings.anthropic_api_key)
+
+        full_response = ""
+        async for chunk in chain.astream({"context": context, "history": lc_history, "query": query}):
+            full_response += chunk
+            yield {"type": "token", "content": chunk}
+
+        self.session_store.append_turn(session_id, "user", query)
+        self.session_store.append_turn(session_id, "assistant", full_response)
+        yield {"type": "citations", "citations": citations}
+        yield {"type": "done", "model": "haiku", "session_id": session_id}
+
+    # ── Sonnet: LangGraph multi-pass agent ────────────────────────────────────
+
+    async def _stream_agent(self, query, session_id, history, settings):
+        citations_out: list = []
+        search_tool = _make_search_tool(
+            self.retriever, self.query_processor, settings, citations_out
+        )
+
+        llm = ChatAnthropic(
+            model=_SONNET_MODEL,
+            api_key=settings.anthropic_api_key,
+            max_tokens=4000,
+            streaming=True,
+        )
+
+        agent = create_react_agent(
+            llm,
+            tools=[search_tool],
+            prompt=SystemMessage(content=_AGENT_SYSTEM),
+        )
+
+        # Build message history
+        messages = _to_lc_history(history) + [HumanMessage(content=query)]
+
+        full_response = ""
+        try:
+            async for event in agent.astream_events(
+                {"messages": messages},
+                version="v2",
+            ):
+                # Only stream tokens from the final answer LLM call
+                # (tool-calling steps produce tool_call_chunks with empty content)
+                if event["event"] == "on_chat_model_stream":
+                    chunk = event["data"]["chunk"]
+                    content = chunk.content
+                    if content and isinstance(content, str):
+                        full_response += content
+                        yield {"type": "token", "content": content}
+
+        except Exception as exc:
+            logger.exception("Agent stream error")
+            yield {"type": "error", "message": str(exc)}
+            return
+
+        self.session_store.append_turn(session_id, "user", query)
+        self.session_store.append_turn(session_id, "assistant", full_response)
+        yield {"type": "citations", "citations": citations_out[:8]}
+        yield {"type": "done", "model": "sonnet", "session_id": session_id}
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _extract_citations(self, raw_docs: list) -> list:
+        citations = []
+        for doc in raw_docs:
+            meta = doc.get("metadata", {})
+            c = format_citation(doc, doc_title=meta.get("title"))
+            if not c.get("url", "").startswith("https://experienceleague.adobe.com"):
+                continue
+            if meta.get("video_url"):
+                c["video_url"] = meta["video_url"]
+            if meta.get("thumbnail_url"):
+                c["thumbnail_url"] = meta["thumbnail_url"]
+            if meta.get("image_urls"):
+                try:
+                    c["image_urls"] = _json.loads(meta["image_urls"])
+                except Exception:
+                    pass
+            citations.append(c)
+        return citations
