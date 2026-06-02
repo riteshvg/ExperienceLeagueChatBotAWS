@@ -58,8 +58,8 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
   }
 
   const handleFeedback = (rating: 1 | -1) => {
-    if (message.feedback !== undefined) return // already rated
-    setFeedback(message.id, rating, '')
+    if (message.feedback !== undefined) return
+    setFeedback(message.id, rating, '')  // query resolved in store from preceding message
   }
 
   return (

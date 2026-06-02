@@ -64,9 +64,13 @@ export const useChatStore = create<ChatState>()(
 
         clearError: () => set({ error: null }),
 
-        setFeedback: (messageId, rating, query) => {
-          const { activeSessionId } = get()
-          submitFeedback(messageId, activeSessionId, rating, query).catch(() => {})
+        setFeedback: (messageId, rating, _query) => {
+          const { activeSessionId, sessions } = get()
+          // Find the user message that preceded this assistant message
+          const msgs = sessions[activeSessionId]?.messages ?? []
+          const idx = msgs.findIndex((m) => m.id === messageId)
+          const precedingQuery = idx > 0 ? msgs[idx - 1].content : ''
+          submitFeedback(messageId, activeSessionId, rating, precedingQuery).catch(() => {})
           set((s) => ({
             sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
               msgs.map((m) => (m.id === messageId ? { ...m, feedback: rating } : m))
