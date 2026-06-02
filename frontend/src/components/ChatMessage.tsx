@@ -62,14 +62,27 @@ export function ChatMessage({ message }: Props) {
                       </a>
                     )
                   },
-                  // Render Adobe video links as inline iframe embeds
+                  // Render Adobe video links — static pill while streaming, iframe when done
                   a: ({ href, children }) => {
                     if (href && VIDEO_URL_RE.test(href)) {
                       const match = href.match(/video\.tv\.adobe\.com\/v\/([^/?]+)/)
                       if (match) {
                         const videoId = match[1]
-                        const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
                         const label = String(children).replace(/^▶\s*Watch:\s*/i, '').trim()
+
+                        // While streaming: static link — no iframe so no flicker
+                        if (message.streaming) {
+                          return (
+                            <span className="inline-flex items-center gap-2 my-1 px-3 py-1.5 rounded-lg
+                              bg-slate-50 border border-slate-200 text-xs font-medium text-slate-500 not-prose">
+                              <Play className="w-3 h-3 text-red-400 fill-red-400 flex-shrink-0" />
+                              <span>{label || 'Watch video'}</span>
+                            </span>
+                          )
+                        }
+
+                        // After streaming: full iframe embed
+                        const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
                         return (
                           <span className="block my-3 rounded-xl overflow-hidden border border-slate-200 not-prose w-1/2">
                             {label && (
