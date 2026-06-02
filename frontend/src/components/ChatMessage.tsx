@@ -1,44 +1,78 @@
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Play } from 'lucide-react'
+import { Play, Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CitationCard } from './CitationCard'
 import { ModelBadge } from './ModelBadge'
+import { useChatStore } from '@/store/chatStore'
 import { type Message } from '@/lib/api'
 
 interface Props {
   message: Message
+  onFollowUpClick: (text: string) => void
 }
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
 
-// Transform Adobe doc markup into renderable markdown before passing to ReactMarkdown
 function sanitizeAdobeMarkup(text: string): string {
   return text
-    // [!UICONTROL label] → `label` (inline code renders as a UI badge in prose)
     .replace(/\[!UICONTROL\s+([^\]]+)\]/g, '`$1`')
-    // [!DNL product name] → **product name** (bold)
     .replace(/\[!DNL\s+([^\]]+)\]/g, '**$1**')
-    // [!IMPORTANT], [!NOTE], [!TIP], [!WARNING] callout blocks → blockquote
     .replace(/>\[!(IMPORTANT|NOTE|TIP|WARNING)\]\s*/g, '> **$1:** ')
 }
 
-export function ChatMessage({ message }: Props) {
+function ConfidenceBadge({ citations }: { citations: Message['citations'] }) {
+  if (!citations || citations.length === 0) return null
+  const scores = citations
+    .map((c) => c.score ?? 0)
+    .filter((s) => s > 0)
+    .sort((a, b) => b - a)
+    .slice(0, 3)
+  if (scores.length === 0) return null
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length
+
+  const label = avg >= 0.70 ? 'High' : avg >= 0.50 ? 'Medium' : 'Low'
+  const cls = avg >= 0.70
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+    : avg >= 0.50
+    ? 'bg-amber-50 text-amber-700 border-amber-200'
+    : 'bg-orange-50 text-orange-700 border-orange-200'
+
+  return (
+    <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-xs border font-medium', cls)}>
+      {label} confidence
+    </span>
+  )
+}
+
+export function ChatMessage({ message, onFollowUpClick }: Props) {
   const isUser = message.role === 'user'
+  const [copied, setCopied] = useState(false)
+  const { setFeedback } = useChatStore()
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message.content)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleFeedback = (rating: 1 | -1) => {
+    if (message.feedback !== undefined) return // already rated
+    setFeedback(message.id, rating, '')
+  }
 
   return (
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
       <div className={cn('max-w-[85%] space-y-2', isUser ? 'items-end' : 'items-start')}>
 
         {/* Bubble */}
-        <div
-          className={cn(
-            'px-4 py-3 rounded-2xl text-sm leading-relaxed',
-            isUser
-              ? 'bg-blue-600 text-white rounded-br-sm'
-              : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm',
-          )}
-        >
+        <div className={cn(
+          'px-4 py-3 rounded-2xl text-sm leading-relaxed',
+          isUser
+            ? 'bg-blue-600 text-white rounded-br-sm'
+            : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm',
+        )}>
           {isUser ? (
             <p>{message.content}</p>
           ) : (
@@ -46,7 +80,6 @@ export function ChatMessage({ message }: Props) {
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                  // Render images inline with error fallback
                   img: ({ src, alt }) => {
                     if (!src) return null
                     return (
@@ -62,15 +95,12 @@ export function ChatMessage({ message }: Props) {
                       </a>
                     )
                   },
-                  // Render Adobe video links — static pill while streaming, iframe when done
                   a: ({ href, children }) => {
                     if (href && VIDEO_URL_RE.test(href)) {
                       const match = href.match(/video\.tv\.adobe\.com\/v\/([^/?]+)/)
                       if (match) {
                         const videoId = match[1]
                         const label = String(children).replace(/^▶\s*Watch:\s*/i, '').trim()
-
-                        // While streaming: static link — no iframe so no flicker
                         if (message.streaming) {
                           return (
                             <span className="inline-flex items-center gap-2 my-1 px-3 py-1.5 rounded-lg
@@ -80,8 +110,6 @@ export function ChatMessage({ message }: Props) {
                             </span>
                           )
                         }
-
-                        // After streaming: full iframe embed
                         const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
                         return (
                           <span className="block my-3 rounded-xl overflow-hidden border border-slate-200 not-prose w-1/2">
@@ -92,24 +120,14 @@ export function ChatMessage({ message }: Props) {
                               </span>
                             )}
                             <span className="block relative w-full" style={{ paddingBottom: '56.25%' }}>
-                              <iframe
-                                src={embedUrl}
-                                className="absolute inset-0 w-full h-full"
-                                frameBorder="0"
-                                allow="autoplay; fullscreen"
-                                allowFullScreen
-                                title={label || 'Video'}
-                              />
+                              <iframe src={embedUrl} className="absolute inset-0 w-full h-full"
+                                frameBorder="0" allow="autoplay; fullscreen" allowFullScreen title={label || 'Video'} />
                             </span>
                           </span>
                         )
                       }
                     }
-                    return (
-                      <a href={href} target="_blank" rel="noopener noreferrer">
-                        {children}
-                      </a>
-                    )
+                    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
                   },
                 }}
               >
@@ -119,10 +137,45 @@ export function ChatMessage({ message }: Props) {
           )}
         </div>
 
-        {/* Model badge */}
+        {/* Footer row: model badge + confidence + feedback + copy */}
         {!isUser && message.model && !message.streaming && (
-          <div className="flex items-center gap-2 px-1">
+          <div className="flex items-center gap-2 px-1 flex-wrap">
             <ModelBadge model={message.model} />
+            <ConfidenceBadge citations={message.citations} />
+            <div className="flex-1" />
+            {/* Feedback */}
+            <button
+              onClick={() => handleFeedback(1)}
+              title="Helpful"
+              className={cn(
+                'p-1 rounded-md transition-colors',
+                message.feedback === 1
+                  ? 'text-emerald-600 bg-emerald-50'
+                  : 'text-slate-300 hover:text-emerald-500 hover:bg-emerald-50',
+              )}
+            >
+              <ThumbsUp className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => handleFeedback(-1)}
+              title="Not helpful"
+              className={cn(
+                'p-1 rounded-md transition-colors',
+                message.feedback === -1
+                  ? 'text-red-500 bg-red-50'
+                  : 'text-slate-300 hover:text-red-400 hover:bg-red-50',
+              )}
+            >
+              <ThumbsDown className="w-3.5 h-3.5" />
+            </button>
+            {/* Copy */}
+            <button
+              onClick={handleCopy}
+              title="Copy answer"
+              className="p-1 rounded-md text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
           </div>
         )}
 
@@ -133,6 +186,26 @@ export function ChatMessage({ message }: Props) {
             <div className="flex flex-wrap gap-1.5">
               {message.citations.slice(0, 8).map((c, idx) => (
                 <CitationCard key={c.url + idx} citation={c} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Follow-up suggestions */}
+        {!isUser && message.follow_ups && message.follow_ups.length > 0 && !message.streaming && (
+          <div className="w-full space-y-1.5">
+            <p className="text-xs text-slate-400 font-medium px-1">Follow-up questions</p>
+            <div className="flex flex-col gap-1.5">
+              {message.follow_ups.map((q, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => onFollowUpClick(q)}
+                  className="text-left px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs
+                    text-slate-600 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50
+                    transition-colors w-full"
+                >
+                  {q}
+                </button>
               ))}
             </div>
           </div>

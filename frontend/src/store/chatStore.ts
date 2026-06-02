@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { streamChat, clearHistory, type Message, type Citation } from '@/lib/api'
+import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation } from '@/lib/api'
 
 function makeId() {
   return Math.random().toString(36).slice(2)
@@ -26,6 +26,7 @@ interface ChatState {
   error: string | null
 
   sendMessage: (query: string) => Promise<void>
+  setFeedback: (messageId: string, rating: 1 | -1, query: string) => void
   startNewChat: () => void
   switchSession: (id: string) => void
   deleteSession: (id: string) => void
@@ -62,6 +63,16 @@ export const useChatStore = create<ChatState>()(
         error: null,
 
         clearError: () => set({ error: null }),
+
+        setFeedback: (messageId, rating, query) => {
+          const { activeSessionId } = get()
+          submitFeedback(messageId, activeSessionId, rating, query).catch(() => {})
+          set((s) => ({
+            sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
+              msgs.map((m) => (m.id === messageId ? { ...m, feedback: rating } : m))
+            ),
+          }))
+        },
 
         switchSession: (id) => {
           if (get().isStreaming) return
@@ -163,6 +174,21 @@ export const useChatStore = create<ChatState>()(
             }))
           } finally {
             set({ isStreaming: false })
+          }
+
+          // After streaming: generate follow-up questions (non-blocking)
+          const finalMsg = get().sessions[get().activeSessionId]?.messages
+            .find((m) => m.id === assistantId)
+          if (finalMsg && finalMsg.content && !finalMsg.content.startsWith('Error:')) {
+            getFollowUps(query, finalMsg.content).then((follow_ups) => {
+              if (follow_ups.length > 0) {
+                set((s) => ({
+                  sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
+                    msgs.map((m) => (m.id === assistantId ? { ...m, follow_ups } : m))
+                  ),
+                }))
+              }
+            })
           }
         },
       }

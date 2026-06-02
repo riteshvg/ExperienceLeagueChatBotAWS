@@ -67,7 +67,7 @@ export function ChatPage() {
           )}
 
           {messages.map((msg) => (
-            <ChatMessage key={msg.id} message={msg} />
+            <ChatMessage key={msg.id} message={msg} onFollowUpClick={handleSelectPrompt} />
           ))}
 
           {error && (

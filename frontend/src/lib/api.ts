@@ -21,6 +21,8 @@ export interface Message {
   citations?: Citation[]
   model?: string
   streaming?: boolean
+  follow_ups?: string[]
+  feedback?: 1 | -1
 }
 
 export type SSEEvent =
@@ -71,6 +73,34 @@ export async function* streamChat(
       }
     }
   }
+}
+
+export async function getFollowUps(query: string, answer: string): Promise<string[]> {
+  try {
+    const res = await fetch('/api/chat/follow-ups', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, answer }),
+    })
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.follow_ups as string[]
+  } catch {
+    return []
+  }
+}
+
+export async function submitFeedback(
+  messageId: string,
+  sessionId: string,
+  rating: 1 | -1,
+  query: string,
+): Promise<void> {
+  await fetch('/api/chat/feedback', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message_id: messageId, session_id: sessionId, rating, query }),
+  })
 }
 
 export async function newSession(): Promise<string> {
