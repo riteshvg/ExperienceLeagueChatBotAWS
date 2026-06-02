@@ -71,7 +71,7 @@ export function ChatMessage({ message }: Props) {
                         const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
                         const label = String(children).replace(/^▶\s*Watch:\s*/i, '').trim()
                         return (
-                          <span className="block my-3 rounded-xl overflow-hidden border border-slate-200 not-prose">
+                          <span className="block my-3 rounded-xl overflow-hidden border border-slate-200 not-prose w-1/2">
                             {label && (
                               <span className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-600">
                                 <Play className="w-3 h-3 text-red-500 fill-red-500 flex-shrink-0" />
