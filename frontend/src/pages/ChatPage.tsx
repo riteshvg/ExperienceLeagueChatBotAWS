@@ -1,13 +1,11 @@
 import { useEffect, useRef } from 'react'
-import { Zap } from 'lucide-react'
 import { useChatStore } from '@/store/chatStore'
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { Sidebar } from '@/components/Sidebar'
-import { cn } from '@/lib/utils'
 
 export function ChatPage() {
-  const { sessions, activeSessionId, isStreaming, haikuOnly, setHaikuOnly, sendMessage, error } = useChatStore()
+  const { sessions, activeSessionId, isStreaming, sendMessage, error } = useChatStore()
   const messages = sessions[activeSessionId]?.messages ?? []
 
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -33,28 +31,8 @@ export function ChatPage() {
 
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
         {/* Header */}
-        <header className="flex-shrink-0 h-12 bg-white border-b border-slate-200 flex items-center justify-between px-4">
+        <header className="flex-shrink-0 h-12 bg-white border-b border-slate-200 flex items-center px-4">
           <h1 className="text-sm font-semibold text-slate-700">Adobe Docs Assistant</h1>
-          <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-500">
-            <Zap className={cn('w-3.5 h-3.5', haikuOnly ? 'text-emerald-500' : 'text-slate-300')} />
-            <span>Fast (Haiku)</span>
-            <button
-              role="switch"
-              aria-checked={haikuOnly}
-              onClick={() => setHaikuOnly(!haikuOnly)}
-              className={cn(
-                'relative w-8 h-4 rounded-full transition-colors',
-                haikuOnly ? 'bg-emerald-500' : 'bg-slate-200',
-              )}
-            >
-              <span
-                className={cn(
-                  'absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform',
-                  haikuOnly ? 'translate-x-4.5' : 'translate-x-0.5',
-                )}
-              />
-            </button>
-          </label>
         </header>
 
         {/* Messages */}

@@ -23,10 +23,8 @@ interface ChatState {
   sessions: Record<string, ChatSession>
   activeSessionId: string
   isStreaming: boolean
-  haikuOnly: boolean
   error: string | null
 
-  setHaikuOnly: (v: boolean) => void
   sendMessage: (query: string) => Promise<void>
   startNewChat: () => void
   switchSession: (id: string) => void
@@ -61,10 +59,8 @@ export const useChatStore = create<ChatState>()(
         sessions: { [initial.id]: initial },
         activeSessionId: initial.id,
         isStreaming: false,
-        haikuOnly: false,
         error: null,
 
-        setHaikuOnly: (v) => set({ haikuOnly: v }),
         clearError: () => set({ error: null }),
 
         switchSession: (id) => {
@@ -105,7 +101,7 @@ export const useChatStore = create<ChatState>()(
         },
 
         sendMessage: async (query: string) => {
-          const { activeSessionId, haikuOnly, isStreaming } = get()
+          const { activeSessionId, isStreaming } = get()
           if (!query.trim() || isStreaming) return
           set({ error: null })
 
@@ -123,7 +119,7 @@ export const useChatStore = create<ChatState>()(
           }))
 
           try {
-            for await (const event of streamChat(query, activeSessionId, haikuOnly)) {
+            for await (const event of streamChat(query, activeSessionId, false)) {
               if (!get().isStreaming) break
 
               if (event.type === 'token') {
@@ -176,17 +172,11 @@ export const useChatStore = create<ChatState>()(
       partialize: (s) => ({
         sessions: s.sessions,
         activeSessionId: s.activeSessionId,
-        haikuOnly: s.haikuOnly,
       }),
-      // Migrate old store shape (flat messages) to new sessions shape
       migrate: (persisted: any) => {
         if (persisted && !persisted.sessions) {
           const session = createSession()
-          return {
-            sessions: { [session.id]: session },
-            activeSessionId: session.id,
-            haikuOnly: persisted.haikuOnly ?? false,
-          }
+          return { sessions: { [session.id]: session }, activeSessionId: session.id }
         }
         return persisted
       },
