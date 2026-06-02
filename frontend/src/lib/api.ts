@@ -1,6 +1,9 @@
 /**
  * Typed API client for the FastAPI backend.
  */
+// In production, VITE_API_URL points to the Railway backend.
+// In development, empty string → Vite proxy handles /api/* → localhost:8000
+const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 export interface Citation {
   url: string
@@ -38,7 +41,7 @@ export async function* streamChat(
   sessionId: string,
   haikuOnly = false,
 ): AsyncGenerator<SSEEvent> {
-  const res = await fetch('/api/chat', {
+  const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, session_id: sessionId, haiku_only: haikuOnly }),
@@ -77,7 +80,7 @@ export async function* streamChat(
 
 export async function getFollowUps(query: string, answer: string): Promise<string[]> {
   try {
-    const res = await fetch('/api/chat/follow-ups', {
+    const res = await fetch(`${API_BASE}/api/chat/follow-ups`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ query, answer }),
@@ -96,7 +99,7 @@ export async function submitFeedback(
   rating: 1 | -1,
   query: string,
 ): Promise<void> {
-  await fetch('/api/chat/feedback', {
+  await fetch(`${API_BASE}/api/chat/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message_id: messageId, session_id: sessionId, rating, query }),
@@ -104,19 +107,19 @@ export async function submitFeedback(
 }
 
 export async function newSession(): Promise<string> {
-  const res = await fetch('/api/chat/session', { method: 'POST' })
+  const res = await fetch(`${API_BASE}/api/chat/session`, { method: 'POST' })
   const data = await res.json()
   return data.session_id as string
 }
 
 export async function clearHistory(sessionId: string): Promise<void> {
-  await fetch(`/api/chat/history/${sessionId}`, { method: 'DELETE' })
+  await fetch(`${API_BASE}/api/chat/history/${sessionId}`, { method: 'DELETE' })
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────
 
 export async function adminLogin(password: string): Promise<string> {
-  const res = await fetch('/api/admin/login', {
+  const res = await fetch(`${API_BASE}/api/admin/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password }),
@@ -127,7 +130,7 @@ export async function adminLogin(password: string): Promise<string> {
 }
 
 async function adminFetch(path: string, token: string) {
-  const res = await fetch(path, {
+  const res = await fetch(`${API_BASE}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   })
   if (!res.ok) throw new Error(`Admin request failed: ${res.status}`)
@@ -139,7 +142,7 @@ export const getAdminSettings = (token: string) => adminFetch('/api/admin/settin
 export const getAdminAnalytics = (token: string) => adminFetch('/api/admin/analytics', token)
 
 export async function adminLogout(token: string): Promise<void> {
-  await fetch('/api/admin/logout', {
+  await fetch(`${API_BASE}/api/admin/logout`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
   })

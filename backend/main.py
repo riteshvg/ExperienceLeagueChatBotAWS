@@ -77,6 +77,8 @@ app.add_middleware(
         "http://localhost:5173",   # Vite dev server
         "http://localhost:4173",   # Vite preview
         "http://localhost:3000",
+        "https://thelearningproject.in",
+        "https://www.thelearningproject.in",
     ],
     allow_credentials=True,
     allow_methods=["*"],

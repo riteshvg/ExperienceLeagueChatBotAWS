@@ -4,7 +4,7 @@ import { AdminPage } from '@/pages/AdminPage'
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={import.meta.env.PROD ? '/tools/exlunofficialchatbot' : '/'}>
       <Routes>
         <Route path="/" element={<ChatPage />} />
         <Route path="/admin" element={<AdminPage />} />
