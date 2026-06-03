@@ -10,6 +10,7 @@ export function useAdmin() {
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null)
   const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null)
   const [demoStatus, setDemoStatus] = useState<Record<string, unknown> | null>(null)
+  const [feedback, setFeedback] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -40,11 +41,14 @@ export function useAdmin() {
     if (!token) return
     setLoading(true)
     try {
-      const [s, cfg, a, demo] = await Promise.all([
+      const [s, cfg, a, demo, fb] = await Promise.all([
         getAdminStatus(token),
         getAdminSettings(token),
         getAdminAnalytics(token),
         fetch(`${API_BASE}/api/admin/demo/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).then((r) => r.json()),
+        fetch(`${API_BASE}/api/admin/feedback`, {
           headers: { Authorization: `Bearer ${token}` },
         }).then((r) => r.json()),
       ])
@@ -52,6 +56,7 @@ export function useAdmin() {
       setSettings(cfg)
       setAnalytics(a)
       setDemoStatus(demo)
+      setFeedback(fb)
     } catch {
       logout()
     } finally {
@@ -75,5 +80,5 @@ export function useAdmin() {
     if (token) refresh()
   }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { isAuthenticated: !!token, login, logout, refresh, resetDemo, status, settings, analytics, demoStatus, loading, error }
+  return { isAuthenticated: !!token, login, logout, refresh, resetDemo, status, settings, analytics, demoStatus, feedback, loading, error }
 }

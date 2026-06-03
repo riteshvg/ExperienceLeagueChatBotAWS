@@ -5,7 +5,7 @@ import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { useAdmin } from '@/hooks/useAdmin'
 import { cn } from '@/lib/utils'
 
-type Tab = 'status' | 'settings' | 'analytics'
+type Tab = 'status' | 'settings' | 'analytics' | 'feedback'
 
 function StatCard({ label, value }: { label: string; value: unknown }) {
   return (
@@ -27,7 +27,7 @@ function JsonTree({ data }: { data: unknown }) {
 }
 
 export function AdminPage() {
-  const { isAuthenticated, login, logout, refresh, resetDemo, status, settings, analytics, demoStatus, loading, error } = useAdmin()
+  const { isAuthenticated, login, logout, refresh, resetDemo, status, settings, analytics, demoStatus, feedback, loading, error } = useAdmin()
   const [resetting, setResetting] = useState(false)
 
   const handleResetDemo = async () => {
@@ -87,6 +87,7 @@ export function AdminPage() {
     { id: 'status', label: 'System Status' },
     { id: 'settings', label: 'Settings' },
     { id: 'analytics', label: 'Analytics' },
+    { id: 'feedback', label: 'Feedback' },
   ]
 
   return (
@@ -255,6 +256,49 @@ export function AdminPage() {
             <div>
               <h2 className="text-sm font-semibold text-slate-600 mb-2">Raw data</h2>
               <JsonTree data={analytics} />
+            </div>
+          </div>
+        )}
+
+        {tab === 'feedback' && (
+          <div className="space-y-5">
+            {/* Summary */}
+            {feedback && (feedback.summary as Record<string, unknown>) && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <StatCard label="Total ratings" value={(feedback.summary as Record<string, unknown>).total} />
+                <StatCard label="👍 Thumbs up" value={(feedback.summary as Record<string, unknown>).thumbs_up} />
+                <StatCard label="👎 Thumbs down" value={(feedback.summary as Record<string, unknown>).thumbs_down} />
+                <StatCard label="Positive %" value={`${(feedback.summary as Record<string, unknown>).positive_pct}%`} />
+              </div>
+            )}
+
+            {/* Entries */}
+            <div>
+              <h2 className="text-sm font-semibold text-slate-600 mb-3">Recent Feedback (last 50)</h2>
+              {feedback && (feedback.entries as unknown[])?.length > 0 ? (
+                <div className="space-y-2">
+                  {(feedback.entries as Record<string, unknown>[]).map((e, i) => (
+                    <div key={i} className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-start gap-3">
+                      <span className={cn(
+                        'flex-shrink-0 text-lg mt-0.5',
+                        e.rating === 1 ? 'text-emerald-500' : 'text-red-500'
+                      )}>
+                        {e.rating === 1 ? '👍' : '👎'}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-slate-800 truncate">
+                          {String(e.query || '—')}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {new Date(String(e.timestamp)).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">No feedback yet.</p>
+              )}
             </div>
           </div>
         )}

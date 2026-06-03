@@ -58,7 +58,35 @@ async def logout(_: Annotated[str, Depends(get_admin_user)]):
     return {"logged_out": True}
 
 
+_FEEDBACK_FILE = _ROOT / "data" / "feedback.jsonl"
+
 # ── Protected endpoints ───────────────────────────────────────────────────────
+
+@router.get("/feedback")
+async def get_feedback(_: Annotated[str, Depends(get_admin_user)]):
+    """Return feedback entries with summary stats."""
+    import json as _json
+    entries = []
+    if _FEEDBACK_FILE.exists():
+        for line in _FEEDBACK_FILE.read_text().strip().splitlines():
+            try:
+                entries.append(_json.loads(line))
+            except Exception:
+                pass
+
+    total = len(entries)
+    thumbs_up = sum(1 for e in entries if e.get("rating") == 1)
+    thumbs_down = sum(1 for e in entries if e.get("rating") == -1)
+
+    return {
+        "summary": {
+            "total": total,
+            "thumbs_up": thumbs_up,
+            "thumbs_down": thumbs_down,
+            "positive_pct": round(thumbs_up / total * 100, 1) if total else 0,
+        },
+        "entries": sorted(entries, key=lambda e: e.get("timestamp", ""), reverse=True)[:50],
+    }
 
 @router.post("/demo/reset")
 async def reset_demo(_: Annotated[str, Depends(get_admin_user)]):
