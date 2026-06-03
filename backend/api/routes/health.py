@@ -7,10 +7,10 @@ router = APIRouter()
 
 @router.get("/health")
 async def health(request: Request):
-    retriever = request.app.state.retriever
+    retriever = getattr(request.app.state, "retriever", None)
     return {
         "status": "ok",
         "chromadb": {
-            "document_count": retriever.document_count(),
+            "document_count": retriever.document_count() if retriever else 0,
         },
     }

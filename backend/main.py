@@ -53,9 +53,14 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     _configure_langsmith()
     logger.info("Starting up — loading ChromaDB and models…")
-    retriever = ChromaRetriever()
+    try:
+        retriever = ChromaRetriever()
+    except Exception as e:
+        logger.warning(f"ChromaDB init failed ({e}) — starting with empty retriever")
+        retriever = None
+
     session_store = SessionStore()
-    pipeline = RAGPipeline(retriever=retriever, session_store=session_store)
+    pipeline = RAGPipeline(retriever=retriever, session_store=session_store) if retriever else None
 
     app.state.retriever = retriever
     app.state.session_store = session_store
