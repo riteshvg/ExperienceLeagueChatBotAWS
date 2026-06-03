@@ -7,12 +7,12 @@ import { cn } from '@/lib/utils'
 
 type Tab = 'status' | 'settings' | 'analytics' | 'feedback' | 'refresh'
 
-function StatCard({ label, value }: { label: string; value: unknown }) {
+function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="bg-white rounded-xl border border-slate-200 p-4">
       <p className="text-xs text-slate-500 uppercase tracking-wider">{label}</p>
       <p className="text-lg font-semibold text-slate-800 mt-1 break-all">
-        {String(value ?? '—')}
+        {String(value)}
       </p>
     </div>
   )
@@ -36,6 +36,9 @@ export function AdminPage() {
     await triggerRefresh(force)
     setRefreshing(false)
   }
+
+  const rsState = refreshStatus?.state ?? 'idle'
+  const rsRunning = rsState === 'running'
 
   const handleTriggerActions = async (force = false) => {
     setActionsTriggered(false)
@@ -247,7 +250,7 @@ export function AdminPage() {
               <h2 className="text-sm font-semibold text-slate-600 mb-3">Citation Stats</h2>
               <div className="grid grid-cols-2 gap-3">
                 {Object.entries(status.citation_stats as Record<string, unknown>).map(([k, v]) => (
-                  <StatCard key={k} label={k.replace(/_/g, ' ')} value={v} />
+                  <StatCard key={k} label={k.replace(/_/g, ' ')} value={String(v ?? "—")} />
                 ))}
               </div>
             </div>
@@ -258,7 +261,7 @@ export function AdminPage() {
           <div className="space-y-3">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {Object.entries(settings as Record<string, unknown>).map(([k, v]) => (
-                <StatCard key={k} label={k.replace(/_/g, ' ')} value={v} />
+                <StatCard key={k} label={k.replace(/_/g, ' ')} value={String(v ?? "—")} />
               ))}
             </div>
           </div>
@@ -268,7 +271,7 @@ export function AdminPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               {Object.entries(analytics as Record<string, unknown>).map(([k, v]) => (
-                <StatCard key={k} label={k.replace(/_/g, ' ')} value={v} />
+                <StatCard key={k} label={k.replace(/_/g, ' ')} value={String(v ?? "—")} />
               ))}
             </div>
             <div>
@@ -283,10 +286,10 @@ export function AdminPage() {
             {/* Summary */}
             {feedback && (feedback.summary as Record<string, unknown>) && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <StatCard label="Total ratings" value={(feedback.summary as Record<string, unknown>).total} />
-                <StatCard label="👍 Thumbs up" value={(feedback.summary as Record<string, unknown>).thumbs_up} />
-                <StatCard label="👎 Thumbs down" value={(feedback.summary as Record<string, unknown>).thumbs_down} />
-                <StatCard label="Positive %" value={`${(feedback.summary as Record<string, unknown>).positive_pct}%`} />
+                <StatCard label="Total ratings" value={Number((feedback.summary as Record<string, unknown>).total ?? 0)} />
+                <StatCard label="👍 Thumbs up" value={Number((feedback.summary as Record<string, unknown>).thumbs_up ?? 0)} />
+                <StatCard label="👎 Thumbs down" value={Number((feedback.summary as Record<string, unknown>).thumbs_down ?? 0)} />
+                <StatCard label="Positive %" value={`${(feedback.summary as Record<string, unknown>).positive_pct ?? 0}%`} />
               </div>
             )}
 
@@ -325,13 +328,12 @@ export function AdminPage() {
           <div className="space-y-5">
             {/* Stats row */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard label="DB chunks" value={refreshStatus ? (refreshStatus.chunks_indexed as number) || 0 : '—'} />
-              <StatCard label="Files updated" value={refreshStatus ? (refreshStatus.files_updated as number) || 0 : '—'} />
-              <StatCard label="Last run" value={refreshStatus?.last_run ? new Date(String(refreshStatus.last_run)).toLocaleDateString() : 'Never'} />
+              <StatCard label="DB chunks" value={refreshStatus?.chunks_indexed ?? 0} />
+              <StatCard label="Files updated" value={refreshStatus?.files_updated ?? 0} />
+              <StatCard label="Last run" value={refreshStatus?.last_run ? new Date(refreshStatus.last_run).toLocaleDateString() : 'Never'} />
               <StatCard label="Duration" value={refreshStatus?.last_run_duration_s ? `${refreshStatus.last_run_duration_s}s` : '—'} />
             </div>
 
-            {/* Status + trigger */}
             <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -342,43 +344,40 @@ export function AdminPage() {
                 </div>
                 <span className={cn(
                   'text-xs px-2.5 py-1 rounded-full font-medium',
-                  refreshStatus?.state === 'running' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                  refreshStatus?.state === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                  refreshStatus?.state === 'failed' ? 'bg-red-50 text-red-700 border border-red-200' :
+                  rsState === 'running' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                  rsState === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                  rsState === 'failed' ? 'bg-red-50 text-red-700 border border-red-200' :
                   'bg-slate-50 text-slate-500 border border-slate-200'
                 )}>
-                  {String(refreshStatus?.state || 'idle')}
+                  {rsState}
                 </span>
               </div>
 
               {refreshStatus?.error && (
                 <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
-                  {String(refreshStatus.error)}
+                  {refreshStatus.error}
                 </p>
               )}
 
               <div className="flex flex-wrap gap-2">
-                {/* Run on Railway server */}
                 <button
                   onClick={() => handleRefresh(false)}
-                  disabled={refreshing || refreshStatus?.state === 'running'}
+                  disabled={refreshing || rsRunning}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium
                     bg-blue-600 text-white hover:bg-blue-700
                     disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  <RotateCcw className={cn('w-3.5 h-3.5', (refreshing || refreshStatus?.state === 'running') && 'animate-spin')} />
-                  {refreshStatus?.state === 'running' ? 'Running…' : 'Run on Server'}
+                  <RotateCcw className={cn('w-3.5 h-3.5', (refreshing || rsRunning) && 'animate-spin')} />
+                  {rsRunning ? 'Running…' : 'Run on Server'}
                 </button>
                 <button
                   onClick={() => handleRefresh(true)}
-                  disabled={refreshing || refreshStatus?.state === 'running'}
+                  disabled={refreshing || rsRunning}
                   className="px-4 py-2 rounded-lg text-sm font-medium border border-slate-200
                     text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Force Full Sync
                 </button>
-
-                {/* Trigger GitHub Actions */}
                 <button
                   onClick={() => handleTriggerActions(false)}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium
@@ -389,13 +388,11 @@ export function AdminPage() {
                 </button>
               </div>
             </div>
-
-            {/* Log */}
-            {refreshStatus?.log && (refreshStatus.log as string[]).length > 0 && (
+            {refreshStatus?.log && refreshStatus.log.length > 0 && (
               <div>
                 <h2 className="text-sm font-semibold text-slate-600 mb-2">Last Run Log</h2>
                 <pre className="text-xs bg-slate-900 text-slate-100 rounded-xl p-4 overflow-auto max-h-80 leading-relaxed">
-                  {(refreshStatus.log as string[]).join('\n')}
+                  {refreshStatus.log.join('\n')}
                 </pre>
               </div>
             )}

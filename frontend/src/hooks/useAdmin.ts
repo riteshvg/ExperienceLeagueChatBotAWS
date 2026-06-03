@@ -4,6 +4,17 @@ import { adminLogin, adminLogout, getAdminStatus, getAdminSettings, getAdminAnal
 const TOKEN_KEY = 'el_admin_token'
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
+export interface RefreshStatus {
+  state: 'idle' | 'running' | 'success' | 'failed'
+  last_run: string | null
+  last_run_duration_s: number | null
+  files_updated: number
+  chunks_indexed: number
+  error: string | null
+  log: string[]
+  started_at?: string
+}
+
 export function useAdmin() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY))
   const [status, setStatus] = useState<Record<string, unknown> | null>(null)
@@ -11,7 +22,7 @@ export function useAdmin() {
   const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null)
   const [demoStatus, setDemoStatus] = useState<Record<string, unknown> | null>(null)
   const [feedback, setFeedback] = useState<Record<string, unknown> | null>(null)
-  const [refreshStatus, setRefreshStatus] = useState<Record<string, unknown> | null>(null)
+  const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
