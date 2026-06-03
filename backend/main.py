@@ -27,6 +27,53 @@ from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 from config.settings import get_settings
 
+_CHROMA_S3_KEY = "chroma_db/chroma_db.tar.gz"
+_CHROMA_DIR = Path(__file__).parent.parent / "chroma_db"
+
+
+def _restore_chroma_from_s3() -> bool:
+    """Download and extract chroma_db.tar.gz from S3 if local DB is empty."""
+    import tarfile, tempfile
+    import boto3
+
+    # Check if already populated
+    try:
+        import chromadb
+        from chromadb.config import Settings as ChromaSettings
+        client = chromadb.PersistentClient(
+            path=str(_CHROMA_DIR),
+            settings=ChromaSettings(anonymized_telemetry=False),
+        )
+        col = client.get_or_create_collection("experience_league")
+        if col.count() > 0:
+            logger.info(f"ChromaDB already populated ({col.count()} chunks) — skipping S3 restore")
+            return True
+    except Exception:
+        pass
+
+    bucket = os.getenv("AWS_S3_BUCKET", "")
+    if not bucket:
+        logger.warning("AWS_S3_BUCKET not set — skipping S3 restore")
+        return False
+
+    logger.info(f"ChromaDB empty — downloading from s3://{bucket}/{_CHROMA_S3_KEY} ...")
+    try:
+        s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+            tmp_path = tmp.name
+        s3.download_file(bucket, _CHROMA_S3_KEY, tmp_path)
+        size_mb = Path(tmp_path).stat().st_size / 1024 / 1024
+        logger.info(f"Downloaded {size_mb:.1f} MB — extracting ...")
+        _CHROMA_DIR.parent.mkdir(parents=True, exist_ok=True)
+        with tarfile.open(tmp_path, "r:gz") as tar:
+            tar.extractall(_CHROMA_DIR.parent)
+        Path(tmp_path).unlink()
+        logger.info("ChromaDB restored from S3 ✓")
+        return True
+    except Exception as e:
+        logger.warning(f"S3 restore failed: {e} — continuing with empty DB")
+        return False
+
 
 def _configure_langsmith() -> None:
     """Set LangSmith env vars from settings so LangChain picks them up automatically."""
@@ -53,6 +100,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     _configure_langsmith()
     logger.info("Starting up — loading ChromaDB and models…")
+    _restore_chroma_from_s3()
     try:
         retriever = ChromaRetriever()
     except Exception as e:
