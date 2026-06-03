@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { Menu } from 'lucide-react'
 import { useChatStore } from '@/store/chatStore'
 import { useAuthStore } from '@/store/authStore'
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput'
@@ -8,6 +9,7 @@ import { Sidebar } from '@/components/Sidebar'
 export function ChatPage() {
   const { sessions, activeSessionId, isStreaming, sendMessage, error } = useChatStore()
   const { isDemo, demoStatus, refreshDemoStatus } = useAuthStore()
+  const [sidebarOpen, setSidebarOpen] = useState(false)
   const messages = sessions[activeSessionId]?.messages ?? []
   const demoExhausted = isDemo && (demoStatus?.exhausted ?? false)
 
@@ -32,11 +34,18 @@ export function ChatPage() {
 
   return (
     <div className="flex w-full h-screen overflow-hidden">
-      <Sidebar onSelectPrompt={handleSelectPrompt} />
+      <Sidebar onSelectPrompt={handleSelectPrompt} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
         {/* Header */}
         <header className="flex-shrink-0 h-12 bg-white border-b border-slate-200 flex items-center justify-between px-4">
+          {/* Hamburger — mobile only */}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="md:hidden p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 mr-2"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
           <h1 className="text-sm font-semibold text-slate-700">
             Adobe Docs Assistant
             <span className="ml-2 text-xs font-normal text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">unofficial</span>

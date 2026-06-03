@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut } from 'lucide-react'
+import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut, X } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useChatStore, type ChatSession } from '@/store/chatStore'
@@ -8,6 +8,8 @@ import { PROMPT_LIBRARY } from '@/lib/prompts'
 
 interface Props {
   onSelectPrompt: (text: string) => void
+  isOpen: boolean
+  onClose: () => void
 }
 
 function groupByDate(sessions: ChatSession[]): { label: string; items: ChatSession[] }[] {
@@ -31,7 +33,7 @@ function groupByDate(sessions: ChatSession[]): { label: string; items: ChatSessi
   ].filter((g) => g.items.length > 0)
 }
 
-export function Sidebar({ onSelectPrompt }: Props) {
+export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
   const { sessions, activeSessionId, isStreaming, startNewChat, switchSession, deleteSession } = useChatStore()
   const { logout } = useAuthStore()
   const navigate = useNavigate()
@@ -50,10 +52,28 @@ export function Sidebar({ onSelectPrompt }: Props) {
     setOpenCategories((prev) => ({ ...prev, [cat]: !prev[cat] }))
 
   return (
-    <aside className="w-64 flex-shrink-0 bg-slate-900 text-white flex flex-col h-full">
+    <>
+      {/* Mobile backdrop */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-20 md:hidden"
+          onClick={onClose}
+        />
+      )}
+    <aside className={cn(
+      'flex-shrink-0 bg-slate-900 text-white flex flex-col h-full z-30 transition-transform duration-200',
+      // Desktop: always visible, fixed width
+      'md:w-64 md:relative md:translate-x-0',
+      // Mobile: overlay, slides in/out
+      'w-72 fixed inset-y-0 left-0',
+      isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+    )}>
       {/* Logo */}
       <div className="px-4 py-4 border-b border-slate-700">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 justify-between">
+          <button onClick={onClose} className="md:hidden p-1 text-slate-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
             <span className="text-white text-xs font-bold">EL</span>
           </div>
@@ -187,5 +207,6 @@ export function Sidebar({ onSelectPrompt }: Props) {
         </button>
       </div>
     </aside>
+    </>
   )
 }
