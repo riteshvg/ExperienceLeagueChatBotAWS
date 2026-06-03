@@ -59,6 +59,19 @@ async def logout(_: Annotated[str, Depends(get_admin_user)]):
 
 # ── Protected endpoints ───────────────────────────────────────────────────────
 
+@router.post("/demo/reset")
+async def reset_demo(_: Annotated[str, Depends(get_admin_user)]):
+    """Reset the demo question counter back to 0."""
+    from backend.core.demo_counter import reset as demo_reset
+    return demo_reset()
+
+
+@router.get("/demo/status")
+async def demo_status_admin(_: Annotated[str, Depends(get_admin_user)]):
+    """Check current demo usage."""
+    from backend.core.demo_counter import get_status
+    return get_status()
+
 @router.get("/status")
 async def system_status(
     request: Request,

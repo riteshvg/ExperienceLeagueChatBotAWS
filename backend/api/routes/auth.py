@@ -19,11 +19,14 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from backend.api.deps import _secret, _ALGORITHM
+from backend.core.demo_counter import get_status as demo_status
 from config.settings import get_settings
 
 router = APIRouter(prefix="/auth")
 
 _TOKEN_TTL_DAYS = 30
+_DEMO_USERNAME = "demo"
+_DEMO_PASSWORD = "demo"
 
 
 class SiteLoginRequest(BaseModel):
@@ -33,6 +36,17 @@ class SiteLoginRequest(BaseModel):
 
 @router.post("/login")
 async def site_login(body: SiteLoginRequest):
+    # Demo account — fixed credentials, role carries demo flag
+    if body.username == _DEMO_USERNAME and body.password == _DEMO_PASSWORD:
+        exp = datetime.now(tz=timezone.utc) + timedelta(days=1)  # 1-day token for demo
+        token = jwt.encode(
+            {"sub": _DEMO_USERNAME, "role": "demo", "exp": exp},
+            _secret(),
+            algorithm=_ALGORITHM,
+        )
+        return {"token": token, "role": "demo", "demo": demo_status(), "expires_at": exp.isoformat()}
+
+    # Regular site user
     s = get_settings()
     site_username = s.site_username or ""
     site_password = s.site_password or ""
@@ -55,4 +69,10 @@ async def site_login(body: SiteLoginRequest):
         _secret(),
         algorithm=_ALGORITHM,
     )
-    return {"token": token, "expires_at": exp.isoformat()}
+    return {"token": token, "role": "user", "expires_at": exp.isoformat()}
+
+
+@router.get("/demo/status")
+async def get_demo_status():
+    """Public endpoint — lets the frontend check remaining demo questions."""
+    return demo_status()

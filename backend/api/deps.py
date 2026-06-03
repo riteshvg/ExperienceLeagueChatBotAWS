@@ -37,8 +37,8 @@ def get_site_user(
     credentials: Annotated[
         Optional[HTTPAuthorizationCredentials], Depends(_security)
     ] = None,
-) -> str:
-    """Validate Bearer JWT token issued by /api/auth/login (site access)."""
+) -> dict:
+    """Validate Bearer JWT token. Returns {"sub": username, "role": "user"|"demo"}."""
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -50,12 +50,13 @@ def get_site_user(
             credentials.credentials, _secret(), algorithms=[_ALGORITHM]
         )
         sub: str = payload.get("sub", "")
+        role: str = payload.get("role", "user")
         exp: int = payload.get("exp", 0)
         if not sub or datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(tz=timezone.utc):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
             )
-        return sub
+        return {"sub": sub, "role": role}
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"

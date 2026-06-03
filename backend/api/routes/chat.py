@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from backend.api.deps import get_pipeline, get_session_store, get_site_user
+from backend.core.demo_counter import increment as demo_increment
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 
@@ -38,8 +39,19 @@ async def chat(
     body: ChatRequest,
     pipeline: Annotated[RAGPipeline, Depends(get_pipeline)],
     session_store: Annotated[SessionStore, Depends(get_session_store)],
-    _user: Annotated[str, Depends(get_site_user)],
+    user: Annotated[dict, Depends(get_site_user)],
 ):
+    # Enforce demo question limit
+    from fastapi import HTTPException, status as http_status
+    if user.get("role") == "demo":
+        try:
+            demo_increment()
+        except ValueError:
+            raise HTTPException(
+                status_code=http_status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Demo limit reached. You have used all 5 demo questions.",
+            )
+
     # Create a new session if none provided
     session_id = body.session_id or session_store.new_session()
 
