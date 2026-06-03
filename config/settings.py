@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     site_username: Optional[str] = Field(None, env="SITE_USERNAME")
     site_password: Optional[str] = Field(None, env="SITE_PASSWORD")
 
+    # Admin panel password
+    admin_password: Optional[str] = Field(None, env="ADMIN_PASSWORD")
+
     # LangSmith tracing
     langchain_tracing_v2: bool = Field(default=False, env="LANGCHAIN_TRACING_V2")
     langchain_api_key: Optional[str] = Field(None, env="LANGCHAIN_API_KEY")

@@ -21,6 +21,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from backend.api.deps import get_admin_user, get_retriever, _secret, _ALGORITHM
+from config.settings import get_settings
 from src.utils.citation_mapper import _citation_stats
 
 router = APIRouter(prefix="/admin")
@@ -36,7 +37,7 @@ class LoginRequest(BaseModel):
 
 @router.post("/login")
 async def login(body: LoginRequest):
-    admin_password = os.getenv("ADMIN_PASSWORD", "")
+    admin_password = get_settings().admin_password or ""
     if not admin_password or body.password != admin_password:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
