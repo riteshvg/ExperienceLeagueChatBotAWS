@@ -2,12 +2,14 @@ import { useCallback, useEffect, useState } from 'react'
 import { adminLogin, adminLogout, getAdminStatus, getAdminSettings, getAdminAnalytics } from '@/lib/api'
 
 const TOKEN_KEY = 'el_admin_token'
+const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 export function useAdmin() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY))
   const [status, setStatus] = useState<Record<string, unknown> | null>(null)
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null)
   const [analytics, setAnalytics] = useState<Record<string, unknown> | null>(null)
+  const [demoStatus, setDemoStatus] = useState<Record<string, unknown> | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -38,14 +40,18 @@ export function useAdmin() {
     if (!token) return
     setLoading(true)
     try {
-      const [s, cfg, a] = await Promise.all([
+      const [s, cfg, a, demo] = await Promise.all([
         getAdminStatus(token),
         getAdminSettings(token),
         getAdminAnalytics(token),
+        fetch(`${API_BASE}/api/admin/demo/status`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }).then((r) => r.json()),
       ])
       setStatus(s)
       setSettings(cfg)
       setAnalytics(a)
+      setDemoStatus(demo)
     } catch {
       logout()
     } finally {
@@ -53,9 +59,21 @@ export function useAdmin() {
     }
   }, [token, logout])
 
+  const resetDemo = useCallback(async () => {
+    if (!token) return
+    const res = await fetch(`${API_BASE}/api/admin/demo/reset`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setDemoStatus(updated)
+    }
+  }, [token])
+
   useEffect(() => {
     if (token) refresh()
   }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { isAuthenticated: !!token, login, logout, refresh, status, settings, analytics, loading, error }
+  return { isAuthenticated: !!token, login, logout, refresh, resetDemo, status, settings, analytics, demoStatus, loading, error }
 }

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { RotateCcw } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { useAdmin } from '@/hooks/useAdmin'
@@ -26,7 +27,14 @@ function JsonTree({ data }: { data: unknown }) {
 }
 
 export function AdminPage() {
-  const { isAuthenticated, login, logout, refresh, status, settings, analytics, loading, error } = useAdmin()
+  const { isAuthenticated, login, logout, refresh, resetDemo, status, settings, analytics, demoStatus, loading, error } = useAdmin()
+  const [resetting, setResetting] = useState(false)
+
+  const handleResetDemo = async () => {
+    setResetting(true)
+    await resetDemo()
+    setResetting(false)
+  }
   const [password, setPassword] = useState('')
   const [tab, setTab] = useState<Tab>('status')
 
@@ -133,6 +141,56 @@ export function AdminPage() {
       <div className="px-6 py-6 max-w-4xl">
         {tab === 'status' && status && (
           <div className="space-y-6">
+
+            {/* Demo account */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-sm font-semibold text-slate-700">Demo Account</h2>
+                <span className="text-xs text-slate-400">demo / demo</span>
+              </div>
+              {demoStatus ? (
+                <div className="flex items-center gap-6">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={cn(
+                            'h-2 rounded-full transition-all',
+                            (demoStatus.exhausted as boolean)
+                              ? 'bg-red-400'
+                              : (demoStatus.questions_used as number) > 0
+                              ? 'bg-amber-400'
+                              : 'bg-emerald-400',
+                          )}
+                          style={{ width: `${((demoStatus.questions_used as number) / (demoStatus.questions_limit as number)) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-slate-500 whitespace-nowrap">
+                        {demoStatus.questions_used as number} / {demoStatus.questions_limit as number} used
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      {(demoStatus.exhausted as boolean)
+                        ? 'Demo limit reached — reset to allow more questions'
+                        : `${demoStatus.questions_remaining as number} question${(demoStatus.questions_remaining as number) !== 1 ? 's' : ''} remaining`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleResetDemo}
+                    disabled={resetting}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium
+                      bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50
+                      disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                  >
+                    <RotateCcw className={cn('w-3.5 h-3.5', resetting && 'animate-spin')} />
+                    {resetting ? 'Resetting…' : 'Reset counter'}
+                  </button>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">Loading demo status…</p>
+              )}
+            </div>
+
             <div>
               <h2 className="text-sm font-semibold text-slate-600 mb-3">Components</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
