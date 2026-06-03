@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut, X } from 'lucide-react'
+import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useChatStore, type ChatSession } from '@/store/chatStore'
@@ -39,6 +39,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
   const navigate = useNavigate()
   const [showPrompts, setShowPrompts] = useState(false)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
+  const [collapsed, setCollapsed] = useState(false)
 
   const handleLogout = () => {
     logout()
@@ -61,48 +62,63 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
         />
       )}
     <aside className={cn(
-      'flex-shrink-0 bg-slate-900 text-white flex flex-col h-full z-30 transition-transform duration-200',
-      // Desktop: always visible, fixed width
-      'md:w-64 md:relative md:translate-x-0',
-      // Mobile: overlay, slides in/out
+      'flex-shrink-0 bg-slate-900 text-white flex flex-col h-full z-30 transition-all duration-200',
+      // Desktop: always visible, collapsible
+      'md:relative md:translate-x-0',
+      collapsed ? 'md:w-14' : 'md:w-64',
+      // Mobile: overlay, slides in/out (always full width)
       'w-72 fixed inset-y-0 left-0',
       isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
     )}>
       {/* Logo */}
-      <div className="px-4 py-4 border-b border-slate-700">
+      <div className={cn('py-4 border-b border-slate-700', collapsed ? 'px-3' : 'px-4')}>
         <div className="flex items-center gap-2 justify-between">
           <button onClick={onClose} className="md:hidden p-1 text-slate-400 hover:text-white">
             <X className="w-4 h-4" />
           </button>
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center">
+          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center flex-shrink-0">
             <span className="text-white text-xs font-bold">EL</span>
           </div>
-          <div>
-            <div className="flex items-center gap-1.5">
-              <span className="font-semibold text-sm">Experience League</span>
-              <span className="text-xs text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded-full leading-none">unofficial</span>
+          {!collapsed && (
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <span className="font-semibold text-sm truncate">Experience League</span>
+                <span className="text-xs text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded-full leading-none flex-shrink-0">unofficial</span>
+              </div>
             </div>
-          </div>
+          )}
+          {/* Collapse toggle — desktop only */}
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="hidden md:flex p-1 text-slate-400 hover:text-white flex-shrink-0"
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {collapsed
+              ? <PanelLeftOpen className="w-4 h-4" />
+              : <PanelLeftClose className="w-4 h-4" />}
+          </button>
         </div>
       </div>
 
       {/* New chat button */}
-      <div className="px-3 py-3">
+      <div className={cn('py-3', collapsed ? 'px-2' : 'px-3')}>
         <button
           onClick={startNewChat}
           disabled={isStreaming}
+          title="New chat"
           className={cn(
-            'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+            'w-full flex items-center rounded-lg text-sm transition-colors',
+            collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2',
             isStreaming ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 hover:bg-slate-700 hover:text-white',
           )}
         >
-          <Plus className="w-4 h-4" />
-          New chat
+          <Plus className="w-4 h-4 flex-shrink-0" />
+          {!collapsed && 'New chat'}
         </button>
       </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-4">
+      {/* Scrollable content — hidden when collapsed */}
+      <div className={cn('flex-1 overflow-y-auto pb-3 space-y-4', collapsed ? 'hidden md:hidden' : 'px-3')}>
 
         {/* Session list */}
         {groups.map((group) => (
@@ -182,28 +198,38 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
         </div>
       </div>
 
-      {/* Disclaimer */}
-      <div className="px-4 py-3 mx-3 mb-2 rounded-lg bg-slate-800 border border-slate-700">
-        <p className="text-xs text-slate-400 leading-relaxed">
-          Built for learning purposes only. Not affiliated with or endorsed by Adobe. All documentation belongs to Adobe.
-        </p>
-      </div>
+      {/* Disclaimer — hidden when collapsed */}
+      {!collapsed && (
+        <div className="px-4 py-3 mx-3 mb-2 rounded-lg bg-slate-800 border border-slate-700">
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Built for learning purposes only. Not affiliated with or endorsed by Adobe. All documentation belongs to Adobe.
+          </p>
+        </div>
+      )}
 
       {/* Footer */}
-      <div className="px-3 py-3 border-t border-slate-700 space-y-0.5">
+      <div className={cn('py-3 border-t border-slate-700 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
         <Link
           to="/admin"
-          className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-700 hover:text-white transition-colors no-underline"
+          title="Admin"
+          className={cn(
+            'flex items-center rounded-lg text-sm text-slate-400 hover:bg-slate-700 hover:text-white transition-colors no-underline',
+            collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
+          )}
         >
-          <Settings className="w-4 h-4" />
-          Admin
+          <Settings className="w-4 h-4 flex-shrink-0" />
+          {!collapsed && 'Admin'}
         </Link>
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-700 hover:text-red-400 transition-colors"
+          title="Sign out"
+          className={cn(
+            'w-full flex items-center rounded-lg text-sm text-slate-400 hover:bg-slate-700 hover:text-red-400 transition-colors',
+            collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
+          )}
         >
-          <LogOut className="w-4 h-4" />
-          Sign out
+          <LogOut className="w-4 h-4 flex-shrink-0" />
+          {!collapsed && 'Sign out'}
         </button>
       </div>
     </aside>
