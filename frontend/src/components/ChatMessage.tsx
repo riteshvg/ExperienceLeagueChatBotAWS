@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Play, Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react'
@@ -14,6 +14,35 @@ interface Props {
 }
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
+
+/** Typewriter effect — reveals text character by character while streaming. */
+function useTypewriter(fullText: string, isStreaming: boolean, speed = 8): string {
+  const [displayed, setDisplayed] = useState('')
+  const posRef = useRef(0)
+  const textRef = useRef(fullText)
+  textRef.current = fullText   // always current without re-triggering effects
+
+  useEffect(() => {
+    if (!isStreaming) {
+      // Streaming finished — show everything immediately
+      setDisplayed(textRef.current)
+      posRef.current = textRef.current.length
+      return
+    }
+    // Reset and start typewriter
+    posRef.current = 0
+    setDisplayed('')
+    const interval = setInterval(() => {
+      if (posRef.current < textRef.current.length) {
+        posRef.current += 1
+        setDisplayed(textRef.current.slice(0, posRef.current))
+      }
+    }, speed)
+    return () => clearInterval(interval)
+  }, [isStreaming, speed])
+
+  return displayed
+}
 
 function sanitizeAdobeMarkup(text: string): string {
   return text
@@ -50,6 +79,7 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
   const { setFeedback } = useChatStore()
+  const displayedContent = useTypewriter(message.content || '', !!message.streaming)
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -131,7 +161,7 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
                   },
                 }}
               >
-                {sanitizeAdobeMarkup(message.content || ' ')}
+                {sanitizeAdobeMarkup(displayedContent || ' ')}
               </ReactMarkdown>
             </div>
           )}
