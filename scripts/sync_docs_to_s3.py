@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""
+Delta sync: AdobeDocs GitHub repos → S3
+
+Only downloads files whose SHA has changed since last sync.
+Stores a manifest at data/sync_manifest.json to track state.
+
+Usage:
+    python scripts/sync_docs_to_s3.py [--dry-run] [--force]
+    python scripts/sync_docs_to_s3.py --repo analytics.en  # single repo
+
+Requires: GITHUB_TOKEN env var (optional but raises rate limit from 60→5000 req/hr)
+"""
+
+import argparse
+import json
+import logging
+import os
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import boto3
+import requests
+from dotenv import load_dotenv
+
+_ROOT = Path(__file__).parent.parent
+load_dotenv(_ROOT / ".env")
+sys.path.insert(0, str(_ROOT))
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
+logger = logging.getLogger(__name__)
+
+MANIFEST_PATH = _ROOT / "data" / "sync_manifest.json"
+S3_BUCKET = os.getenv("AWS_S3_BUCKET", "experienceleaguechatbot")
+
+REPOS = {
+    "adobe-docs/adobe-analytics": {
+        "github": "AdobeDocs/analytics.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/adobe-analytics/",
+        "path_filter": "help/",        # only ingest help/ subdirectory
+    },
+    "adobe-docs/customer-journey-analytics": {
+        "github": "AdobeDocs/analytics-platform.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/customer-journey-analytics/",
+        "path_filter": "help/",
+    },
+    "adobe-docs/experience-platform": {
+        "github": "AdobeDocs/experience-platform.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/experience-platform/",
+        "path_filter": "help/",
+    },
+}
+
+
+def _gh_headers() -> dict:
+    token = os.getenv("GITHUB_TOKEN", "")
+    h = {"Accept": "application/vnd.github.v3+json"}
+    if token:
+        h["Authorization"] = f"Bearer {token}"
+    return h
+
+
+def _load_manifest() -> dict:
+    if MANIFEST_PATH.exists():
+        return json.loads(MANIFEST_PATH.read_text())
+    return {}
+
+
+def _save_manifest(manifest: dict) -> None:
+    MANIFEST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    MANIFEST_PATH.write_text(json.dumps(manifest, indent=2))
+
+
+def get_repo_tree(repo: str, branch: str) -> list[dict]:
+    """Fetch full recursive file tree for a repo."""
+    url = f"https://api.github.com/repos/{repo}/git/trees/{branch}?recursive=1"
+    resp = requests.get(url, headers=_gh_headers(), timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("truncated"):
+        logger.warning(f"Tree truncated for {repo} — some files may be missed")
+    return [f for f in data.get("tree", []) if f["type"] == "blob"]
+
+
+def download_file(repo: str, path: str, branch: str) -> bytes:
+    """Download raw file content from GitHub."""
+    url = f"https://raw.githubusercontent.com/{repo}/{branch}/{path}"
+    resp = requests.get(url, headers=_gh_headers(), timeout=30)
+    resp.raise_for_status()
+    return resp.content
+
+
+def sync_repo(repo_key: str, config: dict, s3, manifest: dict,
+              dry_run: bool = False, force: bool = False) -> dict:
+    """Sync one repo. Returns stats dict."""
+    github_repo = config["github"]
+    branch = config["branch"]
+    s3_prefix = config["s3_prefix"]
+    path_filter = config.get("path_filter", "")
+
+    logger.info(f"Fetching tree for {github_repo}...")
+    tree = get_repo_tree(github_repo, branch)
+
+    # Filter to markdown files in the help/ directory
+    md_files = [
+        f for f in tree
+        if f["path"].endswith(".md") and f["path"].startswith(path_filter)
+    ]
+    logger.info(f"  {len(md_files)} markdown files found")
+
+    repo_manifest = manifest.get(repo_key, {})
+    stats = {"checked": len(md_files), "updated": 0, "skipped": 0, "errors": 0}
+
+    for i, file in enumerate(md_files):
+        path = file["path"]
+        sha = file["sha"]
+        s3_key = s3_prefix + path
+
+        # Skip if SHA unchanged
+        if not force and repo_manifest.get(path) == sha:
+            stats["skipped"] += 1
+            continue
+
+        if dry_run:
+            logger.debug(f"  [dry-run] would update: {path}")
+            stats["updated"] += 1
+            continue
+
+        try:
+            content = download_file(github_repo, path, branch)
+            s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=content)
+            repo_manifest[path] = sha
+            stats["updated"] += 1
+            if stats["updated"] % 50 == 0:
+                logger.info(f"  Updated {stats['updated']} files so far...")
+            # Gentle rate limiting
+            time.sleep(0.05)
+        except Exception as e:
+            logger.warning(f"  Failed {path}: {e}")
+            stats["errors"] += 1
+
+    manifest[repo_key] = repo_manifest
+    return stats
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true", help="Re-sync all files ignoring manifest")
+    parser.add_argument("--repo", help="Sync only this repo key (e.g. adobe-docs/adobe-analytics)")
+    args = parser.parse_args()
+
+    s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+    manifest = _load_manifest()
+
+    repos_to_sync = {args.repo: REPOS[args.repo]} if args.repo and args.repo in REPOS else REPOS
+
+    total_updated = 0
+    for repo_key, config in repos_to_sync.items():
+        logger.info(f"\n{'='*50}")
+        logger.info(f"Syncing {repo_key}")
+        stats = sync_repo(repo_key, config, s3, manifest,
+                          dry_run=args.dry_run, force=args.force)
+        logger.info(f"  checked={stats['checked']} updated={stats['updated']} "
+                    f"skipped={stats['skipped']} errors={stats['errors']}")
+        total_updated += stats["updated"]
+
+    if not args.dry_run:
+        manifest["_last_sync"] = datetime.now(timezone.utc).isoformat()
+        manifest["_last_updated_count"] = total_updated
+        _save_manifest(manifest)
+
+    logger.info(f"\nSync complete — {total_updated} files updated")
+    return total_updated
+
+
+if __name__ == "__main__":
+    main()

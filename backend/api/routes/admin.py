@@ -62,6 +62,22 @@ _FEEDBACK_FILE = _ROOT / "data" / "feedback.jsonl"
 
 # ── Protected endpoints ───────────────────────────────────────────────────────
 
+@router.get("/refresh/status")
+async def refresh_status(_: Annotated[str, Depends(get_admin_user)]):
+    """Return current data refresh pipeline status."""
+    from backend.core.refresh_pipeline import get_status
+    return get_status()
+
+
+@router.post("/refresh/start")
+async def refresh_start(
+    _: Annotated[str, Depends(get_admin_user)],
+    force: bool = False,
+):
+    """Trigger a data refresh in the background."""
+    from backend.core.refresh_pipeline import trigger_refresh
+    return trigger_refresh(force=force)
+
 @router.get("/feedback")
 async def get_feedback(_: Annotated[str, Depends(get_admin_user)]):
     """Return feedback entries with summary stats."""

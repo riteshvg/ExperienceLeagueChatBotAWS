@@ -5,7 +5,7 @@ import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { useAdmin } from '@/hooks/useAdmin'
 import { cn } from '@/lib/utils'
 
-type Tab = 'status' | 'settings' | 'analytics' | 'feedback'
+type Tab = 'status' | 'settings' | 'analytics' | 'feedback' | 'refresh'
 
 function StatCard({ label, value }: { label: string; value: unknown }) {
   return (
@@ -27,7 +27,14 @@ function JsonTree({ data }: { data: unknown }) {
 }
 
 export function AdminPage() {
-  const { isAuthenticated, login, logout, refresh, resetDemo, status, settings, analytics, demoStatus, feedback, loading, error } = useAdmin()
+  const { isAuthenticated, login, logout, refresh, resetDemo, triggerRefresh, status, settings, analytics, demoStatus, feedback, refreshStatus, loading, error } = useAdmin()
+  const [refreshing, setRefreshing] = useState(false)
+
+  const handleRefresh = async (force = false) => {
+    setRefreshing(true)
+    await triggerRefresh(force)
+    setRefreshing(false)
+  }
   const [resetting, setResetting] = useState(false)
 
   const handleResetDemo = async () => {
@@ -88,6 +95,7 @@ export function AdminPage() {
     { id: 'settings', label: 'Settings' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'feedback', label: 'Feedback' },
+    { id: 'refresh', label: 'Data Refresh' },
   ]
 
   return (
@@ -300,6 +308,77 @@ export function AdminPage() {
                 <p className="text-sm text-slate-400">No feedback yet.</p>
               )}
             </div>
+          </div>
+        )}
+
+        {tab === 'refresh' && (
+          <div className="space-y-5">
+            {/* Stats row */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <StatCard label="DB chunks" value={refreshStatus ? (refreshStatus.chunks_indexed as number) || 0 : '—'} />
+              <StatCard label="Files updated" value={refreshStatus ? (refreshStatus.files_updated as number) || 0 : '—'} />
+              <StatCard label="Last run" value={refreshStatus?.last_run ? new Date(String(refreshStatus.last_run)).toLocaleDateString() : 'Never'} />
+              <StatCard label="Duration" value={refreshStatus?.last_run_duration_s ? `${refreshStatus.last_run_duration_s}s` : '—'} />
+            </div>
+
+            {/* Status + trigger */}
+            <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-700">Knowledge Base Sync</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Syncs AdobeDocs GitHub repos → S3 → ChromaDB → S3 backup
+                  </p>
+                </div>
+                <span className={cn(
+                  'text-xs px-2.5 py-1 rounded-full font-medium',
+                  refreshStatus?.state === 'running' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                  refreshStatus?.state === 'success' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                  refreshStatus?.state === 'failed' ? 'bg-red-50 text-red-700 border border-red-200' :
+                  'bg-slate-50 text-slate-500 border border-slate-200'
+                )}>
+                  {String(refreshStatus?.state || 'idle')}
+                </span>
+              </div>
+
+              {refreshStatus?.error && (
+                <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
+                  {String(refreshStatus.error)}
+                </p>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleRefresh(false)}
+                  disabled={refreshing || refreshStatus?.state === 'running'}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium
+                    bg-blue-600 text-white hover:bg-blue-700
+                    disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <RotateCcw className={cn('w-3.5 h-3.5', (refreshing || refreshStatus?.state === 'running') && 'animate-spin')} />
+                  {refreshStatus?.state === 'running' ? 'Running…' : 'Run Refresh'}
+                </button>
+                <button
+                  onClick={() => handleRefresh(true)}
+                  disabled={refreshing || refreshStatus?.state === 'running'}
+                  className="px-4 py-2 rounded-lg text-sm font-medium border border-slate-200
+                    text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Force re-sync all files even if SHA unchanged"
+                >
+                  Force Full Sync
+                </button>
+              </div>
+            </div>
+
+            {/* Log */}
+            {refreshStatus?.log && (refreshStatus.log as string[]).length > 0 && (
+              <div>
+                <h2 className="text-sm font-semibold text-slate-600 mb-2">Last Run Log</h2>
+                <pre className="text-xs bg-slate-900 text-slate-100 rounded-xl p-4 overflow-auto max-h-80 leading-relaxed">
+                  {(refreshStatus.log as string[]).join('\n')}
+                </pre>
+              </div>
+            )}
           </div>
         )}
 
