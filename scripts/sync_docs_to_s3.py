@@ -54,6 +54,12 @@ REPOS = {
         "s3_prefix": "adobe-docs/experience-platform/",
         "path_filter": "help/",
     },
+    "adobe-docs/adobe-target": {
+        "github": "AdobeDocs/target.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/adobe-target/",
+        "path_filter": "help/main/",   # skip help/flags/ and tutorials/
+    },
 }
 
 

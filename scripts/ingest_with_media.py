@@ -42,6 +42,7 @@ GITHUB_RAW_BASES = {
     "adobe-docs/adobe-analytics/": "https://raw.githubusercontent.com/AdobeDocs/analytics.en/main/",
     "adobe-docs/customer-journey-analytics/": "https://raw.githubusercontent.com/AdobeDocs/analytics-platform.en/main/",
     "adobe-docs/experience-platform/": "https://raw.githubusercontent.com/AdobeDocs/experience-platform.en/main/",
+    "adobe-docs/adobe-target/": "https://raw.githubusercontent.com/AdobeDocs/target.en/main/",
 }
 
 # Regex patterns
