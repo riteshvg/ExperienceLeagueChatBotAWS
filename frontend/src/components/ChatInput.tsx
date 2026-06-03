@@ -64,7 +64,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         onKeyDown={handleKeyDown}
         onInput={handleInput}
         disabled={disabled}
-        placeholder="Ask about Adobe Analytics, CJA, or AEP…"
+        placeholder="Ask about Adobe Analytics, CJA, AEP, or Target…"
         className={cn(
           'flex-1 resize-none bg-transparent text-sm text-slate-800 placeholder:text-slate-400',
           'focus:outline-none leading-relaxed py-0.5',

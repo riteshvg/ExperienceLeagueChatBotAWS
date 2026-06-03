@@ -65,13 +65,13 @@ export function ChatPage() {
                 Ask about Adobe Experience League docs
               </h2>
               <p className="text-sm text-slate-400 max-w-sm">
-                Get answers about Adobe Analytics, Customer Journey Analytics, and Adobe Experience Platform from the official documentation.
+                Get answers about Adobe Analytics, Customer Journey Analytics, Experience Platform, and Adobe Target from the official documentation.
               </p>
               <div className="grid grid-cols-1 gap-2 mt-6 w-full max-w-sm">
                 {[
                   'How do I create a segment in Adobe Analytics?',
                   'What is a Data View in CJA?',
-                  'How does XDM schema composition work?',
+                  'How do I create an A/B test in Adobe Target?',
                 ].map((q) => (
                   <button
                     key={q}
