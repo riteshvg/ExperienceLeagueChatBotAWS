@@ -33,9 +33,17 @@ from src.utils.query_processor import QueryProcessor
 
 mcp = FastMCP("experience-league-docs")
 
-# Initialise once at startup
-_retriever = ChromaRetriever()
-_query_processor = QueryProcessor()
+# Lazy init — populated on first call so importing this module doesn't
+# trigger ChromaDB/Bedrock connections at import time (needed for ASGI mount)
+_retriever = None
+_query_processor = None
+
+
+def _ensure_init():
+    global _retriever, _query_processor
+    if _retriever is None:
+        _retriever = ChromaRetriever()
+        _query_processor = QueryProcessor()
 
 
 @mcp.tool()
@@ -51,6 +59,7 @@ def search_experience_league(query: str) -> str:
         query: Natural language question or keyword search.
                Use specific Adobe terminology for best results.
     """
+    _ensure_init()
     enhanced, _ = _query_processor.preprocess_query(query)
     docs = _retriever.retrieve(enhanced, n_results=5, similarity_threshold=0.2)
 
@@ -87,6 +96,7 @@ def get_product_overview(product: str) -> str:
         product: One of 'Adobe Analytics', 'Customer Journey Analytics',
                  'Adobe Experience Platform'
     """
+    _ensure_init()
     docs = _retriever.retrieve(
         f"{product} overview introduction",
         n_results=3,
@@ -116,5 +126,17 @@ def list_available_products() -> str:
     )
 
 
+def get_mcp_asgi_app():
+    """Return the MCP SSE app for mounting in FastAPI at /mcp.
+
+    Exposes:
+      GET  /mcp/sse       — SSE stream (Claude.ai connects here)
+      POST /mcp/messages/ — message endpoint
+    """
+    return mcp.sse_app()
+
+
 if __name__ == "__main__":
+    # Standalone mode: initialize and run via stdio (Claude Code)
+    _ensure_init()
     mcp.run()

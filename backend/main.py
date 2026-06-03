@@ -142,4 +142,8 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+
+# Mount MCP server for Claude.ai integration
+from backend.mcp_server import get_mcp_asgi_app
+app.mount("/mcp", get_mcp_asgi_app())
 app.include_router(health_router, prefix="/api")
