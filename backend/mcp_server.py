@@ -26,12 +26,31 @@ from pathlib import Path
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
+import os
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.server import TransportSecuritySettings
 from backend.core.chroma_retriever import ChromaRetriever
 from src.utils.citation_mapper import format_citation
 from src.utils.query_processor import QueryProcessor
 
-mcp = FastMCP("experience-league-docs")
+_RAILWAY_HOST = "experienceleaguechatbotaws-production.up.railway.app"
+
+mcp = FastMCP(
+    "experience-league-docs",
+    transport_security=TransportSecuritySettings(
+        allowed_hosts=[
+            _RAILWAY_HOST,
+            "localhost",
+            "localhost:8000",
+            "localhost:8080",
+        ],
+        allowed_origins=[
+            f"https://{_RAILWAY_HOST}",
+            "http://localhost:8000",
+            "http://localhost:8080",
+        ],
+    ),
+)
 
 # Lazy init — populated on first call so importing this module doesn't
 # trigger ChromaDB/Bedrock connections at import time (needed for ASGI mount)

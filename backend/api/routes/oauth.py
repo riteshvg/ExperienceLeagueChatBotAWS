@@ -50,24 +50,50 @@ def _issue_token(subject: str = "mcp-user") -> str:
 
 # ── OAuth discovery ────────────────────────────────────────────────────────────
 
-@router.get("/.well-known/oauth-authorization-server")
-async def oauth_metadata(request: Request):
-    base = str(request.base_url).rstrip("/")
-    return JSONResponse({
+def _oauth_metadata(base: str) -> dict:
+    return {
         "issuer": base,
         "authorization_endpoint": f"{base}/oauth/authorize",
         "token_endpoint": f"{base}/oauth/token",
-        "registration_endpoint": f"{base}/oauth/register",
+        "registration_endpoint": f"{base}/register",
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code"],
         "code_challenge_methods_supported": ["S256", "plain"],
         "token_endpoint_auth_methods_supported": ["none"],
+        "scopes_supported": ["mcp"],
+    }
+
+
+@router.get("/.well-known/oauth-authorization-server")
+async def oauth_metadata(request: Request):
+    base = str(request.base_url).rstrip("/")
+    return JSONResponse(_oauth_metadata(base))
+
+
+@router.get("/.well-known/oauth-authorization-server/{path:path}")
+async def oauth_metadata_path(request: Request, path: str):
+    """Handle path-specific OAuth metadata (e.g. /.well-known/oauth-authorization-server/mcp/sse)."""
+    base = str(request.base_url).rstrip("/")
+    return JSONResponse(_oauth_metadata(base))
+
+
+@router.get("/.well-known/oauth-protected-resource")
+@router.get("/.well-known/oauth-protected-resource/{path:path}")
+async def oauth_protected_resource(request: Request, path: str = ""):
+    """Resource server metadata — tells Claude.ai which auth server to use."""
+    base = str(request.base_url).rstrip("/")
+    return JSONResponse({
+        "resource": base,
+        "authorization_servers": [base],
+        "bearer_methods_supported": ["header"],
+        "resource_documentation": f"{base}/mcp/sse",
     })
 
 
 # ── Dynamic client registration ───────────────────────────────────────────────
 
-@router.post("/oauth/register")
+@router.post("/register")           # Claude.ai hits /register directly
+@router.post("/oauth/register")     # Also support /oauth/register
 async def register_client(request: Request):
     body = await request.json()
     client_id = secrets.token_urlsafe(16)
