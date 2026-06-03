@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # Option 2: Anthropic API (direct)
     anthropic_api_key: Optional[str] = Field(None, env="ANTHROPIC_API_KEY")
 
+    # GitHub token for triggering Actions workflows
+    github_token: Optional[str] = Field(None, env="GITHUB_TOKEN")
+
     # Site access credentials (login gate for public deployment)
     site_username: Optional[str] = Field(None, env="SITE_USERNAME")
     site_password: Optional[str] = Field(None, env="SITE_PASSWORD")

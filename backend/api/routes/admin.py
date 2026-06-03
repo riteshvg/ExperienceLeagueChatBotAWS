@@ -74,9 +74,44 @@ async def refresh_start(
     _: Annotated[str, Depends(get_admin_user)],
     force: bool = False,
 ):
-    """Trigger a data refresh in the background."""
+    """Trigger a data refresh in the background (runs on this server)."""
     from backend.core.refresh_pipeline import trigger_refresh
     return trigger_refresh(force=force)
+
+
+@router.post("/refresh/trigger-actions")
+async def trigger_github_actions(
+    _: Annotated[str, Depends(get_admin_user)],
+    force: bool = False,
+):
+    """Trigger the GitHub Actions weekly refresh workflow via API."""
+    import httpx
+    token = os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        raise HTTPException(status_code=503, detail="GITHUB_TOKEN not configured")
+
+    url = "https://api.github.com/repos/riteshvg/ExperienceLeagueChatBotAWS/actions/workflows/refresh-docs.yml/dispatches"
+    payload = {
+        "ref": "main",
+        "inputs": {"force": "true" if force else "false"},
+    }
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            url,
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github.v3+json",
+            },
+            timeout=15,
+        )
+
+    if resp.status_code == 204:
+        return {"triggered": True, "message": "GitHub Actions workflow dispatched"}
+    raise HTTPException(
+        status_code=resp.status_code,
+        detail=f"GitHub API error: {resp.text}",
+    )
 
 @router.get("/feedback")
 async def get_feedback(_: Annotated[str, Depends(get_admin_user)]):

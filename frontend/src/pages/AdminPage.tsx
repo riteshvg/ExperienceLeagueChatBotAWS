@@ -27,13 +27,23 @@ function JsonTree({ data }: { data: unknown }) {
 }
 
 export function AdminPage() {
-  const { isAuthenticated, login, logout, refresh, resetDemo, triggerRefresh, status, settings, analytics, demoStatus, feedback, refreshStatus, loading, error } = useAdmin()
+  const { isAuthenticated, login, logout, refresh, resetDemo, triggerRefresh, triggerGitHubActions, status, settings, analytics, demoStatus, feedback, refreshStatus, loading, error } = useAdmin()
   const [refreshing, setRefreshing] = useState(false)
+  const [actionsTriggered, setActionsTriggered] = useState(false)
 
   const handleRefresh = async (force = false) => {
     setRefreshing(true)
     await triggerRefresh(force)
     setRefreshing(false)
+  }
+
+  const handleTriggerActions = async (force = false) => {
+    setActionsTriggered(false)
+    const result = await triggerGitHubActions(force)
+    if (result?.triggered) {
+      setActionsTriggered(true)
+      setTimeout(() => setActionsTriggered(false), 4000)
+    }
   }
   const [resetting, setResetting] = useState(false)
 
@@ -347,7 +357,8 @@ export function AdminPage() {
                 </p>
               )}
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
+                {/* Run on Railway server */}
                 <button
                   onClick={() => handleRefresh(false)}
                   disabled={refreshing || refreshStatus?.state === 'running'}
@@ -356,16 +367,25 @@ export function AdminPage() {
                     disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   <RotateCcw className={cn('w-3.5 h-3.5', (refreshing || refreshStatus?.state === 'running') && 'animate-spin')} />
-                  {refreshStatus?.state === 'running' ? 'Running…' : 'Run Refresh'}
+                  {refreshStatus?.state === 'running' ? 'Running…' : 'Run on Server'}
                 </button>
                 <button
                   onClick={() => handleRefresh(true)}
                   disabled={refreshing || refreshStatus?.state === 'running'}
                   className="px-4 py-2 rounded-lg text-sm font-medium border border-slate-200
                     text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Force re-sync all files even if SHA unchanged"
                 >
                   Force Full Sync
+                </button>
+
+                {/* Trigger GitHub Actions */}
+                <button
+                  onClick={() => handleTriggerActions(false)}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium
+                    bg-slate-800 text-white hover:bg-slate-900 transition-colors"
+                  title="Trigger the weekly refresh GitHub Actions workflow"
+                >
+                  {actionsTriggered ? '✓ Triggered' : '⚡ Run via GitHub Actions'}
                 </button>
               </div>
             </div>

@@ -85,6 +85,15 @@ export function useAdmin() {
     if (token) refresh()
   }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  const triggerGitHubActions = useCallback(async (force = false) => {
+    if (!token) return { triggered: false }
+    const res = await fetch(`${API_BASE}/api/admin/refresh/trigger-actions?force=${force}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    return res.json()
+  }, [token])
+
   const triggerRefresh = useCallback(async (force = false) => {
     if (!token) return
     const res = await fetch(`${API_BASE}/api/admin/refresh/start?force=${force}`, {
@@ -106,5 +115,5 @@ export function useAdmin() {
     }
   }, [token])
 
-  return { isAuthenticated: !!token, login, logout, refresh, resetDemo, triggerRefresh, status, settings, analytics, demoStatus, feedback, refreshStatus, loading, error }
+  return { isAuthenticated: !!token, login, logout, refresh, resetDemo, triggerRefresh, triggerGitHubActions, status, settings, analytics, demoStatus, feedback, refreshStatus, loading, error }
 }
