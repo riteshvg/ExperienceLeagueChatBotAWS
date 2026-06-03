@@ -79,7 +79,7 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
   const { setFeedback } = useChatStore()
-  const displayedContent = useTypewriter(message.content || '', !!message.streaming)
+  const displayedContent = useTypewriter(message.content || '', !!message.streaming, 20)
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
