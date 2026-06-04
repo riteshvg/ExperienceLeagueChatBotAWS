@@ -47,10 +47,15 @@ _FOLLOWUP_PATTERNS = re.compile(
 
 # ── Shared system prompts ─────────────────────────────────────────────────────
 
-_HAIKU_SYSTEM = """You are an expert Adobe Experience League documentation assistant. \
-Give thorough, step-by-step answers grounded in the retrieved documentation below.
+_HAIKU_SYSTEM = """You are an Adobe Experience League documentation assistant. \
+You ONLY answer questions about Adobe products: Adobe Analytics, Customer Journey Analytics (CJA), \
+Adobe Experience Platform (AEP), and Adobe Target.
 
-Guidelines:
+If the question is not about these Adobe products, respond with:
+"I can only answer questions about Adobe Analytics, CJA, AEP, and Adobe Target. \
+Please ask about these products."
+
+Guidelines for Adobe questions:
 - Answer as completely as possible using the retrieved context.
 - Use headers, bullet points, and numbered steps where helpful.
 - Do NOT redirect users to "check the documentation" — synthesize the information.
@@ -65,12 +70,14 @@ Retrieved documentation context:
 {context}"""
 
 _AGENT_SYSTEM = """You are a senior Adobe Experience Cloud solutions consultant with deep \
-expertise in Adobe Analytics, Customer Journey Analytics (CJA), and Adobe Experience Platform (AEP).
+expertise in Adobe Analytics, Customer Journey Analytics (CJA), Adobe Experience Platform (AEP), \
+and Adobe Target.
 
-Your audience is Adobe practitioners — analysts, data engineers, and implementation \
-consultants who expect precise, complete, actionable answers.
+You ONLY answer questions about these Adobe products. If asked about anything unrelated \
+(food, general knowledge, other software, etc.), respond:
+"I can only answer questions about Adobe Analytics, CJA, AEP, and Adobe Target."
 
-INSTRUCTIONS:
+INSTRUCTIONS for Adobe questions:
 1. Always call search_documentation at least once before answering.
 2. After reviewing the results, if the context is incomplete or missing key steps, \
 call search_documentation again with a more specific or different query.
@@ -127,9 +134,13 @@ def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcesso
             meta = doc.get("metadata", {})
             title = meta.get("title", f"Document {i}")
 
-            # Collect citations (deduplicated)
+            # Collect citations — deduplicated by URL, registry-sourced only
             c = format_citation(doc, doc_title=title)
-            if c.get("url", "").startswith("https://experienceleague.adobe.com"):
+            url = c.get("url", "")
+            if (url.startswith("https://experienceleague.adobe.com")
+                    and c.get("metadata_source") != "fallback"
+                    and c not in citations_out
+                    and not any(x.get("url") == url for x in citations_out)):
                 if meta.get("video_url"):
                     c["video_url"] = meta["video_url"]
                 if meta.get("thumbnail_url"):
@@ -260,10 +271,13 @@ class RAGPipeline:
             yield {"type": "done", "model": "none", "session_id": session_id}
             return
 
+        # Off-topic detection: if best match score < 0.25, question isn't about Adobe docs
+        off_topic = self._is_off_topic(raw_docs)
+
         context = "\n\n---\n\n".join(doc["content"] for doc in raw_docs)
         context += _build_media_context(raw_docs)
 
-        citations = self._extract_citations(raw_docs)
+        citations = [] if off_topic else self._extract_citations(raw_docs)
         lc_history = _to_lc_history(history)
         chain = _build_haiku_chain(settings.anthropic_api_key)
 
@@ -336,12 +350,22 @@ class RAGPipeline:
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _extract_citations(self, raw_docs: list) -> list:
+        """Extract citations, deduplicated by URL, registry-only (no fallback 404s)."""
+        seen_urls: set = set()
         citations = []
         for doc in raw_docs:
             meta = doc.get("metadata", {})
             c = format_citation(doc, doc_title=meta.get("title"))
-            if not c.get("url", "").startswith("https://experienceleague.adobe.com"):
+            url = c.get("url", "")
+            # Only include registry-sourced citations — fallback URLs are often wrong/404
+            if c.get("metadata_source") == "fallback":
                 continue
+            if not url.startswith("https://experienceleague.adobe.com"):
+                continue
+            # Deduplicate by URL — multiple chunks from same page get one citation
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
             if meta.get("video_url"):
                 c["video_url"] = meta["video_url"]
             if meta.get("thumbnail_url"):
@@ -353,3 +377,10 @@ class RAGPipeline:
                     pass
             citations.append(c)
         return citations
+
+    @staticmethod
+    def _is_off_topic(raw_docs: list, threshold: float = 0.25) -> bool:
+        """Return True if the retrieved docs are too dissimilar — off-topic query."""
+        if not raw_docs:
+            return True
+        return max(d.get("score", 0) for d in raw_docs) < threshold

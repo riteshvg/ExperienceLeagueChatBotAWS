@@ -171,19 +171,10 @@ Recent conversation (use for follow-up context — do not repeat unless directly
 # ---------------------------------------------------------------------------
 
 NO_CONTEXT_MESSAGE = (
-    "I don't have any relevant documentation to answer your question.\n\n"
-    "This could mean:\n"
-    "1. The documentation doesn't cover this topic\n"
-    "2. The knowledge base search didn't find relevant content\n"
-    "3. The question is outside the scope of Adobe Analytics, CJA, or AEP documentation\n\n"
-    "Please try:\n"
-    "- Rephrasing with more specific terms\n"
-    "- Using Adobe-specific terminology (eVar, prop, segment, XDM, data view, RTCP, etc.)\n"
-    "- Breaking a complex question into smaller parts\n\n"
-    "Documentation home pages:\n"
-    f"- Adobe Analytics: {PRODUCT_URLS['adobe_analytics']}\n"
-    f"- Customer Journey Analytics: {PRODUCT_URLS['cja']}\n"
-    f"- Adobe Experience Platform: {PRODUCT_URLS['aep']}"
+    "I can only answer questions about Adobe Analytics, Customer Journey Analytics (CJA), "
+    "Adobe Experience Platform (AEP), and Adobe Target.\n\n"
+    "I couldn't find relevant documentation for your question. "
+    "Please try asking about a specific Adobe product feature, configuration, or workflow."
 )
 
 INCOMPLETE_CONTEXT_TEMPLATE = """\
