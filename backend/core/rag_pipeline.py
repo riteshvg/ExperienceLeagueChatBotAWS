@@ -30,7 +30,6 @@ if str(_PROJECT_ROOT) not in sys.path:
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.session_store import SessionStore
 from backend.core.smart_router import classify_query
-from backend.core.url_validator import filter_valid_citations
 from config.prompts import NO_CONTEXT_MESSAGE
 from config.settings import get_settings
 from src.utils.citation_mapper import format_citation
@@ -305,8 +304,7 @@ class RAGPipeline:
 
         self.session_store.append_turn(session_id, "user", query)
         self.session_store.append_turn(session_id, "assistant", full_response)
-        valid_citations = await filter_valid_citations(citations)
-        yield {"type": "citations", "citations": valid_citations}
+        yield {"type": "citations", "citations": citations}
         yield {"type": "done", "model": "haiku", "session_id": session_id}
 
     # ── Sonnet: LangGraph multi-pass agent ────────────────────────────────────
@@ -362,8 +360,7 @@ class RAGPipeline:
 
         self.session_store.append_turn(session_id, "user", query)
         self.session_store.append_turn(session_id, "assistant", full_response)
-        valid_citations = await filter_valid_citations(citations_out[:8])
-        yield {"type": "citations", "citations": valid_citations}
+        yield {"type": "citations", "citations": citations_out[:8]}
         yield {"type": "done", "model": "sonnet", "session_id": session_id}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
