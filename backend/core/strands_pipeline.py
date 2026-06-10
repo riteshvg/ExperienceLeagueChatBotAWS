@@ -28,8 +28,7 @@ from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.session_store import SessionStore
 from config.prompts import build_conversation_history, NO_CONTEXT_MESSAGE
 from config.settings import get_settings
-from src.utils.citation_mapper import format_citation
-from src.utils.query_processor import QueryProcessor
+from backend.core.query_processor import QueryProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +92,10 @@ def search_documentation(query: str) -> str:
 
     # Collect citations for later
     for doc in docs:
-        citation = format_citation(doc, doc.get("metadata", {}).get("title"))
-        if citation.get("url", "").startswith("https://experienceleague.adobe.com"):
+        meta = doc.get("metadata", {})
+        url = meta.get("url", "")
+        if url.startswith("https://experienceleague.adobe.com"):
+            citation = {"url": url, "title": meta.get("title", ""), "product": meta.get("product", ""), "score": doc.get("score", 0.0)}
             if citation not in _collected_citations:
                 _collected_citations.append(citation)
 

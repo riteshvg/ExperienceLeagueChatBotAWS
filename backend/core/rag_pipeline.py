@@ -32,8 +32,7 @@ from backend.core.session_store import SessionStore
 from backend.core.smart_router import classify_query
 from config.prompts import NO_CONTEXT_MESSAGE
 from config.settings import get_settings
-from src.utils.citation_mapper import format_citation
-from src.utils.query_processor import QueryProcessor
+from backend.core.query_processor import QueryProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +60,6 @@ Guidelines for Adobe questions:
 - Use headers, bullet points, and numbered steps where helpful.
 - Do NOT redirect users to "check the documentation" — synthesize the information.
 - Only say you don't know if the topic is completely absent from the context.
-- Cite sources inline as [1], [2], etc. where the number matches the [N] prefix of each retrieved document.
 
 Media embedding rules:
 - Embed images inline using: ![description](url)
@@ -88,10 +86,9 @@ call search_documentation again with a more specific or different query.
 5. Never invent features, UI paths, or procedures not in the retrieved documentation.
 6. For procedural questions: number every step, state prerequisites first.
 7. Use **bold** for UI elements and `code` for API/function names.
-8. Cite sources inline as [1], [2], etc. matching the document numbers in the retrieved context.
-9. Embed images inline using: ![description](url)
-10. Embed videos inline using: [▶ Watch: Brief Title](video_url)
-11. Place media naturally after the relevant paragraph — not all grouped at the end."""
+8. Embed images inline using: ![description](url)
+9. Embed videos inline using: [▶ Watch: Brief Title](video_url)
+10. Place media naturally after the relevant paragraph — not all grouped at the end."""
 
 _HAIKU_PROMPT = ChatPromptTemplate.from_messages([
     ("system", _HAIKU_SYSTEM),
@@ -140,17 +137,22 @@ def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcesso
             meta = doc.get("metadata", {})
             title = meta.get("title", f"Document {i}")
 
-            # Collect citations — deduplicated by URL, registry-sourced only
-            c = format_citation(doc, doc_title=title)
-            url = c.get("url", "")
+            # Collect citations — deduplicated by URL, using ChromaDB metadata directly
+            url = meta.get("url", "")
             citation_num: int | None = None
-            if url.startswith("https://experienceleague.adobe.com") and c.get("metadata_source") != "fallback":
+            if url.startswith("https://experienceleague.adobe.com"):
                 existing_idx = next(
                     (j for j, x in enumerate(citations_out) if x.get("url") == url), None
                 )
                 if existing_idx is not None:
                     citation_num = existing_idx + 1
                 else:
+                    c: dict = {
+                        "url": url,
+                        "title": title,
+                        "product": meta.get("product", ""),
+                        "score": doc.get("score", 0.0),
+                    }
                     if meta.get("video_url"):
                         c["video_url"] = meta["video_url"]
                     if meta.get("thumbnail_url"):
@@ -366,22 +368,23 @@ class RAGPipeline:
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _extract_citations(self, raw_docs: list) -> list:
-        """Extract citations, deduplicated by URL, registry-only (no fallback 404s)."""
+        """Extract citations from ChromaDB metadata, deduplicated by URL."""
         seen_urls: set = set()
         citations = []
         for doc in raw_docs:
             meta = doc.get("metadata", {})
-            c = format_citation(doc, doc_title=meta.get("title"))
-            url = c.get("url", "")
-            # Only include registry-sourced citations — fallback URLs are often wrong/404
-            if c.get("metadata_source") == "fallback":
-                continue
+            url = meta.get("url", "")
             if not url.startswith("https://experienceleague.adobe.com"):
                 continue
-            # Deduplicate by URL — multiple chunks from same page get one citation
             if url in seen_urls:
                 continue
             seen_urls.add(url)
+            c: dict = {
+                "url": url,
+                "title": meta.get("title", ""),
+                "product": meta.get("product", ""),
+                "score": doc.get("score", 0.0),
+            }
             if meta.get("video_url"):
                 c["video_url"] = meta["video_url"]
             if meta.get("thumbnail_url"):

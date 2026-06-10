@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Play, Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { CitationCard } from './CitationCard'
 import { ModelBadge } from './ModelBadge'
 import { useChatStore } from '@/store/chatStore'
 import { type Message } from '@/lib/api'
@@ -51,40 +50,8 @@ function sanitizeAdobeMarkup(text: string): string {
     .replace(/>\[!(IMPORTANT|NOTE|TIP|WARNING)\]\s*/g, '> **$1:** ')
 }
 
-/** Replace [N] citation markers with markdown links the custom `a` renderer can intercept. */
-function injectCitationLinks(text: string, citations: Message['citations']): string {
-  if (!citations || citations.length === 0) return text
-  return text.replace(/\[(\d+)\](?!\()/g, (match, n) => {
-    const idx = parseInt(n, 10) - 1
-    if (idx >= 0 && idx < citations.length) {
-      return `[${n}](#cite-${n})`
-    }
-    return match
-  })
-}
-
-function ConfidenceBadge({ citations }: { citations: Message['citations'] }) {
-  if (!citations || citations.length === 0) return null
-  const scores = citations
-    .map((c) => c.score ?? 0)
-    .filter((s) => s > 0)
-    .sort((a, b) => b - a)
-    .slice(0, 3)
-  if (scores.length === 0) return null
-  const avg = scores.reduce((a, b) => a + b, 0) / scores.length
-
-  const label = avg >= 0.70 ? 'High' : avg >= 0.50 ? 'Medium' : 'Low'
-  const cls = avg >= 0.70
-    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-    : avg >= 0.50
-    ? 'bg-amber-50 text-amber-700 border-amber-200'
-    : 'bg-orange-50 text-orange-700 border-orange-200'
-
-  return (
-    <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-xs border font-medium', cls)}>
-      {label} confidence
-    </span>
-  )
+function stripCitationMarkers(text: string): string {
+  return text.replace(/\[\d+\](?!\()/g, '')
 }
 
 export function ChatMessage({ message, onFollowUpClick }: Props) {
@@ -138,27 +105,6 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
                     )
                   },
                   a: ({ href, children }) => {
-                    // Inline citation superscript — [N] rendered as a linked superscript
-                    if (href?.startsWith('#cite-')) {
-                      const n = parseInt(href.slice(6), 10)
-                      const citation = message.citations?.[n - 1]
-                      if (citation?.url) {
-                        return (
-                          <sup>
-                            <a
-                              href={citation.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title={citation.title}
-                              className="text-indigo-500 hover:text-indigo-700 font-semibold no-underline"
-                            >
-                              [{n}]
-                            </a>
-                          </sup>
-                        )
-                      }
-                      return <sup className="text-slate-400 font-medium">[{n}]</sup>
-                    }
                     if (href && VIDEO_URL_RE.test(href)) {
                       const match = href.match(/video\.tv\.adobe\.com\/v\/([^/?]+)/)
                       if (match) {
@@ -194,17 +140,16 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
                   },
                 }}
               >
-                {injectCitationLinks(sanitizeAdobeMarkup(displayedContent || ' '), message.citations)}
+                {stripCitationMarkers(sanitizeAdobeMarkup(displayedContent || ' '))}
               </ReactMarkdown>
             </div>
           )}
         </div>
 
-        {/* Footer row: model badge + confidence + feedback + copy */}
+        {/* Footer row: model badge + feedback + copy */}
         {!isUser && message.model && !message.streaming && (
           <div className="flex items-center gap-2 px-1 flex-wrap">
             <ModelBadge model={message.model} />
-            <ConfidenceBadge citations={message.citations} />
             <div className="flex-1" />
             {/* Feedback */}
             <button
@@ -239,18 +184,6 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
             >
               {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
-          </div>
-        )}
-
-        {/* Source pills */}
-        {!isUser && message.citations && message.citations.length > 0 && (
-          <div className="w-full space-y-1.5">
-            <p className="text-xs text-slate-400 font-medium px-1">Sources</p>
-            <div className="flex flex-wrap gap-1.5">
-              {message.citations.slice(0, 8).map((c, idx) => (
-                <CitationCard key={c.url + idx} citation={c} index={idx + 1} />
-              ))}
-            </div>
           </div>
         )}
 

@@ -30,8 +30,7 @@ import os
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import TransportSecuritySettings
 from backend.core.chroma_retriever import ChromaRetriever
-from src.utils.citation_mapper import format_citation
-from src.utils.query_processor import QueryProcessor
+from backend.core.query_processor import QueryProcessor
 
 _RAILWAY_HOST = "experienceleaguechatbotaws-production.up.railway.app"
 
@@ -88,10 +87,9 @@ def search_experience_league(query: str) -> str:
     parts = []
     for i, doc in enumerate(docs, 1):
         meta = doc.get("metadata", {})
-        citation = format_citation(doc, doc_title=meta.get("title"))
-        url = citation.get("url", "")
-        title = citation.get("title", f"Document {i}")
-        product = citation.get("product", "")
+        url = meta.get("url", "")
+        title = meta.get("title", f"Document {i}")
+        product = meta.get("product", "")
         score = doc.get("score", 0)
 
         header = f"[{i}] {title}"
