@@ -255,51 +255,80 @@ export function AdminPage() {
               </div>
             </div>
 
-            {Boolean(status.knowledge_base) && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-sm font-semibold text-slate-600">Knowledge Base</h2>
-                  <span className="text-xs text-slate-400">
-                    Last refreshed:{' '}
-                    {(status.knowledge_base as Record<string, unknown>).last_refreshed
-                      ? new Date(String((status.knowledge_base as Record<string, unknown>).last_refreshed)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
-                      : 'Never'}
-                  </span>
-                </div>
-                <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-slate-100 bg-slate-50">
-                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
-                        <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Pages</th>
-                        <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Chunks</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {((status.knowledge_base as Record<string, unknown>).product_breakdown as Array<Record<string, unknown>> ?? []).map((row, i, arr) => (
-                        <tr key={String(row.product)} className={cn('border-b border-slate-100', i === arr.length - 1 && 'border-0')}>
-                          <td className="px-4 py-2.5 text-slate-700 font-medium">{String(row.product)}</td>
-                          <td className="px-4 py-2.5 text-right text-slate-500">{Number(row.pages).toLocaleString()}</td>
-                          <td className="px-4 py-2.5 text-right text-slate-700 font-semibold">{Number(row.chunks).toLocaleString()}</td>
+            {Boolean(status.knowledge_base) && (() => {
+              const KNOWN_PRODUCTS = [
+                'Adobe Analytics',
+                'Customer Journey Analytics',
+                'Adobe Experience Platform',
+                'Adobe Target',
+                'Adobe Data Collection',
+              ]
+              type KbRow = { product: string; pages: number; chunks: number; pending: boolean }
+              const liveRows = (status.knowledge_base as Record<string, unknown>).product_breakdown as Array<Record<string, unknown>> ?? []
+              const liveNames = new Set(liveRows.map(r => String(r.product)))
+              const pendingRows: KbRow[] = KNOWN_PRODUCTS
+                .filter(p => !liveNames.has(p))
+                .map(p => ({ product: p, pages: 0, chunks: 0, pending: true }))
+              const allRows: KbRow[] = [
+                ...liveRows.map(r => ({ product: String(r.product), pages: Number(r.pages), chunks: Number(r.chunks), pending: false })),
+                ...pendingRows,
+              ]
+              return (
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-sm font-semibold text-slate-600">Knowledge Base</h2>
+                    <span className="text-xs text-slate-400">
+                      Last refreshed:{' '}
+                      {(status.knowledge_base as Record<string, unknown>).last_refreshed
+                        ? new Date(String((status.knowledge_base as Record<string, unknown>).last_refreshed)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                        : 'Never'}
+                    </span>
+                  </div>
+                  <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-slate-100 bg-slate-50">
+                          <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Product</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Pages</th>
+                          <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Chunks</th>
                         </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-slate-50 border-t border-slate-200">
-                        <td className="px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">Total</td>
-                        <td className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600">
-                          {((status.knowledge_base as Record<string, unknown>).product_breakdown as Array<Record<string, unknown>> ?? [])
-                            .reduce((s, r) => s + Number(r.pages), 0).toLocaleString()}
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-xs font-semibold text-slate-700">
-                          {Number((status.knowledge_base as Record<string, unknown>).total_chunks).toLocaleString()}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {allRows.map((row, i) => (
+                          <tr key={String(row.product)} className={cn('border-b border-slate-100', i === allRows.length - 1 && 'border-0')}>
+                            <td className="px-4 py-2.5 text-slate-700 font-medium flex items-center gap-2">
+                              {String(row.product)}
+                              {row.pending && (
+                                <span className="text-xs px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-200 font-normal">
+                                  pending
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-right text-slate-500">
+                              {row.pending ? '—' : Number(row.pages).toLocaleString()}
+                            </td>
+                            <td className="px-4 py-2.5 text-right text-slate-700 font-semibold">
+                              {row.pending ? '—' : Number(row.chunks).toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-slate-50 border-t border-slate-200">
+                          <td className="px-4 py-2.5 text-xs font-semibold text-slate-600 uppercase tracking-wider">Total</td>
+                          <td className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600">
+                            {liveRows.reduce((s, r) => s + Number(r.pages), 0).toLocaleString()}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-xs font-semibold text-slate-700">
+                            {Number((status.knowledge_base as Record<string, unknown>).total_chunks).toLocaleString()}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            )}
+              )
+            })()}
           </div>
         )}
 
