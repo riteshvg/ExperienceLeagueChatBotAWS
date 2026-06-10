@@ -159,6 +159,7 @@ async def system_status(
 ):
     retriever = get_retriever(request)
     chroma_stats = retriever.collection_stats()
+    product_breakdown = retriever.product_breakdown()
 
     # Component health
     bedrock_ok = True
@@ -167,6 +168,11 @@ async def system_status(
         boto3.client("bedrock-runtime", region_name=os.getenv("BEDROCK_REGION", "us-east-1"))
     except Exception:
         bedrock_ok = False
+
+    # Last refresh date from pipeline state
+    from backend.core.refresh_pipeline import get_status as get_refresh_status
+    rs = get_refresh_status()
+    last_refreshed = rs.get("last_run")
 
     return {
         "components": {
@@ -179,6 +185,11 @@ async def system_status(
         },
         "citation_stats": dict(_citation_stats),
         "environment": os.getenv("ENVIRONMENT", "development"),
+        "knowledge_base": {
+            "last_refreshed": last_refreshed,
+            "total_chunks": chroma_stats.get("document_count", 0),
+            "product_breakdown": product_breakdown,
+        },
     }
 
 

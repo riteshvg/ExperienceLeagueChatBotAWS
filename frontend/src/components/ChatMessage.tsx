@@ -51,6 +51,18 @@ function sanitizeAdobeMarkup(text: string): string {
     .replace(/>\[!(IMPORTANT|NOTE|TIP|WARNING)\]\s*/g, '> **$1:** ')
 }
 
+/** Replace [N] citation markers with markdown links the custom `a` renderer can intercept. */
+function injectCitationLinks(text: string, citations: Message['citations']): string {
+  if (!citations || citations.length === 0) return text
+  return text.replace(/\[(\d+)\](?!\()/g, (match, n) => {
+    const idx = parseInt(n, 10) - 1
+    if (idx >= 0 && idx < citations.length) {
+      return `[${n}](#cite-${n})`
+    }
+    return match
+  })
+}
+
 function ConfidenceBadge({ citations }: { citations: Message['citations'] }) {
   if (!citations || citations.length === 0) return null
   const scores = citations
@@ -126,6 +138,27 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
                     )
                   },
                   a: ({ href, children }) => {
+                    // Inline citation superscript — [N] rendered as a linked superscript
+                    if (href?.startsWith('#cite-')) {
+                      const n = parseInt(href.slice(6), 10)
+                      const citation = message.citations?.[n - 1]
+                      if (citation?.url) {
+                        return (
+                          <sup>
+                            <a
+                              href={citation.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={citation.title}
+                              className="text-indigo-500 hover:text-indigo-700 font-semibold no-underline"
+                            >
+                              [{n}]
+                            </a>
+                          </sup>
+                        )
+                      }
+                      return <sup className="text-slate-400 font-medium">[{n}]</sup>
+                    }
                     if (href && VIDEO_URL_RE.test(href)) {
                       const match = href.match(/video\.tv\.adobe\.com\/v\/([^/?]+)/)
                       if (match) {
@@ -161,7 +194,7 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
                   },
                 }}
               >
-                {sanitizeAdobeMarkup(displayedContent || ' ')}
+                {injectCitationLinks(sanitizeAdobeMarkup(displayedContent || ' '), message.citations)}
               </ReactMarkdown>
             </div>
           )}
@@ -215,7 +248,7 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
             <p className="text-xs text-slate-400 font-medium px-1">Sources</p>
             <div className="flex flex-wrap gap-1.5">
               {message.citations.slice(0, 8).map((c, idx) => (
-                <CitationCard key={c.url + idx} citation={c} />
+                <CitationCard key={c.url + idx} citation={c} index={idx + 1} />
               ))}
             </div>
           </div>

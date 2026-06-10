@@ -106,3 +106,30 @@ class ChromaRetriever:
             "document_count": self.collection.count(),
             "embedding_model": TITAN_MODEL_ID,
         }
+
+    def product_breakdown(self) -> list[dict]:
+        """Return per-product chunk + unique-page counts, sorted by chunk count desc."""
+        total = self.collection.count()
+        if total == 0:
+            return []
+
+        results = self.collection.get(include=["metadatas"])
+        metas = results.get("metadatas", [])
+
+        from collections import defaultdict
+        chunks: dict[str, int] = defaultdict(int)
+        pages: dict[str, set] = defaultdict(set)
+
+        for m in metas:
+            product = m.get("product") or "Unknown"
+            url = m.get("url") or m.get("s3_key") or ""
+            chunks[product] += 1
+            if url:
+                pages[product].add(url)
+
+        breakdown = [
+            {"product": p, "chunks": chunks[p], "pages": len(pages[p])}
+            for p in chunks
+        ]
+        breakdown.sort(key=lambda x: x["chunks"], reverse=True)
+        return breakdown

@@ -30,6 +30,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.session_store import SessionStore
 from backend.core.smart_router import classify_query
+from backend.core.url_validator import filter_valid_citations
 from config.prompts import NO_CONTEXT_MESSAGE
 from config.settings import get_settings
 from src.utils.citation_mapper import format_citation
@@ -49,10 +50,11 @@ _FOLLOWUP_PATTERNS = re.compile(
 
 _HAIKU_SYSTEM = """You are an Adobe Experience League documentation assistant. \
 You ONLY answer questions about Adobe products: Adobe Analytics, Customer Journey Analytics (CJA), \
-Adobe Experience Platform (AEP), and Adobe Target.
+Adobe Experience Platform (AEP), Adobe Target, and Adobe Data Collection \
+(Tags/Launch, Web SDK, Datastreams, Edge Network).
 
 If the question is not about these Adobe products, respond with:
-"I can only answer questions about Adobe Analytics, CJA, AEP, and Adobe Target. \
+"I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, and Adobe Data Collection. \
 Please ask about these products."
 
 Guidelines for Adobe questions:
@@ -60,6 +62,7 @@ Guidelines for Adobe questions:
 - Use headers, bullet points, and numbered steps where helpful.
 - Do NOT redirect users to "check the documentation" — synthesize the information.
 - Only say you don't know if the topic is completely absent from the context.
+- Cite sources inline as [1], [2], etc. where the number matches the [N] prefix of each retrieved document.
 
 Media embedding rules:
 - Embed images inline using: ![description](url)
@@ -71,11 +74,11 @@ Retrieved documentation context:
 
 _AGENT_SYSTEM = """You are a senior Adobe Experience Cloud solutions consultant with deep \
 expertise in Adobe Analytics, Customer Journey Analytics (CJA), Adobe Experience Platform (AEP), \
-and Adobe Target.
+Adobe Target, and Adobe Data Collection (Tags/Launch, Web SDK, Datastreams, Edge Network).
 
 You ONLY answer questions about these Adobe products. If asked about anything unrelated \
 (food, general knowledge, other software, etc.), respond:
-"I can only answer questions about Adobe Analytics, CJA, AEP, and Adobe Target."
+"I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, and Adobe Data Collection."
 
 INSTRUCTIONS for Adobe questions:
 1. Always call search_documentation at least once before answering.
@@ -86,9 +89,10 @@ call search_documentation again with a more specific or different query.
 5. Never invent features, UI paths, or procedures not in the retrieved documentation.
 6. For procedural questions: number every step, state prerequisites first.
 7. Use **bold** for UI elements and `code` for API/function names.
-8. Embed images inline using: ![description](url)
-9. Embed videos inline using: [▶ Watch: Brief Title](video_url)
-10. Place media naturally after the relevant paragraph — not all grouped at the end."""
+8. Cite sources inline as [1], [2], etc. matching the document numbers in the retrieved context.
+9. Embed images inline using: ![description](url)
+10. Embed videos inline using: [▶ Watch: Brief Title](video_url)
+11. Place media naturally after the relevant paragraph — not all grouped at the end."""
 
 _HAIKU_PROMPT = ChatPromptTemplate.from_messages([
     ("system", _HAIKU_SYSTEM),
@@ -129,6 +133,9 @@ def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcesso
         if not docs:
             return f"No documentation found for: {query}"
 
+        # Snapshot offset so numbering is globally consistent across multiple tool calls
+        offset = len(citations_out)
+
         parts = []
         for i, doc in enumerate(docs, 1):
             meta = doc.get("metadata", {})
@@ -137,24 +144,31 @@ def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcesso
             # Collect citations — deduplicated by URL, registry-sourced only
             c = format_citation(doc, doc_title=title)
             url = c.get("url", "")
-            if (url.startswith("https://experienceleague.adobe.com")
-                    and c.get("metadata_source") != "fallback"
-                    and c not in citations_out
-                    and not any(x.get("url") == url for x in citations_out)):
-                if meta.get("video_url"):
-                    c["video_url"] = meta["video_url"]
-                if meta.get("thumbnail_url"):
-                    c["thumbnail_url"] = meta["thumbnail_url"]
-                if meta.get("image_urls"):
-                    try:
-                        c["image_urls"] = _json.loads(meta["image_urls"])
-                    except Exception:
-                        pass
-                if c not in citations_out:
+            citation_num: int | None = None
+            if url.startswith("https://experienceleague.adobe.com") and c.get("metadata_source") != "fallback":
+                existing_idx = next(
+                    (j for j, x in enumerate(citations_out) if x.get("url") == url), None
+                )
+                if existing_idx is not None:
+                    citation_num = existing_idx + 1
+                else:
+                    if meta.get("video_url"):
+                        c["video_url"] = meta["video_url"]
+                    if meta.get("thumbnail_url"):
+                        c["thumbnail_url"] = meta["thumbnail_url"]
+                    if meta.get("image_urls"):
+                        try:
+                            c["image_urls"] = _json.loads(meta["image_urls"])
+                        except Exception:
+                            pass
                     citations_out.append(c)
+                    citation_num = len(citations_out)
+
+            # Use citation_num for perfect alignment; fall back to offset+i for filtered docs
+            doc_num = citation_num if citation_num is not None else offset + i
 
             # Build text block with media hints for inline embedding
-            block = f"[{i}] {title}\n{doc['content']}"
+            block = f"[{doc_num}] {title}\n{doc['content']}"
             media_hints = []
             if meta.get("image_urls"):
                 try:
@@ -274,7 +288,10 @@ class RAGPipeline:
         # Off-topic detection: if best match score < 0.25, question isn't about Adobe docs
         off_topic = self._is_off_topic(raw_docs)
 
-        context = "\n\n---\n\n".join(doc["content"] for doc in raw_docs)
+        # Number docs so the LLM can cite [1], [2], etc. inline
+        context = "\n\n---\n\n".join(
+            f"[{i+1}] {doc['content']}" for i, doc in enumerate(raw_docs)
+        )
         context += _build_media_context(raw_docs)
 
         citations = [] if off_topic else self._extract_citations(raw_docs)
@@ -288,7 +305,8 @@ class RAGPipeline:
 
         self.session_store.append_turn(session_id, "user", query)
         self.session_store.append_turn(session_id, "assistant", full_response)
-        yield {"type": "citations", "citations": citations}
+        valid_citations = await filter_valid_citations(citations)
+        yield {"type": "citations", "citations": valid_citations}
         yield {"type": "done", "model": "haiku", "session_id": session_id}
 
     # ── Sonnet: LangGraph multi-pass agent ────────────────────────────────────
@@ -344,7 +362,8 @@ class RAGPipeline:
 
         self.session_store.append_turn(session_id, "user", query)
         self.session_store.append_turn(session_id, "assistant", full_response)
-        yield {"type": "citations", "citations": citations_out[:8]}
+        valid_citations = await filter_valid_citations(citations_out[:8])
+        yield {"type": "citations", "citations": valid_citations}
         yield {"type": "done", "model": "sonnet", "session_id": session_id}
 
     # ── Helpers ───────────────────────────────────────────────────────────────

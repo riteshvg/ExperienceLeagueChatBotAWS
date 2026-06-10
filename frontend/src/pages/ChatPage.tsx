@@ -6,12 +6,65 @@ import { ChatInput, type ChatInputHandle } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { Sidebar } from '@/components/Sidebar'
 
+type Category = 'All' | 'Analytics' | 'CJA' | 'AEP' | 'Target' | 'Cross-Product'
+
+const QUESTION_BANK: Record<Exclude<Category, 'All'>, string[]> = {
+  Analytics: [
+    'How do I create a segment in Adobe Analytics?',
+    'What is the difference between eVars and props in Adobe Analytics?',
+    'How do I set up processing rules in Adobe Analytics?',
+    'How do I configure marketing channel rules in Adobe Analytics?',
+  ],
+  CJA: [
+    'What is a Data View in Customer Journey Analytics?',
+    'How do I create a calculated metric in CJA?',
+    'What is the difference between Adobe Analytics and Customer Journey Analytics?',
+    'How does stitching work in Customer Journey Analytics?',
+  ],
+  AEP: [
+    'What are the different ways to ingest data into Adobe Experience Platform?',
+    'How do I create an XDM schema in Adobe Experience Platform?',
+    'What is Real-Time CDP and how does it work with AEP profiles?',
+    'How do I set up identity resolution in Adobe Experience Platform?',
+  ],
+  Target: [
+    'How do I create an A/B test in Adobe Target?',
+    'What is the difference between A/B testing and multivariate testing in Target?',
+    'How do I set up Experience Targeting activities in Adobe Target?',
+    'How do I use Recommendations in Adobe Target?',
+  ],
+  'Cross-Product': [
+    'How do I use AEP audiences in Adobe Target for personalisation?',
+    'How does data flow from Adobe Analytics to Customer Journey Analytics?',
+    'How do I connect an Adobe Analytics report suite to CJA?',
+    'What is the difference between Adobe Analytics and Real-Time CDP for audience building?',
+    'How do server-side forwarding and the Experience Platform Web SDK compare for sending data to AEP?',
+  ],
+}
+
+const CATEGORIES: Category[] = ['All', 'Analytics', 'CJA', 'AEP', 'Target', 'Cross-Product']
+
+const CATEGORY_COLORS: Record<Exclude<Category, 'All'>, string> = {
+  Analytics:       'bg-orange-50 text-orange-700 border-orange-200',
+  CJA:             'bg-violet-50 text-violet-700 border-violet-200',
+  AEP:             'bg-blue-50 text-blue-700 border-blue-200',
+  Target:          'bg-red-50 text-red-700 border-red-200',
+  'Cross-Product': 'bg-teal-50 text-teal-700 border-teal-200',
+}
+
 export function ChatPage() {
   const { sessions, activeSessionId, isStreaming, sendMessage, error } = useChatStore()
   const { isDemo, demoStatus, refreshDemoStatus } = useAuthStore()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [activeCategory, setActiveCategory] = useState<Category>('All')
   const messages = sessions[activeSessionId]?.messages ?? []
   const demoExhausted = isDemo && (demoStatus?.exhausted ?? false)
+
+  const visibleQuestions = activeCategory === 'All'
+    ? Object.entries(QUESTION_BANK).flatMap(([cat, qs]) =>
+        qs.slice(0, 1).map((q) => ({ q, cat: cat as Exclude<Category, 'All'> }))
+      )
+    : QUESTION_BANK[activeCategory].map((q) => ({ q, cat: activeCategory as Exclude<Category, 'All'> }))
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<ChatInputHandle>(null)
@@ -66,28 +119,47 @@ export function ChatPage() {
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center px-8">
+            <div className="h-full flex flex-col items-center justify-center px-4 py-8">
               <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center mb-4">
-                <span className="text-white font-bold">EL</span>
+                <span className="text-white font-bold text-sm">EL</span>
               </div>
-              <h2 className="text-lg font-semibold text-slate-700 mb-2">
+              <h2 className="text-lg font-semibold text-slate-700 mb-1 text-center">
                 Ask about Adobe Experience League docs
               </h2>
-              <p className="text-sm text-slate-400 max-w-sm">
-                Get answers about Adobe Analytics, Customer Journey Analytics, Experience Platform, and Adobe Target from the official documentation.
+              <p className="text-sm text-slate-400 max-w-md text-center mb-5">
+                Analytics · CJA · Experience Platform · Target
               </p>
-              <div className="grid grid-cols-1 gap-2 mt-6 w-full max-w-sm">
-                {[
-                  'How do I create a segment in Adobe Analytics?',
-                  'What is a Data View in CJA?',
-                  'How do I create an A/B test in Adobe Target?',
-                ].map((q) => (
+
+              {/* Category filter chips */}
+              <div className="flex flex-wrap justify-center gap-1.5 mb-4 max-w-lg">
+                {CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setActiveCategory(cat)}
+                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                      activeCategory === cat
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              {/* Question cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-2xl">
+                {visibleQuestions.map(({ q, cat }) => (
                   <button
                     key={q}
                     onClick={() => sendMessage(q)}
-                    className="text-left px-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm text-slate-600 hover:border-blue-300 hover:text-blue-700 transition-colors"
+                    className="group text-left px-4 py-3 rounded-xl border border-slate-200 bg-white
+                      hover:border-indigo-300 hover:shadow-sm transition-all"
                   >
-                    {q}
+                    <span className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border mb-1.5 ${CATEGORY_COLORS[cat]}`}>
+                      {cat}
+                    </span>
+                    <p className="text-sm text-slate-600 group-hover:text-indigo-700 leading-snug">{q}</p>
                   </button>
                 ))}
               </div>

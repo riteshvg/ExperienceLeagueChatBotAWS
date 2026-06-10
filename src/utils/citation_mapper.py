@@ -22,8 +22,11 @@ _citation_stats: Dict[str, int] = {
     "fallback_misses": 0,
 }
 
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+_DEFAULT_REGISTRY_PATH = str(_PROJECT_ROOT / 'data' / 'metadata_registry.json')
 
-def load_metadata_registry(registry_path: str = 'data/metadata_registry.json'):
+
+def load_metadata_registry(registry_path: str = _DEFAULT_REGISTRY_PATH):
     """Load metadata registry from JSON file"""
     global METADATA_REGISTRY
     

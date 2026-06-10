@@ -172,7 +172,8 @@ Recent conversation (use for follow-up context — do not repeat unless directly
 
 NO_CONTEXT_MESSAGE = (
     "I can only answer questions about Adobe Analytics, Customer Journey Analytics (CJA), "
-    "Adobe Experience Platform (AEP), and Adobe Target.\n\n"
+    "Adobe Experience Platform (AEP), Adobe Target, and Adobe Data Collection "
+    "(Tags/Launch, Web SDK, Datastreams, Edge Network).\n\n"
     "I couldn't find relevant documentation for your question. "
     "Please try asking about a specific Adobe product feature, configuration, or workflow."
 )

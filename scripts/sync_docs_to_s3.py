@@ -16,6 +16,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -33,6 +34,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(
 logger = logging.getLogger(__name__)
 
 MANIFEST_PATH = _ROOT / "data" / "sync_manifest.json"
+REGISTRY_PATH = _ROOT / "data" / "metadata_registry.json"
 S3_BUCKET = os.getenv("AWS_S3_BUCKET", "experienceleaguechatbot")
 
 REPOS = {
@@ -60,7 +62,113 @@ REPOS = {
         "s3_prefix": "adobe-docs/adobe-target/",
         "path_filter": "help/main/",   # skip help/flags/ and tutorials/
     },
+    # ── Adobe Data Collection ──────────────────────────────────────────────────
+    # Tags/Launch (help/tags/ lives inside experience-platform.en)
+    "adobe-docs/data-collection-tags": {
+        "github": "AdobeDocs/experience-platform.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/data-collection/",
+        "path_filter": "help/tags/",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/experience-platform",
+        "url_path_strip": "help/",
+        "product": "Adobe Data Collection",
+        "doc_type": "guide",
+        "level": "intermediate",
+    },
+    # Web SDK
+    "adobe-docs/data-collection-web-sdk": {
+        "github": "AdobeDocs/experience-platform.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/data-collection/",
+        "path_filter": "help/web-sdk/",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/experience-platform",
+        "url_path_strip": "help/",
+        "product": "Adobe Data Collection",
+        "doc_type": "guide",
+        "level": "intermediate",
+    },
+    # Datastreams
+    "adobe-docs/data-collection-datastreams": {
+        "github": "AdobeDocs/experience-platform.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/data-collection/",
+        "path_filter": "help/datastreams/",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/experience-platform",
+        "url_path_strip": "help/",
+        "product": "Adobe Data Collection",
+        "doc_type": "guide",
+        "level": "intermediate",
+    },
+    # Edge Network / Collection
+    "adobe-docs/data-collection-collection": {
+        "github": "AdobeDocs/experience-platform.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/data-collection/",
+        "path_filter": "help/collection/",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/experience-platform",
+        "url_path_strip": "help/",
+        "product": "Adobe Data Collection",
+        "doc_type": "guide",
+        "level": "intermediate",
+    },
+    # Platform Learn tutorials (entire repo)
+    "adobe-docs/platform-learn": {
+        "github": "AdobeDocs/platform-learn.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/platform-learn/",
+        "path_filter": "",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/platform-learn",
+        "url_path_strip": "",
+        "product": "Adobe Data Collection",
+        "doc_type": "tutorial",
+        "level": "beginner",
+    },
 }
+
+
+def _load_registry() -> dict:
+    if REGISTRY_PATH.exists():
+        return json.loads(REGISTRY_PATH.read_text())
+    return {}
+
+
+def _save_registry(registry: dict) -> None:
+    REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REGISTRY_PATH.write_text(json.dumps(registry, indent=2, sort_keys=True))
+
+
+def _extract_title(content: bytes, path: str) -> str:
+    """Extract title from markdown frontmatter or first H1, fallback to filename."""
+    try:
+        text = content.decode("utf-8", errors="ignore")
+        fm = re.search(r'^---\s*\n(.*?)\n---', text, re.DOTALL)
+        if fm:
+            m = re.search(r'^title:\s*["\']?(.+?)["\']?\s*$', fm.group(1), re.MULTILINE)
+            if m:
+                return m.group(1).strip()
+        h1 = re.search(r'^#\s+(.+)$', text, re.MULTILINE)
+        if h1:
+            return h1.group(1).strip()
+    except Exception:
+        pass
+    return Path(path).stem.replace("-", " ").replace("_", " ").title()
+
+
+def _generate_registry_entry(s3_key: str, path: str, content: bytes, config: dict) -> dict:
+    """Generate a metadata_registry.json entry for a new-source file."""
+    el_base = config["experience_league_base"].rstrip("/")
+    url_strip = config.get("url_path_strip", "help/")
+    url_path = path[:-3] if path.endswith(".md") else path
+    if url_strip and url_path.startswith(url_strip):
+        url_path = url_path[len(url_strip):]
+    return {
+        "s3_key": s3_key,
+        "url": f"{el_base}/{url_path}",
+        "title": _extract_title(content, path),
+        "product": config["product"],
+        "doc_type": config.get("doc_type", "guide"),
+        "level": config.get("level", "intermediate"),
+    }
 
 
 def _gh_headers() -> dict:
@@ -102,17 +210,19 @@ def download_file(repo: str, path: str, branch: str) -> bytes:
 
 
 def sync_repo(repo_key: str, config: dict, s3, manifest: dict,
-              dry_run: bool = False, force: bool = False) -> dict:
+              dry_run: bool = False, force: bool = False,
+              registry: dict | None = None) -> dict:
     """Sync one repo. Returns stats dict."""
     github_repo = config["github"]
     branch = config["branch"]
     s3_prefix = config["s3_prefix"]
     path_filter = config.get("path_filter", "")
+    generates_registry = registry is not None and "experience_league_base" in config
 
     logger.info(f"Fetching tree for {github_repo}...")
     tree = get_repo_tree(github_repo, branch)
 
-    # Filter to markdown files in the help/ directory
+    # Filter to markdown files matching the path prefix
     md_files = [
         f for f in tree
         if f["path"].endswith(".md") and f["path"].startswith(path_filter)
@@ -142,6 +252,8 @@ def sync_repo(repo_key: str, config: dict, s3, manifest: dict,
             s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=content)
             repo_manifest[path] = sha
             stats["updated"] += 1
+            if generates_registry:
+                registry[s3_key] = _generate_registry_entry(s3_key, path, content, config)
             if stats["updated"] % 50 == 0:
                 logger.info(f"  Updated {stats['updated']} files so far...")
             # Gentle rate limiting
@@ -149,6 +261,15 @@ def sync_repo(repo_key: str, config: dict, s3, manifest: dict,
         except Exception as e:
             logger.warning(f"  Failed {path}: {e}")
             stats["errors"] += 1
+
+    # Ensure every tree file has a registry entry (handles skipped/unchanged files)
+    if generates_registry and not dry_run:
+        for file in md_files:
+            s3_key = s3_prefix + file["path"]
+            if s3_key not in registry:
+                registry[s3_key] = _generate_registry_entry(
+                    s3_key, file["path"], b"", config
+                )
 
     manifest[repo_key] = repo_manifest
     return stats
@@ -163,6 +284,7 @@ def main():
 
     s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
     manifest = _load_manifest()
+    registry = _load_registry()
 
     repos_to_sync = {args.repo: REPOS[args.repo]} if args.repo and args.repo in REPOS else REPOS
 
@@ -171,7 +293,8 @@ def main():
         logger.info(f"\n{'='*50}")
         logger.info(f"Syncing {repo_key}")
         stats = sync_repo(repo_key, config, s3, manifest,
-                          dry_run=args.dry_run, force=args.force)
+                          dry_run=args.dry_run, force=args.force,
+                          registry=registry)
         logger.info(f"  checked={stats['checked']} updated={stats['updated']} "
                     f"skipped={stats['skipped']} errors={stats['errors']}")
         total_updated += stats["updated"]
@@ -180,6 +303,8 @@ def main():
         manifest["_last_sync"] = datetime.now(timezone.utc).isoformat()
         manifest["_last_updated_count"] = total_updated
         _save_manifest(manifest)
+        _save_registry(registry)
+        logger.info(f"Registry saved — {len(registry)} total entries")
 
     logger.info(f"\nSync complete — {total_updated} files updated")
     return total_updated
