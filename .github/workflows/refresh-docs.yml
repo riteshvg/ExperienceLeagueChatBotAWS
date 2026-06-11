@@ -32,12 +32,13 @@ jobs:
         #   AdobeDocs/analytics-platform.en → adobe-docs/customer-journey-analytics/
         #   AdobeDocs/experience-platform.en → adobe-docs/experience-platform/
         #   AdobeDocs/target.en             → adobe-docs/adobe-target/
+        #   AdobeDocs/journey-optimizer.en  → adobe-docs/adobe-journey-optimizer/  [AJO]
         #   AdobeDocs/experience-platform.en (help/tags/)       → adobe-docs/data-collection/  [Data Collection]
         #   AdobeDocs/experience-platform.en (help/web-sdk/)    → adobe-docs/data-collection/  [Data Collection]
         #   AdobeDocs/experience-platform.en (help/datastreams/) → adobe-docs/data-collection/ [Data Collection]
         #   AdobeDocs/experience-platform.en (help/collection/) → adobe-docs/data-collection/  [Data Collection]
         #   AdobeDocs/platform-learn.en     → adobe-docs/platform-learn/                       [Data Collection]
-        # Also regenerates data/metadata_registry.json entries for Data Collection sources.
+        # Also regenerates data/metadata_registry.json entries for AJO and Data Collection sources.
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

@@ -24,6 +24,7 @@ class QueryProcessor:
             'cja': 'Customer Journey Analytics',
             'aa': 'Adobe Analytics',
             'aep': 'Adobe Experience Platform',
+            'ajo': 'Adobe Journey Optimizer',
             'aam': 'Adobe Audience Manager',
             'at': 'Adobe Target',
             'acp': 'Adobe Campaign',
@@ -250,6 +251,19 @@ class QueryProcessor:
         enhanced_query = query
         changes = []
         
+        # Detect Adobe Journey Optimizer queries (check first — "journey" is ambiguous)
+        ajo_patterns = [
+            r'\badobe journey optimizer\b',
+            r'\bjourney optimizer\b',
+            r'\bajo\b',
+            r'\bjourney canvas\b',
+            r'\bdecision management\b',
+            r'\boffer library\b',
+            r'\bsuppression rules?\b',
+            r'\bmessage frequency\b',
+            r'\bcapping rules?\b',
+        ]
+
         # Detect Customer Journey Analytics queries
         cja_patterns = [
             r'\bcustomer journey analytics\b',
@@ -259,9 +273,9 @@ class QueryProcessor:
             r'\bdata view\b',
             r'\bconnection\b.*\bcja\b',
             r'\bcja.*\bconnection\b',
-            r'\bcustomer.*journey.*analytics\b'
+            r'\bcustomer.*journey.*analytics\b',
         ]
-        
+
         # Detect Adobe Analytics queries
         aa_patterns = [
             r'\badobe analytics\b',
@@ -274,48 +288,55 @@ class QueryProcessor:
             r'\battribution\b',
             r'\bcohort\b',
             r'\bflow\b',
-            r'\bfallout\b'
+            r'\bfallout\b',
         ]
-        
-        # Check for CJA patterns first (higher priority)
-        is_cja_query = any(re.search(pattern, query.lower()) for pattern in cja_patterns)
-        
-        # Check for Adobe Analytics patterns (only if not CJA)
+
+        is_ajo_query = any(re.search(pattern, query.lower()) for pattern in ajo_patterns)
+        is_cja_query = any(re.search(pattern, query.lower()) for pattern in cja_patterns) if not is_ajo_query else False
+
+        # Check for Adobe Analytics patterns (only if not AJO or CJA)
         is_aa_query = False
-        if not is_cja_query:
+        if not is_ajo_query and not is_cja_query:
             is_aa_query = any(re.search(pattern, query.lower()) for pattern in aa_patterns)
-        
+
         # Add product-specific keywords to disambiguate
-        if is_cja_query and not is_aa_query:
-            # This is clearly a CJA query - add CJA-specific terms
+        if is_ajo_query:
+            enhanced_query += " Adobe Journey Optimizer AJO journey canvas decision management"
+            changes.append({
+                'type': 'product_specific',
+                'action': 'added_ajo_keywords',
+                'description': 'Added AJO-specific keywords to route to Journey Optimizer docs',
+            })
+            logger.info("AJO query detected, adding Journey Optimizer keywords")
+
+        elif is_cja_query and not is_aa_query:
             enhanced_query += " Customer Journey Analytics CJA cross-device analytics"
             changes.append({
                 'type': 'product_specific',
                 'action': 'added_cja_keywords',
-                'description': 'Added CJA-specific keywords to disambiguate from Adobe Analytics'
+                'description': 'Added CJA-specific keywords to disambiguate from Adobe Analytics',
             })
-            logger.info(f"CJA query detected, adding CJA-specific keywords")
-            
+            logger.info("CJA query detected, adding CJA-specific keywords")
+
         elif is_aa_query and not is_cja_query:
-            # This is clearly an Adobe Analytics query - add AA-specific terms
             enhanced_query += " Adobe Analytics report suite segments calculated metrics"
             changes.append({
                 'type': 'product_specific',
                 'action': 'added_aa_keywords',
-                'description': 'Added Adobe Analytics-specific keywords to disambiguate from CJA'
+                'description': 'Added Adobe Analytics-specific keywords to disambiguate from CJA',
             })
-            logger.info(f"Adobe Analytics query detected, adding AA-specific keywords")
-            
-        elif 'journey' in query.lower() and not is_cja_query:
-            # Ambiguous journey query - clarify it's about Adobe Analytics Journey features
+            logger.info("Adobe Analytics query detected, adding AA-specific keywords")
+
+        elif 'journey' in query.lower() and not is_cja_query and not is_ajo_query:
+            # Truly ambiguous journey reference (not CJA, not AJO) — lean toward AA
             enhanced_query += " Adobe Analytics journey analysis workspace"
             changes.append({
                 'type': 'product_specific',
                 'action': 'clarified_journey',
-                'description': 'Clarified journey query as Adobe Analytics Journey features'
+                'description': 'Clarified ambiguous journey query as Adobe Analytics Journey features',
             })
-            logger.info(f"Ambiguous journey query detected, clarifying as Adobe Analytics")
-        
+            logger.info("Ambiguous journey query detected, clarifying as Adobe Analytics")
+
         return enhanced_query, changes
     
     def _clean_query(self, query: str) -> str:

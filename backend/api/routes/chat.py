@@ -2,6 +2,7 @@
 Chat endpoint — POST /api/chat
 
 Streams tokens + citations back to the client using Server-Sent Events.
+Per-user question limits and usage logging via user_db.
 """
 
 import json
@@ -12,11 +13,12 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 from anthropic import AsyncAnthropic
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status as http_status
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from backend.api.deps import get_pipeline, get_session_store, get_site_user
+from backend.core import user_db
 from backend.core.demo_counter import increment as demo_increment
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
@@ -41,27 +43,62 @@ async def chat(
     session_store: Annotated[SessionStore, Depends(get_session_store)],
     user: Annotated[dict, Depends(get_site_user)],
 ):
-    # Enforce demo question limit
-    from fastapi import HTTPException, status as http_status
-    if user.get("role") == "demo":
+    role = user.get("role", "user")
+    uid: Optional[int] = user.get("uid")
+
+    # ── Demo: use the shared global counter ───────────────────────────────────
+    if role == "demo":
         try:
             demo_increment()
         except ValueError:
             raise HTTPException(
                 status_code=http_status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Demo limit reached. You have used all 5 demo questions.",
+                detail="Demo limit reached. You have used all your demo questions.",
+            )
+        # Also track in the users DB for per-user analytics
+        if uid:
+            user_db.increment_question_count(uid)
+
+    # ── Regular users: check per-user question limit ──────────────────────────
+    elif uid:
+        allowed = user_db.try_increment_if_under_limit(uid)
+        if not allowed:
+            raise HTTPException(
+                status_code=http_status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="You have reached your question limit. Contact the administrator.",
             )
 
-    # Create a new session if none provided
     session_id = body.session_id or session_store.new_session()
 
     async def event_generator():
+        full_response = ""
+        last_done: Optional[dict] = None
+
         async for event in pipeline.stream(
             query=body.query,
             session_id=session_id,
             haiku_only=body.haiku_only,
         ):
+            if event["type"] == "token":
+                full_response += event.get("content", "")
+            elif event["type"] == "done":
+                last_done = event
             yield {"data": json.dumps(event)}
+
+        # After all events yielded: log usage to DB
+        if uid and last_done:
+            model = last_done.get("model", "haiku")
+            input_tokens = last_done.get("input_tokens", 0)
+            output_tokens = last_done.get("output_tokens", len(full_response) // 4)
+            try:
+                user_db.log_usage(
+                    uid, session_id, body.query, model,
+                    input_tokens, output_tokens,
+                    answer_text=full_response,
+                )
+                user_db.touch_last_seen(uid)
+            except Exception as e:
+                logger.warning(f"Usage logging failed: {e}")
 
     return EventSourceResponse(event_generator())
 
@@ -87,7 +124,6 @@ async def clear_history(
 async def new_session(
     session_store: Annotated[SessionStore, Depends(get_session_store)],
 ):
-    """Create a fresh session and return its ID."""
     return {"session_id": session_store.new_session()}
 
 
@@ -97,8 +133,7 @@ class FollowUpsRequest(BaseModel):
 
 
 @router.post("/chat/follow-ups")
-async def get_follow_ups(body: FollowUpsRequest, _user: Annotated[str, Depends(get_site_user)]):
-    """Generate 3 follow-up questions using Haiku."""
+async def get_follow_ups(body: FollowUpsRequest, _user: Annotated[dict, Depends(get_site_user)]):
     import os
     from dotenv import load_dotenv
     load_dotenv()
@@ -119,7 +154,6 @@ async def get_follow_ups(body: FollowUpsRequest, _user: Annotated[str, Depends(g
             messages=[{"role": "user", "content": prompt}],
         )
         raw = resp.content[0].text.strip()
-        # Parse JSON array
         import re
         match = re.search(r'\[.*?\]', raw, re.DOTALL)
         follow_ups = json.loads(match.group()) if match else []
@@ -132,13 +166,12 @@ async def get_follow_ups(body: FollowUpsRequest, _user: Annotated[str, Depends(g
 class FeedbackRequest(BaseModel):
     message_id: str
     session_id: str
-    rating: int  # 1 or -1
+    rating: int
     query: str
 
 
 @router.post("/chat/feedback")
-async def submit_feedback(body: FeedbackRequest, _user: Annotated[str, Depends(get_site_user)]):
-    """Store user feedback to data/feedback.jsonl."""
+async def submit_feedback(body: FeedbackRequest, _user: Annotated[dict, Depends(get_site_user)]):
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "message_id": body.message_id,

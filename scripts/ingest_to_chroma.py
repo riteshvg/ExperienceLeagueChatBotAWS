@@ -251,7 +251,7 @@ def main():
                 {
                     "s3_key": s3_key,
                     "chunk_index": chunk_idx,
-                    "url": meta.get("experience_league_url", ""),
+                    "url": meta.get("experience_league_url") or meta.get("url", ""),
                     "title": meta.get("title", ""),
                     "product": meta.get("product", ""),
                     "doc_type": meta.get("doc_type", ""),

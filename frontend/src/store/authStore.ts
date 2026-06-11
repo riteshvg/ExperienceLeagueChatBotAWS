@@ -47,13 +47,14 @@ export const useAuthStore = create<AuthState>()(
             return
           }
           const data = await res.json()
-          const isDemo = data.role === 'demo'
+          // isDemo covers both demo accounts AND regular users with question_limit
+          const isDemo = data.role === 'demo' || Boolean(data.demo)
           set({
             token: data.token,
             role: data.role ?? 'user',
             isAuthenticated: true,
             isDemo,
-            demoStatus: isDemo ? (data.demo ?? null) : null,
+            demoStatus: data.demo ? (data.demo as DemoStatus) : null,
             error: null,
           })
         } catch {
@@ -64,7 +65,17 @@ export const useAuthStore = create<AuthState>()(
       refreshDemoStatus: async () => {
         if (!get().isDemo) return
         try {
-          const res = await fetch(`${API_BASE}/api/auth/demo/status`)
+          // demo role → global counter; user role with limit → per-user endpoint
+          const endpoint = get().role === 'demo'
+            ? `${API_BASE}/api/auth/demo/status`
+            : `${API_BASE}/api/auth/status`
+          const headers: Record<string, string> = {}
+          if (get().role !== 'demo') {
+            const stored = localStorage.getItem('el-auth')
+            const token = stored ? JSON.parse(stored)?.state?.token : null
+            if (token) headers['Authorization'] = `Bearer ${token}`
+          }
+          const res = await fetch(endpoint, { headers })
           if (res.ok) {
             const demoStatus = await res.json()
             set({ demoStatus })

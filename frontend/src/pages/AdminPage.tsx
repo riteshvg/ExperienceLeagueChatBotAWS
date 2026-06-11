@@ -1,11 +1,662 @@
-import { useState } from 'react'
-import { RotateCcw } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { RotateCcw, Plus, Pencil, Eye, Trash2, X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { useAdmin } from '@/hooks/useAdmin'
+import { useAdmin, type AdminUser } from '@/hooks/useAdmin'
+import type { UsageLog } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-type Tab = 'status' | 'settings' | 'analytics' | 'feedback' | 'refresh'
+type Tab = 'status' | 'settings' | 'analytics' | 'feedback' | 'users' | 'refresh'
+
+// ── User management sub-components ───────────────────────────────────────────
+
+interface DrawerProps {
+  open: boolean
+  onClose: () => void
+  title: string
+  children: React.ReactNode
+}
+function Drawer({ open, onClose, title, children }: DrawerProps) {
+  return (
+    <>
+      {open && (
+        <div
+          className="fixed inset-0 bg-black/20 z-40"
+          onClick={onClose}
+        />
+      )}
+      <div className={cn(
+        'fixed top-0 right-0 h-full w-96 bg-white shadow-xl z-50 flex flex-col transition-transform duration-200',
+        open ? 'translate-x-0' : 'translate-x-full',
+      )}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+          <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
+          <button onClick={onClose} className="p-1 rounded-md text-slate-400 hover:text-slate-600 hover:bg-slate-100">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          {children}
+        </div>
+      </div>
+    </>
+  )
+}
+
+interface UserFormValues {
+  username: string
+  password: string
+  role: 'user' | 'demo'
+  question_limit: string
+  is_active: boolean
+}
+
+interface UserFormProps {
+  initial?: UserFormValues
+  editMode?: boolean
+  onSubmit: (values: UserFormValues) => Promise<void>
+  onCancel: () => void
+  submitLabel: string
+}
+function UserForm({ initial, editMode, onSubmit, onCancel, submitLabel }: UserFormProps) {
+  const [values, setValues] = useState<UserFormValues>(
+    initial ?? { username: '', password: '', role: 'user', question_limit: '', is_active: true }
+  )
+  const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!values.username.trim()) { setFormError('Username is required'); return }
+    if (!editMode && !values.password.trim()) { setFormError('Password is required'); return }
+    setFormError(null)
+    setSubmitting(true)
+    try {
+      await onSubmit(values)
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Save failed')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {formError && (
+        <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{formError}</p>
+      )}
+
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">Username</label>
+        <input
+          type="text"
+          value={values.username}
+          onChange={(e) => setValues({ ...values, username: e.target.value })}
+          disabled={editMode}
+          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400 disabled:bg-slate-50 disabled:text-slate-400"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">
+          Password{editMode && <span className="text-slate-400 font-normal"> (leave blank to keep current)</span>}
+        </label>
+        <input
+          type="text"
+          value={values.password}
+          onChange={(e) => setValues({ ...values, password: e.target.value })}
+          placeholder={editMode ? 'New password (optional)' : 'Password'}
+          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">Role</label>
+        <select
+          value={values.role}
+          onChange={(e) => setValues({ ...values, role: e.target.value as 'user' | 'demo' })}
+          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-blue-400"
+        >
+          <option value="user">User</option>
+          <option value="demo">Demo</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">
+          Question Limit <span className="text-slate-400 font-normal">(empty = unlimited)</span>
+        </label>
+        <input
+          type="number"
+          min={1}
+          value={values.question_limit}
+          onChange={(e) => setValues({ ...values, question_limit: e.target.value })}
+          placeholder="Unlimited"
+          className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-400"
+        />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setValues({ ...values, is_active: !values.is_active })}
+          className={cn(
+            'relative w-10 h-5 rounded-full transition-colors flex-shrink-0',
+            values.is_active ? 'bg-emerald-500' : 'bg-slate-300',
+          )}
+        >
+          <span className={cn(
+            'absolute top-0.5 left-0 w-4 h-4 rounded-full bg-white shadow transition-transform',
+            values.is_active ? 'translate-x-5' : 'translate-x-0.5',
+          )} />
+        </button>
+        <span className="text-sm text-slate-600">{values.is_active ? 'Active' : 'Disabled'}</span>
+      </div>
+
+      <div className="flex gap-2 pt-2">
+        <button
+          type="submit"
+          disabled={submitting}
+          className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          {submitting ? 'Saving…' : submitLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="flex-1 border border-slate-200 text-slate-600 py-2 rounded-lg text-sm hover:bg-slate-50 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
+// ── User detail panel ─────────────────────────────────────────────────────────
+
+const USAGE_PAGE_SIZE = 20
+
+interface UserDetailProps {
+  user: AdminUser
+  fetchUsage: (id: number) => Promise<unknown>
+  fetchFeedback: (id: number) => Promise<unknown>
+  onBack: () => void
+}
+function UserDetail({ user, fetchUsage, fetchFeedback, onBack }: UserDetailProps) {
+  const [usageLogs, setUsageLogs] = useState<UsageLog[]>([])
+  const [feedbackEntries, setFeedbackEntries] = useState<Record<string, unknown>[]>([])
+  const [page, setPage] = useState(0)
+  const [expandedLog, setExpandedLog] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([fetchUsage(user.id), fetchFeedback(user.id)]).then(([u, f]) => {
+      setUsageLogs(((u as Record<string, unknown>)?.logs as UsageLog[]) ?? [])
+      setFeedbackEntries(((f as Record<string, unknown>)?.entries as Record<string, unknown>[]) ?? [])
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [user.id, fetchUsage, fetchFeedback])
+
+  const totalCost = usageLogs.reduce((s, l) => s + l.total_cost_usd, 0)
+  const avgCost = usageLogs.length ? totalCost / usageLogs.length : 0
+  const pageCount = Math.ceil(usageLogs.length / USAGE_PAGE_SIZE)
+  const pageSlice = usageLogs.slice(page * USAGE_PAGE_SIZE, (page + 1) * USAGE_PAGE_SIZE)
+
+  return (
+    <div className="space-y-5">
+      {/* Back + header */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-700"
+        >
+          <ChevronLeft className="w-3.5 h-3.5" /> Back to list
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-slate-800">{user.username}</h2>
+            <div className="flex items-center gap-2 mt-1">
+              <span className={cn(
+                'text-xs px-2 py-0.5 rounded-full font-medium border',
+                user.role === 'demo'
+                  ? 'bg-amber-50 text-amber-700 border-amber-200'
+                  : 'bg-blue-50 text-blue-700 border-blue-200',
+              )}>
+                {user.role}
+              </span>
+              <span className={cn(
+                'text-xs px-2 py-0.5 rounded-full font-medium border',
+                user.is_active
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-red-50 text-red-600 border-red-200',
+              )}>
+                {user.is_active ? 'Active' : 'Disabled'}
+              </span>
+            </div>
+          </div>
+          <span className="text-xs text-slate-400">
+            Created {new Date(user.created_at).toLocaleDateString()}
+          </span>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Questions</p>
+          <p className="text-lg font-semibold text-slate-800 mt-1">{user.question_count}</p>
+          {user.question_limit != null && (
+            <p className="text-xs text-slate-400">of {user.question_limit} limit</p>
+          )}
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Total Cost</p>
+          <p className="text-lg font-semibold text-slate-800 mt-1">${totalCost.toFixed(4)}</p>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Avg/Question</p>
+          <p className="text-lg font-semibold text-slate-800 mt-1">${avgCost.toFixed(4)}</p>
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Last Active</p>
+          <p className="text-sm font-semibold text-slate-800 mt-1 break-all">
+            {user.last_seen_at ? new Date(user.last_seen_at).toLocaleDateString() : '—'}
+          </p>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-slate-400">Loading usage…</p>
+      ) : (
+        <>
+          {/* Usage logs — expandable cards */}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-600 mb-2">
+              Usage Logs ({usageLogs.length})
+            </h3>
+            {usageLogs.length === 0 ? (
+              <p className="text-sm text-slate-400">No usage logged yet.</p>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {pageSlice.map((log) => {
+                    const isExpanded = expandedLog === log.id
+                    return (
+                      <div
+                        key={log.id}
+                        className="bg-white rounded-xl border border-slate-200 overflow-hidden"
+                      >
+                        {/* Summary row — always visible, click to expand */}
+                        <button
+                          onClick={() => setExpandedLog(isExpanded ? null : log.id)}
+                          className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-slate-50 transition-colors"
+                        >
+                          <ChevronRight className={cn(
+                            'w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform',
+                            isExpanded && 'rotate-90',
+                          )} />
+                          <span className="text-xs text-slate-400 whitespace-nowrap w-16 flex-shrink-0">
+                            {new Date(log.created_at).toLocaleDateString()}
+                          </span>
+                          <span className="flex-1 text-sm text-slate-700 text-left">
+                            {log.question_text ?? '—'}
+                          </span>
+                          <span className="text-xs text-slate-400 flex-shrink-0 ml-2">{log.model ?? '—'}</span>
+                          <span className="text-xs text-slate-400 flex-shrink-0 ml-3 hidden sm:block">
+                            {log.prompt_tokens.toLocaleString()} / {log.completion_tokens.toLocaleString()} tok
+                          </span>
+                          <span className="text-xs font-semibold text-slate-700 flex-shrink-0 ml-3">
+                            ${log.total_cost_usd.toFixed(4)}
+                          </span>
+                        </button>
+
+                        {/* Expanded detail */}
+                        {isExpanded && (
+                          <div className="border-t border-slate-100 px-4 py-4 space-y-4 bg-slate-50">
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Question</p>
+                              <p className="text-sm text-slate-800 leading-relaxed bg-white rounded-lg border border-slate-200 px-3 py-2.5">
+                                {log.question_text ?? '—'}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Answer</p>
+                              <div className="text-sm text-slate-700 leading-relaxed bg-white rounded-lg border border-slate-200 px-3 py-2.5 whitespace-pre-wrap max-h-80 overflow-y-auto">
+                                {log.answer_text || <span className="text-slate-400 italic">No answer recorded</span>}
+                              </div>
+                            </div>
+                            <div className="flex gap-4 text-xs text-slate-500">
+                              <span>Model: <strong className="text-slate-700">{log.model ?? '—'}</strong></span>
+                              <span>Input tokens: <strong className="text-slate-700">{log.prompt_tokens.toLocaleString()}</strong></span>
+                              <span>Output tokens: <strong className="text-slate-700">{log.completion_tokens.toLocaleString()}</strong></span>
+                              <span>Cost: <strong className="text-slate-700">${log.total_cost_usd.toFixed(4)}</strong></span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                {pageCount > 1 && (
+                  <div className="flex items-center justify-between mt-3 px-1">
+                    <span className="text-xs text-slate-400">Page {page + 1} of {pageCount}</span>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => setPage((p) => Math.max(0, p - 1))}
+                        disabled={page === 0}
+                        className="p-1 rounded disabled:opacity-30 hover:bg-slate-100"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                        disabled={page >= pageCount - 1}
+                        className="p-1 rounded disabled:opacity-30 hover:bg-slate-100"
+                      >
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Feedback table */}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-600 mb-2">
+              Feedback ({feedbackEntries.length})
+            </h3>
+            {feedbackEntries.length === 0 ? (
+              <p className="text-sm text-slate-400">No feedback submitted yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {feedbackEntries.slice(0, 20).map((e, i) => (
+                  <div key={i} className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex items-start gap-3">
+                    <span className={cn('text-lg flex-shrink-0', e.rating === 1 ? 'text-emerald-500' : 'text-red-500')}>
+                      {e.rating === 1 ? '👍' : '👎'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-slate-800 truncate">{String(e.query ?? '—')}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {new Date(String(e.timestamp)).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── User list panel ───────────────────────────────────────────────────────────
+
+interface UsersTabProps {
+  users: AdminUser[]
+  onRefresh: () => void
+  onAdd: (values: UserFormValues) => Promise<void>
+  onEdit: (id: number, values: UserFormValues) => Promise<void>
+  onToggleActive: (user: AdminUser) => Promise<void>
+  onDelete: (id: number) => Promise<void>
+  fetchUsage: (id: number) => Promise<unknown>
+  fetchFeedback: (id: number) => Promise<unknown>
+}
+
+function UsersTab({
+  users, onRefresh, onAdd, onEdit, onToggleActive, onDelete,
+  fetchUsage, fetchFeedback,
+}: UsersTabProps) {
+  const [view, setView] = useState<'list' | 'detail'>('list')
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [drawerMode, setDrawerMode] = useState<'add' | 'edit'>('add')
+  const [editTarget, setEditTarget] = useState<AdminUser | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
+  const [search, setSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState<'all' | 'user' | 'demo'>('all')
+  const [activeFilter, setActiveFilter] = useState<'all' | 'active' | 'disabled'>('all')
+
+  const filtered = users.filter((u) => {
+    if (search && !u.username.toLowerCase().includes(search.toLowerCase())) return false
+    if (roleFilter !== 'all' && u.role !== roleFilter) return false
+    if (activeFilter === 'active' && !u.is_active) return false
+    if (activeFilter === 'disabled' && u.is_active) return false
+    return true
+  })
+
+  if (view === 'detail' && selectedUser) {
+    return (
+      <UserDetail
+        user={selectedUser}
+        fetchUsage={fetchUsage}
+        fetchFeedback={fetchFeedback}
+        onBack={() => { setView('list'); setSelectedUser(null) }}
+      />
+    )
+  }
+
+  const openAdd = () => {
+    setDrawerMode('add')
+    setEditTarget(null)
+    setDrawerOpen(true)
+  }
+
+  const openEdit = (user: AdminUser) => {
+    setDrawerMode('edit')
+    setEditTarget(user)
+    setDrawerOpen(true)
+  }
+
+  const handleFormSubmit = async (values: UserFormValues) => {
+    const payload = {
+      username: values.username,
+      password: values.password,
+      role: values.role,
+      question_limit: values.question_limit ? parseInt(values.question_limit, 10) : null,
+      is_active: values.is_active,
+    }
+    if (drawerMode === 'add') {
+      await onAdd(values)
+    } else if (editTarget) {
+      const editPayload: Record<string, unknown> = {
+        role: values.role,
+        is_active: values.is_active,
+        question_limit: values.question_limit ? parseInt(values.question_limit, 10) : null,
+      }
+      if (values.password) editPayload.password = values.password
+      await onEdit(editTarget.id, values)
+    }
+    setDrawerOpen(false)
+  }
+
+  return (
+    <>
+      <div className="space-y-4">
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-2 justify-between">
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="text"
+              placeholder="Search username…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs w-44 focus:outline-none focus:border-blue-400"
+            />
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value as typeof roleFilter)}
+              className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none"
+            >
+              <option value="all">All roles</option>
+              <option value="user">User</option>
+              <option value="demo">Demo</option>
+            </select>
+            <select
+              value={activeFilter}
+              onChange={(e) => setActiveFilter(e.target.value as typeof activeFilter)}
+              className="px-2 py-1.5 rounded-lg border border-slate-200 text-xs focus:outline-none"
+            >
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </div>
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" /> Add User
+          </button>
+        </div>
+
+        {/* Table */}
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50">
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Username</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Role</th>
+                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Questions</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Cost</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Limit</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Seen</th>
+                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-sm text-slate-400">
+                    No users found.
+                  </td>
+                </tr>
+              ) : filtered.map((user, i) => (
+                <tr key={user.id} className={cn('border-b border-slate-100', i === filtered.length - 1 && 'border-0')}>
+                  <td className="px-4 py-3 font-medium text-slate-800">{user.username}</td>
+                  <td className="px-4 py-3">
+                    <span className={cn(
+                      'text-xs px-2 py-0.5 rounded-full border font-medium',
+                      user.role === 'demo'
+                        ? 'bg-amber-50 text-amber-700 border-amber-200'
+                        : 'bg-blue-50 text-blue-700 border-blue-200',
+                    )}>
+                      {user.role}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => onToggleActive(user)}
+                      title={user.is_active ? 'Click to disable' : 'Click to enable'}
+                      className={cn(
+                        'relative w-9 h-5 rounded-full transition-colors flex-shrink-0',
+                        user.is_active ? 'bg-emerald-500' : 'bg-slate-300',
+                      )}
+                    >
+                      <span className={cn(
+                        'absolute top-0.5 left-0 w-4 h-4 rounded-full bg-white shadow transition-transform',
+                        user.is_active ? 'translate-x-4' : 'translate-x-0.5',
+                      )} />
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-600">{user.question_count}</td>
+                  <td className="px-4 py-3 text-right text-slate-600">${user.total_cost_usd.toFixed(4)}</td>
+                  <td className="px-4 py-3 text-right text-slate-500">
+                    {user.question_limit ?? '∞'}
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-400 text-xs">
+                    {user.last_seen_at ? new Date(user.last_seen_at).toLocaleDateString() : '—'}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => { setSelectedUser(user); setView('detail') }}
+                        title="View details"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => openEdit(user)}
+                        title="Edit user"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirm(user.id)}
+                        title="Delete user"
+                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Delete confirm */}
+        {deleteConfirm !== null && (
+          <div className="fixed inset-0 bg-black/20 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xl p-6 w-full max-w-sm">
+              <h3 className="text-sm font-semibold text-slate-800 mb-2">Delete user?</h3>
+              <p className="text-xs text-slate-500 mb-4">
+                This will permanently delete the user and all their usage logs.
+              </p>
+              <div className="flex gap-2">
+                <button
+                  onClick={async () => { await onDelete(deleteConfirm); setDeleteConfirm(null) }}
+                  className="flex-1 bg-red-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => setDeleteConfirm(null)}
+                  className="flex-1 border border-slate-200 text-slate-600 py-2 rounded-lg text-sm hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Drawer */}
+      <Drawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title={drawerMode === 'add' ? 'Add User' : 'Edit User'}
+      >
+        <UserForm
+          editMode={drawerMode === 'edit'}
+          initial={editTarget ? {
+            username: editTarget.username,
+            password: '',
+            role: editTarget.role,
+            question_limit: editTarget.question_limit != null ? String(editTarget.question_limit) : '',
+            is_active: Boolean(editTarget.is_active),
+          } : undefined}
+          onSubmit={handleFormSubmit}
+          onCancel={() => setDrawerOpen(false)}
+          submitLabel={drawerMode === 'add' ? 'Create User' : 'Save Changes'}
+        />
+      </Drawer>
+    </>
+  )
+}
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
@@ -27,7 +678,13 @@ function JsonTree({ data }: { data: unknown }) {
 }
 
 export function AdminPage() {
-  const { isAuthenticated, login, logout, refresh, resetDemo, triggerRefresh, triggerGitHubActions, status, settings, analytics, demoStatus, feedback, refreshStatus, loading, error } = useAdmin()
+  const {
+    isAuthenticated, login, logout, refresh, resetDemo,
+    triggerRefresh, triggerGitHubActions,
+    status, settings, analytics, demoStatus, feedback, refreshStatus,
+    users, addUser, editUser, removeUser, fetchUserUsage, fetchUserFeedback,
+    loading, error,
+  } = useAdmin()
   const [refreshing, setRefreshing] = useState(false)
   const [actionsTriggered, setActionsTriggered] = useState(false)
 
@@ -108,6 +765,7 @@ export function AdminPage() {
     { id: 'settings', label: 'Settings' },
     { id: 'analytics', label: 'Analytics' },
     { id: 'feedback', label: 'Feedback' },
+    { id: 'users', label: 'Users' },
     { id: 'refresh', label: 'Data Refresh' },
   ]
 
@@ -261,6 +919,7 @@ export function AdminPage() {
                 'Customer Journey Analytics',
                 'Adobe Experience Platform',
                 'Adobe Target',
+                'Adobe Journey Optimizer',
                 'Adobe Data Collection',
               ]
               type KbRow = { product: string; pages: number; chunks: number; pending: boolean }
@@ -472,6 +1131,37 @@ export function AdminPage() {
               </div>
             )}
           </div>
+        )}
+
+        {tab === 'users' && (
+          <UsersTab
+            users={users}
+            onRefresh={refresh}
+            onAdd={async (values) => {
+              await addUser({
+                username: values.username,
+                password: values.password,
+                role: values.role,
+                question_limit: values.question_limit ? parseInt(values.question_limit, 10) : null,
+                is_active: values.is_active,
+              })
+            }}
+            onEdit={async (id, values) => {
+              const payload: Record<string, unknown> = {
+                role: values.role,
+                is_active: values.is_active,
+                question_limit: values.question_limit ? parseInt(values.question_limit, 10) : null,
+              }
+              if (values.password) payload.password = values.password
+              await editUser(id, payload as Parameters<typeof editUser>[1])
+            }}
+            onToggleActive={async (user) => {
+              await editUser(user.id, { is_active: !user.is_active })
+            }}
+            onDelete={removeUser}
+            fetchUsage={fetchUserUsage}
+            fetchFeedback={fetchUserFeedback}
+          />
         )}
 
         {loading && (

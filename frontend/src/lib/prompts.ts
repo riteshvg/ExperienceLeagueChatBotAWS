@@ -82,6 +82,19 @@ export const PROMPT_LIBRARY: PromptCategory[] = [
     ],
   },
   {
+    category: 'Adobe Journey Optimizer',
+    prompts: [
+      { id: 'ajo-1', title: 'What is AJO', text: 'What is Adobe Journey Optimizer and how does it differ from Adobe Campaign?' },
+      { id: 'ajo-2', title: 'Create a journey', text: 'How do I create a journey in Adobe Journey Optimizer?' },
+      { id: 'ajo-3', title: 'Journey canvas', text: 'What are the different action and event nodes available in the Adobe Journey Optimizer journey canvas?' },
+      { id: 'ajo-4', title: 'Decision management', text: 'What is decision management in Adobe Journey Optimizer and how do I set up an offer library?' },
+      { id: 'ajo-5', title: 'Frequency capping', text: 'How do I configure frequency capping and suppression rules in Adobe Journey Optimizer?' },
+      { id: 'ajo-6', title: 'AJO + AEP', text: 'How does Adobe Journey Optimizer use Adobe Experience Platform profiles and audiences to personalise journeys?' },
+      { id: 'ajo-7', title: 'Email channel', text: 'How do I create and send an email message in Adobe Journey Optimizer?' },
+      { id: 'ajo-8', title: 'Push notifications', text: 'How do I set up push notification campaigns in Adobe Journey Optimizer?' },
+    ],
+  },
+  {
     category: 'Cross-Product',
     prompts: [
       { id: 'xp-1', title: 'AA vs CJA', text: 'What is the difference between Adobe Analytics and Customer Journey Analytics?' },

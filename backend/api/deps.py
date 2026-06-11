@@ -56,7 +56,8 @@ def get_site_user(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired"
             )
-        return {"sub": sub, "role": role}
+        uid = payload.get("uid")
+        return {"sub": sub, "role": role, "uid": uid}
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token"

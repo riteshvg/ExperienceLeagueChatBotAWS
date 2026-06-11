@@ -157,3 +157,80 @@ export async function adminLogout(token: string): Promise<void> {
     headers: { Authorization: `Bearer ${token}` },
   })
 }
+
+// ── User management ───────────────────────────────────────────────────────────
+
+export interface AdminUser {
+  id: number
+  username: string
+  role: 'user' | 'demo'
+  is_active: number  // 0 | 1 from SQLite
+  question_limit: number | null
+  question_count: number
+  created_at: string
+  last_seen_at: string | null
+  total_cost_usd: number
+}
+
+export interface UsageLog {
+  id: number
+  user_id: number
+  session_id: string | null
+  question_text: string | null
+  answer_text: string | null
+  prompt_tokens: number
+  completion_tokens: number
+  total_cost_usd: number
+  model: string | null
+  created_at: string
+}
+
+export interface CreateUserPayload {
+  username: string
+  password: string
+  role: 'user' | 'demo'
+  question_limit: number | null
+  is_active: boolean
+}
+
+export interface UpdateUserPayload {
+  password?: string
+  role?: 'user' | 'demo'
+  question_limit?: number | null
+  is_active?: boolean
+}
+
+async function adminMutate(path: string, token: string, method: string, body?: unknown) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  if (res.status === 204) return null
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail ?? `Request failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+export const listUsers = (token: string): Promise<AdminUser[]> =>
+  adminFetch('/api/admin/users', token)
+
+export const createUser = (token: string, payload: CreateUserPayload): Promise<AdminUser> =>
+  adminMutate('/api/admin/users', token, 'POST', payload)
+
+export const updateUser = (token: string, id: number, payload: UpdateUserPayload): Promise<AdminUser> =>
+  adminMutate(`/api/admin/users/${id}`, token, 'PATCH', payload)
+
+export const deleteUser = (token: string, id: number): Promise<null> =>
+  adminMutate(`/api/admin/users/${id}`, token, 'DELETE')
+
+export const getUserUsage = (token: string, id: number) =>
+  adminFetch(`/api/admin/users/${id}/usage`, token)
+
+export const getUserFeedback = (token: string, id: number) =>
+  adminFetch(`/api/admin/users/${id}/feedback`, token)

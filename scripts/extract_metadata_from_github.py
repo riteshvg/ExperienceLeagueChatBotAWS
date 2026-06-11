@@ -34,6 +34,13 @@ REPOS = {
         'product': 'Adobe Experience Platform',
         'base_path': 'help',
         'experience_league_base': 'https://experienceleague.adobe.com/en/docs/experience-platform'
+    },
+    'adobe-journey-optimizer': {
+        'owner': 'AdobeDocs',
+        'repo': 'journey-optimizer.en',
+        'product': 'Adobe Journey Optimizer',
+        'base_path': 'help',
+        'experience_league_base': 'https://experienceleague.adobe.com/en/docs/journey-optimizer'
     }
 }
 

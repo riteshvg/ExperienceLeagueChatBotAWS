@@ -24,6 +24,7 @@ from backend.api.routes.chat import router as chat_router
 from backend.api.routes.health import router as health_router
 from backend.api.routes.oauth import router as oauth_router
 from backend.core.chroma_retriever import ChromaRetriever
+from backend.core import user_db
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 from config.settings import get_settings
@@ -101,6 +102,16 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     _configure_langsmith()
     logger.info("Starting up — loading ChromaDB and models…")
+
+    # Initialise user DB and seed defaults from env vars
+    s = get_settings()
+    user_db.init_db()
+    user_db.seed_defaults(
+        site_username=s.site_username,
+        site_password=s.site_password,
+    )
+    logger.info("User DB ready")
+
     _restore_chroma_from_s3()
     try:
         retriever = ChromaRetriever()

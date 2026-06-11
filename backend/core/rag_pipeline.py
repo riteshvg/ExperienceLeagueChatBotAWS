@@ -48,12 +48,12 @@ _FOLLOWUP_PATTERNS = re.compile(
 
 _HAIKU_SYSTEM = """You are an Adobe Experience League documentation assistant. \
 You ONLY answer questions about Adobe products: Adobe Analytics, Customer Journey Analytics (CJA), \
-Adobe Experience Platform (AEP), Adobe Target, and Adobe Data Collection \
+Adobe Experience Platform (AEP), Adobe Target, Adobe Journey Optimizer (AJO), and Adobe Data Collection \
 (Tags/Launch, Web SDK, Datastreams, Edge Network).
 
 If the question is not about these Adobe products, respond with:
-"I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, and Adobe Data Collection. \
-Please ask about these products."
+"I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe Journey Optimizer, \
+and Adobe Data Collection. Please ask about these products."
 
 Guidelines for Adobe questions:
 - Answer as completely as possible using the retrieved context.
@@ -71,11 +71,13 @@ Retrieved documentation context:
 
 _AGENT_SYSTEM = """You are a senior Adobe Experience Cloud solutions consultant with deep \
 expertise in Adobe Analytics, Customer Journey Analytics (CJA), Adobe Experience Platform (AEP), \
-Adobe Target, and Adobe Data Collection (Tags/Launch, Web SDK, Datastreams, Edge Network).
+Adobe Target, Adobe Journey Optimizer (AJO), and Adobe Data Collection (Tags/Launch, Web SDK, \
+Datastreams, Edge Network).
 
 You ONLY answer questions about these Adobe products. If asked about anything unrelated \
 (food, general knowledge, other software, etc.), respond:
-"I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, and Adobe Data Collection."
+"I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe Journey Optimizer, \
+and Adobe Data Collection."
 
 INSTRUCTIONS for Adobe questions:
 1. Always call search_documentation at least once before answering.
@@ -114,7 +116,7 @@ def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcesso
     def search_documentation(query: str) -> str:
         """
         Search Adobe Experience League documentation for the given query.
-        Call this whenever you need information about Adobe Analytics, CJA, or AEP.
+        Call this whenever you need information about Adobe Analytics, CJA, AEP, AJO, or Target.
         Use specific Adobe terminology. Call multiple times with refined queries if needed.
 
         Args:
@@ -307,7 +309,12 @@ class RAGPipeline:
         self.session_store.append_turn(session_id, "user", query)
         self.session_store.append_turn(session_id, "assistant", full_response)
         yield {"type": "citations", "citations": citations}
-        yield {"type": "done", "model": "haiku", "session_id": session_id}
+        # Estimate token counts from text lengths (÷4 chars per token)
+        input_tokens = (len(_HAIKU_SYSTEM) + len(context) + len(query)
+                        + sum(len(getattr(m, "content", "")) for m in lc_history)) // 4
+        output_tokens = len(full_response) // 4
+        yield {"type": "done", "model": "haiku", "session_id": session_id,
+               "input_tokens": input_tokens, "output_tokens": output_tokens}
 
     # ── Sonnet: LangGraph multi-pass agent ────────────────────────────────────
 
@@ -363,7 +370,11 @@ class RAGPipeline:
         self.session_store.append_turn(session_id, "user", query)
         self.session_store.append_turn(session_id, "assistant", full_response)
         yield {"type": "citations", "citations": citations_out[:8]}
-        yield {"type": "done", "model": "sonnet", "session_id": session_id}
+        input_tokens = (len(_AGENT_SYSTEM)
+                        + sum(len(getattr(m, "content", "")) for m in messages)) // 4
+        output_tokens = len(full_response) // 4
+        yield {"type": "done", "model": "sonnet", "session_id": session_id,
+               "input_tokens": input_tokens, "output_tokens": output_tokens}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

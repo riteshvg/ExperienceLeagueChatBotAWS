@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { adminLogin, adminLogout, getAdminStatus, getAdminSettings, getAdminAnalytics } from '@/lib/api'
+import {
+  adminLogin, adminLogout, getAdminStatus, getAdminSettings, getAdminAnalytics,
+  listUsers, createUser, updateUser, deleteUser, getUserUsage, getUserFeedback,
+  type AdminUser, type CreateUserPayload, type UpdateUserPayload,
+} from '@/lib/api'
 
 const TOKEN_KEY = 'el_admin_token'
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
@@ -15,6 +19,8 @@ export interface RefreshStatus {
   started_at?: string
 }
 
+export { type AdminUser }
+
 export function useAdmin() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY))
   const [status, setStatus] = useState<Record<string, unknown> | null>(null)
@@ -23,6 +29,7 @@ export function useAdmin() {
   const [demoStatus, setDemoStatus] = useState<Record<string, unknown> | null>(null)
   const [feedback, setFeedback] = useState<Record<string, unknown> | null>(null)
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null)
+  const [users, setUsers] = useState<AdminUser[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -33,7 +40,7 @@ export function useAdmin() {
       const t = await adminLogin(password)
       localStorage.setItem(TOKEN_KEY, t)
       setToken(t)
-    } catch (e) {
+    } catch {
       setError('Invalid password')
     } finally {
       setLoading(false)
@@ -47,13 +54,14 @@ export function useAdmin() {
     setStatus(null)
     setSettings(null)
     setAnalytics(null)
+    setUsers([])
   }, [token])
 
   const refresh = useCallback(async () => {
     if (!token) return
     setLoading(true)
     try {
-      const [s, cfg, a, demo, fb, rs] = await Promise.all([
+      const [s, cfg, a, demo, fb, rs, ul] = await Promise.all([
         getAdminStatus(token),
         getAdminSettings(token),
         getAdminAnalytics(token),
@@ -66,6 +74,7 @@ export function useAdmin() {
         fetch(`${API_BASE}/api/admin/refresh/status`, {
           headers: { Authorization: `Bearer ${token}` },
         }).then((r) => r.json()),
+        listUsers(token),
       ])
       setStatus(s)
       setSettings(cfg)
@@ -73,6 +82,7 @@ export function useAdmin() {
       setDemoStatus(demo)
       setFeedback(fb)
       setRefreshStatus(rs)
+      setUsers(ul)
     } catch {
       logout()
     } finally {
@@ -80,16 +90,21 @@ export function useAdmin() {
     }
   }, [token, logout])
 
+  const refreshUsers = useCallback(async () => {
+    if (!token) return
+    try {
+      const ul = await listUsers(token)
+      setUsers(ul)
+    } catch { /* silent */ }
+  }, [token])
+
   const resetDemo = useCallback(async () => {
     if (!token) return
     const res = await fetch(`${API_BASE}/api/admin/demo/reset`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
     })
-    if (res.ok) {
-      const updated = await res.json()
-      setDemoStatus(updated)
-    }
+    if (res.ok) setDemoStatus(await res.json())
   }, [token])
 
   useEffect(() => {
@@ -113,7 +128,6 @@ export function useAdmin() {
     })
     if (res.ok) {
       const updated = await res.json()
-      // Poll status every 3s while running
       if (updated.started) {
         const poll = setInterval(async () => {
           const sr = await fetch(`${API_BASE}/api/admin/refresh/status`, {
@@ -126,5 +140,45 @@ export function useAdmin() {
     }
   }, [token])
 
-  return { isAuthenticated: !!token, login, logout, refresh, resetDemo, triggerRefresh, triggerGitHubActions, status, settings, analytics, demoStatus, feedback, refreshStatus, loading, error }
+  // ── User management ─────────────────────────────────────────────────────────
+
+  const addUser = useCallback(async (payload: CreateUserPayload): Promise<AdminUser> => {
+    if (!token) throw new Error('Not authenticated')
+    const user = await createUser(token, payload)
+    await refreshUsers()
+    return user
+  }, [token, refreshUsers])
+
+  const editUser = useCallback(async (id: number, payload: UpdateUserPayload): Promise<AdminUser> => {
+    if (!token) throw new Error('Not authenticated')
+    const user = await updateUser(token, id, payload)
+    await refreshUsers()
+    return user
+  }, [token, refreshUsers])
+
+  const removeUser = useCallback(async (id: number): Promise<void> => {
+    if (!token) throw new Error('Not authenticated')
+    await deleteUser(token, id)
+    await refreshUsers()
+  }, [token, refreshUsers])
+
+  const fetchUserUsage = useCallback(async (id: number) => {
+    if (!token) return null
+    return getUserUsage(token, id)
+  }, [token])
+
+  const fetchUserFeedback = useCallback(async (id: number) => {
+    if (!token) return null
+    return getUserFeedback(token, id)
+  }, [token])
+
+  return {
+    isAuthenticated: !!token,
+    login, logout, refresh, resetDemo,
+    triggerRefresh, triggerGitHubActions,
+    status, settings, analytics, demoStatus, feedback, refreshStatus,
+    users, refreshUsers, addUser, editUser, removeUser,
+    fetchUserUsage, fetchUserFeedback,
+    loading, error,
+  }
 }

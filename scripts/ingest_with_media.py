@@ -22,6 +22,7 @@ import re
 import sys
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -43,6 +44,7 @@ GITHUB_RAW_BASES = {
     "adobe-docs/customer-journey-analytics/": "https://raw.githubusercontent.com/AdobeDocs/analytics-platform.en/main/",
     "adobe-docs/experience-platform/": "https://raw.githubusercontent.com/AdobeDocs/experience-platform.en/main/",
     "adobe-docs/adobe-target/": "https://raw.githubusercontent.com/AdobeDocs/target.en/main/",
+    "adobe-docs/adobe-journey-optimizer/": "https://raw.githubusercontent.com/AdobeDocs/journey-optimizer.en/main/",
 }
 
 # Regex patterns
@@ -51,7 +53,7 @@ RE_VIDEO_TAG = re.compile(r">\[!VIDEO\]\(([^)]+)\)")
 RE_IMG_ALL = re.compile(r"!\[([^\]]*)\]\(([^)]+\.(?:png|jpg|jpeg|gif|webp))[^)]*\)", re.IGNORECASE)
 
 
-def resolve_image_url(img_path: str, s3_key: str) -> str | None:
+def resolve_image_url(img_path: str, s3_key: str) -> Optional[str]:
     """Resolve a relative markdown image path to an absolute GitHub CDN URL."""
     if img_path.startswith("http"):
         return img_path  # already absolute

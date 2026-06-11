@@ -6,7 +6,7 @@ import { ChatInput, type ChatInputHandle } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { Sidebar } from '@/components/Sidebar'
 
-type Category = 'All' | 'Analytics' | 'CJA' | 'AEP' | 'Target' | 'Cross-Product'
+type Category = 'All' | 'Analytics' | 'CJA' | 'AEP' | 'Target' | 'AJO' | 'Cross-Product'
 
 const QUESTION_BANK: Record<Exclude<Category, 'All'>, string[]> = {
   Analytics: [
@@ -33,6 +33,12 @@ const QUESTION_BANK: Record<Exclude<Category, 'All'>, string[]> = {
     'How do I set up Experience Targeting activities in Adobe Target?',
     'How do I use Recommendations in Adobe Target?',
   ],
+  AJO: [
+    'What is Adobe Journey Optimizer and how does it differ from Adobe Campaign?',
+    'How do I create a journey in Adobe Journey Optimizer?',
+    'What is decision management in Adobe Journey Optimizer?',
+    'How do I set up frequency capping rules in Adobe Journey Optimizer?',
+  ],
   'Cross-Product': [
     'How do I use AEP audiences in Adobe Target for personalisation?',
     'How does data flow from Adobe Analytics to Customer Journey Analytics?',
@@ -42,13 +48,14 @@ const QUESTION_BANK: Record<Exclude<Category, 'All'>, string[]> = {
   ],
 }
 
-const CATEGORIES: Category[] = ['All', 'Analytics', 'CJA', 'AEP', 'Target', 'Cross-Product']
+const CATEGORIES: Category[] = ['All', 'Analytics', 'CJA', 'AEP', 'Target', 'AJO', 'Cross-Product']
 
 const CATEGORY_COLORS: Record<Exclude<Category, 'All'>, string> = {
   Analytics:       'bg-orange-50 text-orange-700 border-orange-200',
   CJA:             'bg-violet-50 text-violet-700 border-violet-200',
   AEP:             'bg-blue-50 text-blue-700 border-blue-200',
   Target:          'bg-red-50 text-red-700 border-red-200',
+  AJO:             'bg-green-50 text-green-700 border-green-200',
   'Cross-Product': 'bg-teal-50 text-teal-700 border-teal-200',
 }
 

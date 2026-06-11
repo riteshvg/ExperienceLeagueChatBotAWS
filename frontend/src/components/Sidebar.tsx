@@ -35,7 +35,7 @@ function groupByDate(sessions: ChatSession[]): { label: string; items: ChatSessi
 
 export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
   const { sessions, activeSessionId, isStreaming, startNewChat, switchSession, deleteSession } = useChatStore()
-  const { logout } = useAuthStore()
+  const { logout, role } = useAuthStore()
   const navigate = useNavigate()
   const [showPrompts, setShowPrompts] = useState(false)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
@@ -209,17 +209,19 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
 
       {/* Footer */}
       <div className={cn('py-3 border-t border-slate-700 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
-        <Link
-          to="/admin"
-          title="Admin"
-          className={cn(
-            'flex items-center rounded-lg text-sm text-slate-400 hover:bg-slate-700 hover:text-white transition-colors no-underline',
-            collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
-          )}
-        >
-          <Settings className="w-4 h-4 flex-shrink-0" />
-          {!collapsed && 'Admin'}
-        </Link>
+        {role === 'user' && (
+          <Link
+            to="/admin"
+            title="Admin"
+            className={cn(
+              'flex items-center rounded-lg text-sm text-slate-400 hover:bg-slate-700 hover:text-white transition-colors no-underline',
+              collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
+            )}
+          >
+            <Settings className="w-4 h-4 flex-shrink-0" />
+            {!collapsed && 'Admin'}
+          </Link>
+        )}
         <button
           onClick={handleLogout}
           title="Sign out"

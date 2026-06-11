@@ -21,6 +21,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import List, Optional
 
 import boto3
 import requests
@@ -123,6 +124,18 @@ REPOS = {
         "doc_type": "tutorial",
         "level": "beginner",
     },
+    # ── Adobe Journey Optimizer ────────────────────────────────────────────────
+    "adobe-docs/adobe-journey-optimizer": {
+        "github": "AdobeDocs/journey-optimizer.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/adobe-journey-optimizer/",
+        "path_filter": "help/",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/journey-optimizer",
+        "url_path_strip": "help/",
+        "product": "Adobe Journey Optimizer",
+        "doc_type": "guide",
+        "level": "intermediate",
+    },
 }
 
 
@@ -190,7 +203,7 @@ def _save_manifest(manifest: dict) -> None:
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2))
 
 
-def get_repo_tree(repo: str, branch: str) -> list[dict]:
+def get_repo_tree(repo: str, branch: str) -> List[dict]:
     """Fetch full recursive file tree for a repo."""
     url = f"https://api.github.com/repos/{repo}/git/trees/{branch}?recursive=1"
     resp = requests.get(url, headers=_gh_headers(), timeout=30)
@@ -211,7 +224,7 @@ def download_file(repo: str, path: str, branch: str) -> bytes:
 
 def sync_repo(repo_key: str, config: dict, s3, manifest: dict,
               dry_run: bool = False, force: bool = False,
-              registry: dict | None = None) -> dict:
+              registry: Optional[dict] = None) -> dict:
     """Sync one repo. Returns stats dict."""
     github_repo = config["github"]
     branch = config["branch"]
