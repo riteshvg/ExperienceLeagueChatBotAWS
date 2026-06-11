@@ -37,12 +37,22 @@ class Settings(BaseSettings):
     # GitHub token for triggering Actions workflows
     github_token: Optional[str] = Field(None, env="GITHUB_TOKEN")
 
-    # Site access credentials (login gate for public deployment)
-    site_username: Optional[str] = Field(None, env="SITE_USERNAME")
-    site_password: Optional[str] = Field(None, env="SITE_PASSWORD")
+    # Google OAuth (replaces SITE_USERNAME / SITE_PASSWORD)
+    google_client_id: Optional[str] = Field(None, env="GOOGLE_CLIENT_ID")
+    google_client_secret: Optional[str] = Field(None, env="GOOGLE_CLIENT_SECRET")
+    # Full callback URL that Google redirects to (Railway backend)
+    oauth_redirect_uri: Optional[str] = Field(None, env="OAUTH_REDIRECT_URI")
+    # Frontend base URL for post-auth redirect (Cloudflare Pages)
+    frontend_url: str = Field(
+        default="http://localhost:5173",
+        env="FRONTEND_URL",
+    )
 
-    # Admin panel password
+    # Admin panel password (unchanged — not Google OAuth gated)
     admin_password: Optional[str] = Field(None, env="ADMIN_PASSWORD")
+
+    # If set, only this email can log into the admin panel
+    admin_email: Optional[str] = Field(None, env="ADMIN_EMAIL")
 
     # LangSmith tracing
     langchain_tracing_v2: bool = Field(default=False, env="LANGCHAIN_TRACING_V2")

@@ -24,6 +24,7 @@ interface ChatState {
   activeSessionId: string
   isStreaming: boolean
   error: string | null
+  accessDenied: boolean
 
   sendMessage: (query: string) => Promise<void>
   setFeedback: (messageId: string, rating: 1 | -1, query: string) => void
@@ -61,6 +62,7 @@ export const useChatStore = create<ChatState>()(
         activeSessionId: initial.id,
         isStreaming: false,
         error: null,
+        accessDenied: false,
 
         clearError: () => set({ error: null }),
 
@@ -116,8 +118,8 @@ export const useChatStore = create<ChatState>()(
         },
 
         sendMessage: async (query: string) => {
-          const { activeSessionId, isStreaming } = get()
-          if (!query.trim() || isStreaming) return
+          const { activeSessionId, isStreaming, accessDenied } = get()
+          if (!query.trim() || isStreaming || accessDenied) return
           set({ error: null })
 
           const userMsg: Message = { id: makeId(), role: 'user', content: query }
@@ -134,7 +136,7 @@ export const useChatStore = create<ChatState>()(
           }))
 
           try {
-            for await (const event of streamChat(query, activeSessionId, false)) {
+            for await (const event of streamChat(query, activeSessionId, false, assistantId)) {
               if (!get().isStreaming) break
 
               if (event.type === 'token') {
@@ -168,11 +170,13 @@ export const useChatStore = create<ChatState>()(
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
+            const isDisabled = (err as Error & { status?: number })?.status === 403
             set((s) => ({
               error: msg,
+              accessDenied: isDisabled || s.accessDenied,
               sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                 msgs.map((m) =>
-                  m.id === assistantId ? { ...m, content: `Error: ${msg}`, streaming: false } : m
+                  m.id === assistantId ? { ...m, content: isDisabled ? '' : `Error: ${msg}`, streaming: false } : m
                 )
               ),
             }))

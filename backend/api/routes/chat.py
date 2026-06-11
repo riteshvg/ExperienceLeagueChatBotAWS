@@ -2,7 +2,7 @@
 Chat endpoint — POST /api/chat
 
 Streams tokens + citations back to the client using Server-Sent Events.
-Per-user question limits and usage logging via user_db.
+Usage tracking via google_db (total_queries counter on exl_users).
 """
 
 import json
@@ -18,8 +18,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from backend.api.deps import get_pipeline, get_session_store, get_site_user
-from backend.core import user_db
-from backend.core.demo_counter import increment as demo_increment
+from backend.core import google_db
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 
@@ -34,6 +33,7 @@ class ChatRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
     haiku_only: bool = False
+    message_id: Optional[str] = None
 
 
 @router.post("/chat")
@@ -43,31 +43,7 @@ async def chat(
     session_store: Annotated[SessionStore, Depends(get_session_store)],
     user: Annotated[dict, Depends(get_site_user)],
 ):
-    role = user.get("role", "user")
-    uid: Optional[int] = user.get("uid")
-
-    # ── Demo: use the shared global counter ───────────────────────────────────
-    if role == "demo":
-        try:
-            demo_increment()
-        except ValueError:
-            raise HTTPException(
-                status_code=http_status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Demo limit reached. You have used all your demo questions.",
-            )
-        # Also track in the users DB for per-user analytics
-        if uid:
-            user_db.increment_question_count(uid)
-
-    # ── Regular users: check per-user question limit ──────────────────────────
-    elif uid:
-        allowed = user_db.try_increment_if_under_limit(uid)
-        if not allowed:
-            raise HTTPException(
-                status_code=http_status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="You have reached your question limit. Contact the administrator.",
-            )
-
+    uid: Optional[str] = user.get("uid")
     session_id = body.session_id or session_store.new_session()
 
     async def event_generator():
@@ -85,20 +61,22 @@ async def chat(
                 last_done = event
             yield {"data": json.dumps(event)}
 
-        # After all events yielded: log usage to DB
+        # After streaming: track usage + log query
         if uid and last_done:
-            model = last_done.get("model", "haiku")
-            input_tokens = last_done.get("input_tokens", 0)
-            output_tokens = last_done.get("output_tokens", len(full_response) // 4)
             try:
-                user_db.log_usage(
-                    uid, session_id, body.query, model,
-                    input_tokens, output_tokens,
-                    answer_text=full_response,
+                google_db.increment_total_queries(uid)
+                google_db.touch_last_seen(uid)
+                google_db.log_query(
+                    user_id=uid,
+                    email=user.get("email", ""),
+                    query_text=body.query,
+                    llm_model=last_done.get("model", "unknown"),
+                    input_tokens=int(last_done.get("input_tokens", 0)),
+                    output_tokens=int(last_done.get("output_tokens", 0)),
+                    message_id=body.message_id or "",
                 )
-                user_db.touch_last_seen(uid)
             except Exception as e:
-                logger.warning(f"Usage logging failed: {e}")
+                logger.warning(f"Usage tracking failed (non-fatal): {e}")
 
     return EventSourceResponse(event_generator())
 
@@ -172,14 +150,25 @@ class FeedbackRequest(BaseModel):
 
 @router.post("/chat/feedback")
 async def submit_feedback(body: FeedbackRequest, _user: Annotated[dict, Depends(get_site_user)]):
-    entry = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "message_id": body.message_id,
-        "session_id": body.session_id,
-        "rating": body.rating,
-        "query": body.query,
-    }
-    FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(FEEDBACK_FILE, "a") as f:
-        f.write(json.dumps(entry) + "\n")
+    try:
+        google_db.log_feedback(
+            message_id=body.message_id,
+            user_id=_user.get("uid", ""),
+            email=_user.get("email", ""),
+            query_text=body.query,
+            rating=body.rating,
+        )
+    except Exception as e:
+        logger.warning(f"Feedback DB write failed (non-fatal): {e}")
+        # Fallback to JSONL
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "message_id": body.message_id,
+            "session_id": body.session_id,
+            "rating": body.rating,
+            "query": body.query,
+        }
+        FEEDBACK_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(FEEDBACK_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
     return {"status": "ok"}

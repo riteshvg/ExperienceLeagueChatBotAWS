@@ -7,9 +7,9 @@ const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 function authHeaders(): Record<string, string> {
   try {
-    const stored = localStorage.getItem('el-auth')
-    const token = stored ? JSON.parse(stored)?.state?.token : null
-    return token ? { Authorization: `Bearer ${token}` } : {}
+    const stored = localStorage.getItem('exl_session')
+    const session = stored ? JSON.parse(stored) : null
+    return session?.sessionToken ? { Authorization: `Bearer ${session.sessionToken}` } : {}
   } catch {
     return {}
   }
@@ -50,14 +50,21 @@ export async function* streamChat(
   query: string,
   sessionId: string,
   haikuOnly = false,
+  messageId?: string,
 ): AsyncGenerator<SSEEvent> {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ query, session_id: sessionId, haiku_only: haikuOnly }),
+    body: JSON.stringify({ query, session_id: sessionId, haiku_only: haikuOnly, message_id: messageId }),
   })
 
   if (!res.ok) {
+    if (res.status === 403) {
+      const data = await res.json().catch(() => ({}))
+      const err = new Error(data.detail ?? 'Access denied')
+      ;(err as Error & { status: number }).status = 403
+      throw err
+    }
     throw new Error(`Chat request failed: ${res.status}`)
   }
 
@@ -158,46 +165,37 @@ export async function adminLogout(token: string): Promise<void> {
   })
 }
 
-// ── User management ───────────────────────────────────────────────────────────
+// ── Google OAuth user management ─────────────────────────────────────────────
 
-export interface AdminUser {
+export interface GoogleUser {
+  user_id: string
+  email: string
+  name: string
+  picture: string
+  first_seen: string
+  last_seen: string | null
+  total_queries: number
+  is_admin: boolean
+  is_disabled: boolean
+}
+
+export interface QueryLog {
   id: number
-  username: string
-  role: 'user' | 'demo'
-  is_active: number  // 0 | 1 from SQLite
-  question_limit: number | null
-  question_count: number
+  message_id: string
+  user_id: string
+  email: string
+  query_text: string
+  llm_model: string
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
   created_at: string
-  last_seen_at: string | null
-  total_cost_usd: number
+  feedback_rating?: 1 | -1 | null
 }
 
-export interface UsageLog {
-  id: number
-  user_id: number
-  session_id: string | null
-  question_text: string | null
-  answer_text: string | null
-  prompt_tokens: number
-  completion_tokens: number
-  total_cost_usd: number
-  model: string | null
-  created_at: string
-}
-
-export interface CreateUserPayload {
-  username: string
-  password: string
-  role: 'user' | 'demo'
-  question_limit: number | null
-  is_active: boolean
-}
-
-export interface UpdateUserPayload {
-  password?: string
-  role?: 'user' | 'demo'
-  question_limit?: number | null
-  is_active?: boolean
+export interface GoogleUserSummary {
+  total_users: number
+  total_queries_all_time: number
 }
 
 async function adminMutate(path: string, token: string, method: string, body?: unknown) {
@@ -217,20 +215,24 @@ async function adminMutate(path: string, token: string, method: string, body?: u
   return res.json()
 }
 
-export const listUsers = (token: string): Promise<AdminUser[]> =>
+export const listGoogleUsers = (token: string): Promise<GoogleUser[]> =>
   adminFetch('/api/admin/users', token)
 
-export const createUser = (token: string, payload: CreateUserPayload): Promise<AdminUser> =>
-  adminMutate('/api/admin/users', token, 'POST', payload)
+export const updateGoogleUser = (
+  token: string,
+  userId: string,
+  payload: { is_admin?: boolean; is_disabled?: boolean },
+): Promise<GoogleUser> =>
+  adminMutate(`/api/admin/users/${encodeURIComponent(userId)}`, token, 'PATCH', payload)
 
-export const updateUser = (token: string, id: number, payload: UpdateUserPayload): Promise<AdminUser> =>
-  adminMutate(`/api/admin/users/${id}`, token, 'PATCH', payload)
+export const getGoogleUserSummary = (token: string): Promise<GoogleUserSummary> =>
+  adminFetch('/api/admin/users/summary', token)
 
-export const deleteUser = (token: string, id: number): Promise<null> =>
-  adminMutate(`/api/admin/users/${id}`, token, 'DELETE')
+export const getQueryLogs = (token: string, limit = 100): Promise<QueryLog[]> =>
+  adminFetch(`/api/admin/query-logs?limit=${limit}`, token)
 
-export const getUserUsage = (token: string, id: number) =>
-  adminFetch(`/api/admin/users/${id}/usage`, token)
+export const getKillSwitchStatus = (token: string): Promise<{ enabled: boolean }> =>
+  adminFetch('/api/admin/kill-switch', token)
 
-export const getUserFeedback = (token: string, id: number) =>
-  adminFetch(`/api/admin/users/${id}/feedback`, token)
+export const setKillSwitch = (token: string, enabled: boolean): Promise<{ enabled: boolean }> =>
+  adminMutate('/api/admin/kill-switch', token, 'POST', { enabled })

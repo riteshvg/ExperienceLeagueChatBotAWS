@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   adminLogin, adminLogout, getAdminStatus, getAdminSettings, getAdminAnalytics,
-  listUsers, createUser, updateUser, deleteUser, getUserUsage, getUserFeedback,
-  type AdminUser, type CreateUserPayload, type UpdateUserPayload,
+  listGoogleUsers, updateGoogleUser, getGoogleUserSummary, getQueryLogs,
+  getKillSwitchStatus, setKillSwitch as apiSetKillSwitch,
+  type GoogleUser, type GoogleUserSummary, type QueryLog,
 } from '@/lib/api'
 
 const TOKEN_KEY = 'el_admin_token'
@@ -19,7 +20,7 @@ export interface RefreshStatus {
   started_at?: string
 }
 
-export { type AdminUser }
+export { type GoogleUser, type GoogleUserSummary, type QueryLog }
 
 export function useAdmin() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY))
@@ -29,7 +30,10 @@ export function useAdmin() {
   const [demoStatus, setDemoStatus] = useState<Record<string, unknown> | null>(null)
   const [feedback, setFeedback] = useState<Record<string, unknown> | null>(null)
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null)
-  const [users, setUsers] = useState<AdminUser[]>([])
+  const [googleUsers, setGoogleUsers] = useState<GoogleUser[]>([])
+  const [googleUserSummary, setGoogleUserSummary] = useState<GoogleUserSummary | null>(null)
+  const [queryLogs, setQueryLogs] = useState<QueryLog[]>([])
+  const [killSwitchEnabled, setKillSwitchEnabled] = useState<boolean>(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -54,14 +58,16 @@ export function useAdmin() {
     setStatus(null)
     setSettings(null)
     setAnalytics(null)
-    setUsers([])
+    setGoogleUsers([])
+    setGoogleUserSummary(null)
+    setQueryLogs([])
   }, [token])
 
   const refresh = useCallback(async () => {
     if (!token) return
     setLoading(true)
     try {
-      const [s, cfg, a, demo, fb, rs, ul] = await Promise.all([
+      const [s, cfg, a, demo, fb, rs, users, summary, logs, ks] = await Promise.all([
         getAdminStatus(token),
         getAdminSettings(token),
         getAdminAnalytics(token),
@@ -74,7 +80,10 @@ export function useAdmin() {
         fetch(`${API_BASE}/api/admin/refresh/status`, {
           headers: { Authorization: `Bearer ${token}` },
         }).then((r) => r.json()),
-        listUsers(token),
+        listGoogleUsers(token).catch(() => []),
+        getGoogleUserSummary(token).catch(() => null),
+        getQueryLogs(token).catch(() => []),
+        getKillSwitchStatus(token).catch(() => ({ enabled: true })),
       ])
       setStatus(s)
       setSettings(cfg)
@@ -82,7 +91,10 @@ export function useAdmin() {
       setDemoStatus(demo)
       setFeedback(fb)
       setRefreshStatus(rs)
-      setUsers(ul)
+      setGoogleUsers(users)
+      setGoogleUserSummary(summary)
+      setQueryLogs(logs)
+      setKillSwitchEnabled((ks as { enabled: boolean }).enabled)
     } catch {
       logout()
     } finally {
@@ -90,11 +102,17 @@ export function useAdmin() {
     }
   }, [token, logout])
 
-  const refreshUsers = useCallback(async () => {
+  const refreshGoogleUsers = useCallback(async () => {
     if (!token) return
     try {
-      const ul = await listUsers(token)
-      setUsers(ul)
+      const [users, summary, logs] = await Promise.all([
+        listGoogleUsers(token),
+        getGoogleUserSummary(token),
+        getQueryLogs(token),
+      ])
+      setGoogleUsers(users)
+      setGoogleUserSummary(summary)
+      setQueryLogs(logs)
     } catch { /* silent */ }
   }, [token])
 
@@ -140,36 +158,25 @@ export function useAdmin() {
     }
   }, [token])
 
-  // ── User management ─────────────────────────────────────────────────────────
-
-  const addUser = useCallback(async (payload: CreateUserPayload): Promise<AdminUser> => {
+  const setGoogleUserAdmin = useCallback(async (userId: string, isAdmin: boolean) => {
     if (!token) throw new Error('Not authenticated')
-    const user = await createUser(token, payload)
-    await refreshUsers()
-    return user
-  }, [token, refreshUsers])
-
-  const editUser = useCallback(async (id: number, payload: UpdateUserPayload): Promise<AdminUser> => {
-    if (!token) throw new Error('Not authenticated')
-    const user = await updateUser(token, id, payload)
-    await refreshUsers()
-    return user
-  }, [token, refreshUsers])
-
-  const removeUser = useCallback(async (id: number): Promise<void> => {
-    if (!token) throw new Error('Not authenticated')
-    await deleteUser(token, id)
-    await refreshUsers()
-  }, [token, refreshUsers])
-
-  const fetchUserUsage = useCallback(async (id: number) => {
-    if (!token) return null
-    return getUserUsage(token, id)
+    const updated = await updateGoogleUser(token, userId, { is_admin: isAdmin })
+    setGoogleUsers((prev) => prev.map((u) => (u.user_id === userId ? updated : u)))
+    return updated
   }, [token])
 
-  const fetchUserFeedback = useCallback(async (id: number) => {
-    if (!token) return null
-    return getUserFeedback(token, id)
+  const setUserDisabled = useCallback(async (userId: string, isDisabled: boolean) => {
+    if (!token) throw new Error('Not authenticated')
+    const updated = await updateGoogleUser(token, userId, { is_disabled: isDisabled })
+    setGoogleUsers((prev) => prev.map((u) => (u.user_id === userId ? updated : u)))
+    return updated
+  }, [token])
+
+  const toggleKillSwitch = useCallback(async (enabled: boolean) => {
+    if (!token) throw new Error('Not authenticated')
+    const result = await apiSetKillSwitch(token, enabled)
+    setKillSwitchEnabled(result.enabled)
+    return result
   }, [token])
 
   return {
@@ -177,8 +184,9 @@ export function useAdmin() {
     login, logout, refresh, resetDemo,
     triggerRefresh, triggerGitHubActions,
     status, settings, analytics, demoStatus, feedback, refreshStatus,
-    users, refreshUsers, addUser, editUser, removeUser,
-    fetchUserUsage, fetchUserFeedback,
+    googleUsers, googleUserSummary, queryLogs, refreshGoogleUsers,
+    setGoogleUserAdmin, setUserDisabled,
+    killSwitchEnabled, toggleKillSwitch,
     loading, error,
   }
 }

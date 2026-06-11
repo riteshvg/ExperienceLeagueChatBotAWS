@@ -41,3 +41,8 @@ Current state
 - Answers are clean with no citation markers
 - ChromaDB still has the validated URL metadata (756 live URLs) — citations can be re-enabled later with a reliable matching strategy
 - The URL cleanup script (scripts/fix_citation_urls.py) can be re-run periodically to prune stale links as EL reorganizes
+
+blog posts
+
+- post on how based on query we pick Haiku or Sonnet. Tie it with cost optimization in cavalli's blog
+- post on showing how langsmith traces queries which are simple and complex

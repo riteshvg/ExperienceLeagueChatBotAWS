@@ -2,6 +2,7 @@ import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom'
 import { ChatPage } from '@/pages/ChatPage'
 import { AdminPage } from '@/pages/AdminPage'
 import { LoginPage } from '@/pages/LoginPage'
+import { OAuthCallback } from '@/pages/OAuthCallback'
 import { useAuthStore } from '@/store/authStore'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -14,6 +15,7 @@ export default function App() {
     <BrowserRouter basename={import.meta.env.PROD ? '/tools/exlunofficialchatbot' : '/'}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/callback" element={<OAuthCallback />} />
         <Route path="/" element={
           <ProtectedRoute><ChatPage /></ProtectedRoute>
         } />

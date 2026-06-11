@@ -1,104 +1,162 @@
 """
-Site authentication — POST /api/auth/login
+Google OAuth endpoints.
 
-Authenticates against the users SQLite table (backend/core/user_db.py).
-Credentials are seeded from SITE_USERNAME/SITE_PASSWORD env vars on first startup.
+GET    /api/auth/google           — redirect browser to Google consent screen
+GET    /api/auth/google/callback  — exchange auth code, create session, redirect to frontend
+DELETE /api/auth/session          — invalidate session (logout)
 """
 
+import logging
 import sys
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from jose import jwt
-from pydantic import BaseModel
-from typing import Annotated, Optional
+import httpx
+from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.responses import RedirectResponse
 
 _ROOT = Path(__file__).parent.parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from backend.api.deps import _secret, _ALGORITHM, get_site_user
-from backend.core.demo_counter import get_status as global_demo_status
-from backend.core import user_db
+from backend.core import google_db
+from config.settings import get_settings
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth")
 
-_TOKEN_TTL_DAYS = 30
+_GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+_GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo"
 
 
-class SiteLoginRequest(BaseModel):
-    username: str
-    password: str
+def _s():
+    return get_settings()
 
 
-@router.post("/login")
-async def site_login(body: SiteLoginRequest):
-    user = user_db.get_user_by_username(body.username)
-
-    if not user or not user_db.verify_password(body.password, user["password_hash"]):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid username or password",
-        )
-
-    if not user["is_active"]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your account has been disabled. Contact the administrator.",
-        )
-
-    role = user["role"]
-    ttl_days = 1 if role == "demo" else _TOKEN_TTL_DAYS
-    exp = datetime.now(tz=timezone.utc) + timedelta(days=ttl_days)
-
-    token = jwt.encode(
-        {"sub": user["username"], "role": role, "uid": user["id"], "exp": exp},
-        _secret(),
-        algorithm=_ALGORITHM,
-    )
-
-    resp: dict = {"token": token, "role": role, "expires_at": exp.isoformat()}
-
-    if role == "demo":
-        # Return global demo counter so frontend shows the limit banner
-        resp["demo"] = global_demo_status()
-    elif user.get("question_limit") is not None:
-        # Return per-user limit status so the same banner shows for limited users
-        ql = user["question_limit"]
-        qc = user["question_count"]
-        resp["demo"] = {
-            "questions_used": qc,
-            "questions_limit": ql,
-            "questions_remaining": max(0, ql - qc),
-            "exhausted": qc >= ql,
-        }
-
-    return resp
+def _error_redirect(frontend_url: str, reason: str) -> RedirectResponse:
+    return RedirectResponse(f"{frontend_url}/callback?error={reason}")
 
 
-@router.get("/demo/status")
-async def get_demo_status():
-    """Public endpoint — lets the frontend poll the global demo counter."""
-    return global_demo_status()
+@router.get("/google")
+async def google_login(request: Request):
+    """Redirect to Google OAuth consent screen."""
+    s = _s()
+    if not s.google_client_id or not s.oauth_redirect_uri:
+        raise HTTPException(status_code=503, detail="Google OAuth not configured on this server.")
+
+    ip = request.headers.get("x-forwarded-for", request.client.host or "unknown").split(",")[0].strip()
+    try:
+        if not google_db.check_and_update_ratelimit(ip):
+            raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again in a minute.")
+    except RuntimeError:
+        # DB unavailable — still allow the redirect (fail open on rate limit)
+        pass
+
+    params = urlencode({
+        "client_id": s.google_client_id,
+        "redirect_uri": s.oauth_redirect_uri,
+        "response_type": "code",
+        "scope": "email profile openid",
+        "access_type": "online",
+        "prompt": "select_account",
+    })
+    return RedirectResponse(f"{_GOOGLE_AUTH_URL}?{params}")
 
 
-@router.get("/status")
-async def get_user_status(user: Annotated[dict, Depends(get_site_user)]):
-    """Return current question-limit status for the authenticated user."""
-    uid = user.get("uid")
-    if not uid:
-        return {"question_limit": None, "question_count": 0, "exhausted": False}
-    db_user = user_db.get_user_by_id(uid)
-    if not db_user:
-        return {"question_limit": None, "question_count": 0, "exhausted": False}
-    ql: Optional[int] = db_user.get("question_limit")
-    qc: int = db_user.get("question_count", 0)
-    if ql is None:
-        return {"question_limit": None, "question_count": qc, "exhausted": False}
-    return {
-        "questions_used": qc,
-        "questions_limit": ql,
-        "questions_remaining": max(0, ql - qc),
-        "exhausted": qc >= ql,
-    }
+@router.get("/google/callback")
+async def google_callback(
+    request: Request,
+    code: str = None,
+    error: str = None,
+):
+    """Exchange auth code for tokens, upsert user, create session, redirect to frontend."""
+    s = _s()
+    frontend = s.frontend_url
+
+    if error or not code:
+        logger.warning(f"OAuth denied or missing code: error={error}")
+        return _error_redirect(frontend, "oauth_denied")
+
+    # Exchange code for tokens
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            token_resp = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "code": code,
+                    "client_id": s.google_client_id,
+                    "client_secret": s.google_client_secret,
+                    "redirect_uri": s.oauth_redirect_uri,
+                    "grant_type": "authorization_code",
+                },
+            )
+    except Exception as exc:
+        logger.error(f"Token exchange network error: {exc}")
+        return _error_redirect(frontend, "token_exchange_failed")
+
+    if token_resp.status_code != 200:
+        logger.error(f"Token exchange failed: {token_resp.status_code} {token_resp.text}")
+        return _error_redirect(frontend, "token_exchange_failed")
+
+    access_token = token_resp.json().get("access_token")
+    if not access_token:
+        return _error_redirect(frontend, "no_access_token")
+
+    # Fetch Google user info
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            user_resp = await client.get(
+                _GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+    except Exception as exc:
+        logger.error(f"Userinfo fetch error: {exc}")
+        return _error_redirect(frontend, "userinfo_failed")
+
+    if user_resp.status_code != 200:
+        return _error_redirect(frontend, "userinfo_failed")
+
+    info = user_resp.json()
+    user_id = info.get("id", "")
+    email = info.get("email", "")
+    name = info.get("name", email)
+    picture = info.get("picture", "")
+
+    if not user_id or not email:
+        return _error_redirect(frontend, "missing_user_info")
+
+    # Persist user + create session
+    try:
+        user_row = google_db.upsert_user(user_id, email, name, picture)
+        session_token, expires_at = google_db.create_session(user_id, email, name, picture)
+    except Exception as exc:
+        logger.error(f"DB error during session creation: {exc}")
+        return _error_redirect(frontend, "db_error")
+
+    is_admin = bool(user_row.get("is_admin", False))
+
+    # Redirect to frontend /callback with session data as query params
+    params = urlencode({
+        "token": session_token,
+        "user_id": user_id,
+        "email": email,
+        "name": name,
+        "picture": picture,
+        "expires_at": expires_at,
+        "is_admin": "1" if is_admin else "0",
+    })
+    return RedirectResponse(f"{frontend}/callback?{params}")
+
+
+@router.delete("/session")
+async def logout(request: Request):
+    """Invalidate the caller's session on the server."""
+    auth = request.headers.get("authorization", "")
+    if auth.startswith("Bearer "):
+        token = auth[7:]
+        try:
+            google_db.delete_session(token)
+        except Exception as exc:
+            logger.warning(f"Session delete failed (non-fatal): {exc}")
+    return {"logged_out": True}

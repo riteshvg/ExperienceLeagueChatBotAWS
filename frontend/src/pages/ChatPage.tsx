@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Menu } from 'lucide-react'
+import { Menu, Ban } from 'lucide-react'
 import { useChatStore } from '@/store/chatStore'
 import { useAuthStore } from '@/store/authStore'
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput'
@@ -60,12 +60,11 @@ const CATEGORY_COLORS: Record<Exclude<Category, 'All'>, string> = {
 }
 
 export function ChatPage() {
-  const { sessions, activeSessionId, isStreaming, sendMessage, error } = useChatStore()
-  const { isDemo, demoStatus, refreshDemoStatus } = useAuthStore()
+  const { sessions, activeSessionId, isStreaming, sendMessage, error, accessDenied } = useChatStore()
+  const { logout } = useAuthStore()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeCategory, setActiveCategory] = useState<Category>('All')
   const messages = sessions[activeSessionId]?.messages ?? []
-  const demoExhausted = isDemo && (demoStatus?.exhausted ?? false)
 
   const visibleQuestions = activeCategory === 'All'
     ? Object.entries(QUESTION_BANK).flatMap(([cat, qs]) =>
@@ -83,13 +82,35 @@ export function ChatPage() {
   useEffect(() => {
     if (!isStreaming && messages.length > 0) {
       inputRef.current?.focus()
-      // Refresh demo counter after each answer
-      if (isDemo) refreshDemoStatus()
     }
-  }, [isStreaming, messages.length, isDemo, refreshDemoStatus])
+  }, [isStreaming, messages.length])
 
   const handleSelectPrompt = (text: string) => {
     inputRef.current?.fill(text)
+  }
+
+  if (accessDenied) {
+    return (
+      <div className="flex w-full h-screen items-center justify-center bg-slate-50 p-6">
+        <div className="flex flex-col items-center gap-4 max-w-sm text-center">
+          <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center">
+            <Ban className="w-7 h-7 text-red-500" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800 mb-1">Account Disabled</h2>
+            <p className="text-sm text-slate-500">
+              Your access to EXL Chatbot has been disabled. If you believe this is an error, please contact the administrator.
+            </p>
+          </div>
+          <button
+            onClick={() => logout()}
+            className="mt-2 px-5 py-2 rounded-lg bg-slate-800 text-white text-sm font-medium hover:bg-slate-900 transition-colors"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -110,17 +131,6 @@ export function ChatPage() {
             Adobe Docs Assistant
             <span className="ml-2 text-xs font-normal text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">unofficial</span>
           </h1>
-          {isDemo && demoStatus && (
-            <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-              demoExhausted
-                ? 'bg-red-50 text-red-600 border border-red-200'
-                : 'bg-amber-50 text-amber-700 border border-amber-200'
-            }`}>
-              {demoExhausted
-                ? 'Demo limit reached'
-                : `${demoStatus.questions_remaining} of ${demoStatus.questions_limit} questions remaining`}
-            </span>
-          )}
         </header>
 
         {/* Messages */}
@@ -188,14 +198,7 @@ export function ChatPage() {
 
         {/* Input */}
         <div className="flex-shrink-0 px-4 py-3 bg-slate-50 border-t border-slate-200">
-          {demoExhausted ? (
-            <div className="text-center py-3 px-4 rounded-xl bg-amber-50 border border-amber-200">
-              <p className="text-sm font-medium text-amber-800">You've used all 5 demo questions</p>
-              <p className="text-xs text-amber-600 mt-1">Contact the administrator to reset your demo access</p>
-            </div>
-          ) : (
-            <ChatInput ref={inputRef} onSend={sendMessage} disabled={isStreaming} />
-          )}
+          <ChatInput ref={inputRef} onSend={sendMessage} disabled={isStreaming} />
           <p className="text-center text-xs text-slate-400 mt-2">
             Answers are grounded in Adobe Experience League documentation
           </p>

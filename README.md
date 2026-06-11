@@ -184,6 +184,92 @@ python test_model_access.py
 - [Environment Setup](scripts/setup_env_guide.md)
 - [Knowledge Base Evaluation](knowledge_base_qa_evaluation.md)
 
+---
+
+## Google OAuth Setup
+
+### Google Cloud Console (manual steps)
+
+1. Go to **Google Cloud Console → APIs & Services → Credentials**
+2. Click **Create Credentials → OAuth 2.0 Client ID**
+3. Application type: **Web application**
+4. Add **Authorised redirect URI**:
+   ```
+   https://experienceleaguechatbotaws-production.up.railway.app/api/auth/google/callback
+   ```
+5. Add **Authorised JavaScript origins**:
+   ```
+   https://thelearningproject.in
+   ```
+6. Note the **Client ID** and **Client Secret** — add them to Railway environment variables.
+
+### Railway environment variables to add
+
+| Variable | Value |
+|---|---|
+| `GOOGLE_CLIENT_ID` | From Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | From Google Cloud Console |
+| `OAUTH_REDIRECT_URI` | `https://experienceleaguechatbotaws-production.up.railway.app/api/auth/google/callback` |
+| `FRONTEND_URL` | `https://thelearningproject.in/tools/exlunofficialchatbot` |
+
+### Variables to remove from Railway
+
+- `SITE_USERNAME` (no longer used)
+- `SITE_PASSWORD` (no longer used — `ADMIN_PASSWORD` stays for the admin panel and MCP OAuth)
+
+### PostgreSQL requirement
+
+Google OAuth sessions are stored in the Railway PostgreSQL database (`DATABASE_URL`). The tables `exl_users`, `exl_sessions`, and `exl_ratelimits` are created automatically on first startup.
+
+For local development, set `DATABASE_URL` to a PostgreSQL connection string:
+```
+DATABASE_URL=postgresql://user:pass@localhost:5432/exlchatbot
+```
+
+### SQL table definitions (created automatically, shown for reference)
+
+```sql
+CREATE TABLE IF NOT EXISTS exl_users (
+    user_id       TEXT PRIMARY KEY,
+    email         TEXT NOT NULL UNIQUE,
+    name          TEXT NOT NULL DEFAULT '',
+    picture       TEXT NOT NULL DEFAULT '',
+    first_seen    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen     TIMESTAMPTZ,
+    total_queries INTEGER NOT NULL DEFAULT 0,
+    is_admin      BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS exl_sessions (
+    session_token TEXT PRIMARY KEY,
+    user_id       TEXT NOT NULL,
+    email         TEXT NOT NULL,
+    name          TEXT NOT NULL DEFAULT '',
+    picture       TEXT NOT NULL DEFAULT '',
+    expires_at    TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS exl_ratelimits (
+    ip            TEXT NOT NULL,
+    window_start  TIMESTAMPTZ NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY (ip, window_start)
+);
+```
+
+### Migration notes
+
+- **Removed**: `SITE_USERNAME` / `SITE_PASSWORD` env vars and all username/password auth logic
+- **Removed**: SQLite user CRUD admin endpoints (`POST /api/admin/users`, `DELETE /api/admin/users/{id}`)
+- **Removed**: Per-user question limits and demo user concept
+- **Changed**: `SITE_PASSWORD` in MCP OAuth flow (`oauth.py`) replaced with `ADMIN_PASSWORD`
+- **Changed**: `/api/admin/users` now returns Google OAuth users from PostgreSQL (different schema)
+- **Changed**: Admin "Users" tab shows Google users; old username/password user table is gone
+- **Frontend**: localStorage key changed from `el-auth` (Zustand) to `exl_session` (plain JSON)
+- **Frontend**: Auth flow: Google Sign-In button → `window.location.href = /api/auth/google` → Google consent → `/api/auth/google/callback` → frontend `/callback` route → chat
+
+---
+
 ## 🤝 Contributing
 
 1. Fork the repository

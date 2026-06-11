@@ -121,7 +121,7 @@ async def authorize(
     code_challenge_method: str = "S256",
     response_type: str = "code",
 ):
-    site_password = os.getenv("SITE_PASSWORD", "")
+    site_password = os.getenv("ADMIN_PASSWORD", "")
     return HTMLResponse(f"""
 <!doctype html>
 <html>
@@ -187,7 +187,7 @@ async def approve(
     code_challenge_method: str = Form("S256"),
     password: str = Form(""),
 ):
-    site_password = os.getenv("SITE_PASSWORD", "")
+    site_password = os.getenv("ADMIN_PASSWORD", "")
     if not site_password or password != site_password:
         raise HTTPException(status_code=401, detail="Invalid password")
 

@@ -1,25 +1,21 @@
-import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
 import { useAuthStore } from '@/store/authStore'
 
 export function LoginPage() {
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const { login, error } = useAuthStore()
-  const [loading, setLoading] = useState(false)
-  const navigate = useNavigate()
+  const { initiateGoogleLogin, isAuthenticated } = useAuthStore()
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault()
-    if (!username.trim() || !password.trim()) return
-    setLoading(true)
-    await login(username.trim(), password)
-    setLoading(false)
-    // Navigate to app if login succeeded (no error in store)
-    if (useAuthStore.getState().isAuthenticated) {
-      navigate('/', { replace: true })
+  // If arriving here after an error redirect from the OAuth callback
+  const params = new URLSearchParams(window.location.search)
+  const oauthError = params.get('error')
+
+  // If somehow already authenticated, let ProtectedRoute handle the redirect
+  useEffect(() => {
+    if (isAuthenticated) {
+      window.location.replace(
+        import.meta.env.BASE_URL?.replace(/\/$/, '') || '/'
+      )
     }
-  }
+  }, [isAuthenticated])
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
@@ -34,56 +30,36 @@ export function LoginPage() {
           <p className="text-sm text-slate-400 mt-1">Sign in to continue</p>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200
-          shadow-sm px-6 py-7 space-y-4">
-
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-600">Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoFocus
-              autoComplete="username"
-              placeholder="Enter your username"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm
-                text-slate-800 placeholder:text-slate-400 focus:outline-none
-                focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-slate-600">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              placeholder="Enter your password"
-              className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm
-                text-slate-800 placeholder:text-slate-400 focus:outline-none
-                focus:border-blue-400 focus:ring-1 focus:ring-blue-400 transition"
-            />
-          </div>
-
-          {error && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-200
-              rounded-lg px-3 py-2">
-              {error}
+        {/* Card */}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm px-6 py-7 space-y-5">
+          {oauthError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              Sign-in failed ({oauthError.replace(/_/g, ' ')}). Please try again.
             </p>
           )}
 
+          {/* Google Sign-In button */}
           <button
-            type="submit"
-            disabled={loading || !username.trim() || !password.trim()}
-            className="w-full py-2.5 rounded-xl text-sm font-medium transition-colors
-              bg-blue-600 text-white hover:bg-blue-700
-              disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed"
+            onClick={initiateGoogleLogin}
+            className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-xl
+              bg-white border border-slate-300 shadow-sm text-sm font-medium text-slate-700
+              hover:bg-slate-50 hover:border-slate-400 transition-colors"
           >
-            {loading ? 'Signing in…' : 'Sign in'}
+            {/* Google logo SVG */}
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+              <path fill="#FBBC05" d="M3.964 10.707A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.707V4.961H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.039l3.007-2.332z"/>
+              <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z"/>
+            </svg>
+            Sign in with Google
           </button>
-        </form>
+
+          <p className="text-center text-xs text-slate-400 leading-relaxed">
+            Sign-in is required to manage usage and prevent abuse.
+            Your data is not shared.
+          </p>
+        </div>
 
         <p className="text-center text-xs text-slate-400 mt-6">
           Unofficial tool — not an Adobe product

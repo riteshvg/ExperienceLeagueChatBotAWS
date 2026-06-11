@@ -35,14 +35,14 @@ function groupByDate(sessions: ChatSession[]): { label: string; items: ChatSessi
 
 export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
   const { sessions, activeSessionId, isStreaming, startNewChat, switchSession, deleteSession } = useChatStore()
-  const { logout, role } = useAuthStore()
+  const { logout, session } = useAuthStore()
   const navigate = useNavigate()
   const [showPrompts, setShowPrompts] = useState(false)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
   const [collapsed, setCollapsed] = useState(false)
 
-  const handleLogout = () => {
-    logout()
+  const handleLogout = async () => {
+    await logout()
     navigate('/login')
   }
 
@@ -209,7 +209,38 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
 
       {/* Footer */}
       <div className={cn('py-3 border-t border-slate-700 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
-        {role === 'user' && (
+        {/* User avatar + name */}
+        {session && !collapsed && (
+          <div className="flex items-center gap-2 px-3 py-2 mb-1">
+            {session.picture ? (
+              <img
+                src={session.picture}
+                alt={session.name}
+                className="w-7 h-7 rounded-full flex-shrink-0"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-slate-600 flex items-center justify-center flex-shrink-0">
+                <span className="text-xs font-medium text-slate-300">
+                  {session.name.charAt(0).toUpperCase()}
+                </span>
+              </div>
+            )}
+            <span className="text-xs text-slate-300 truncate">{session.name || session.email}</span>
+          </div>
+        )}
+        {session && collapsed && session.picture && (
+          <div className="flex justify-center mb-1">
+            <img
+              src={session.picture}
+              alt={session.name}
+              className="w-7 h-7 rounded-full"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+        )}
+
+        {session?.is_admin && (
           <Link
             to="/admin"
             title="Admin"

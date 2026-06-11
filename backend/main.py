@@ -10,8 +10,9 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # ── Project root on sys.path ─────────────────────────────────────────────────
 _ROOT = Path(__file__).parent.parent
@@ -24,7 +25,7 @@ from backend.api.routes.chat import router as chat_router
 from backend.api.routes.health import router as health_router
 from backend.api.routes.oauth import router as oauth_router
 from backend.core.chroma_retriever import ChromaRetriever
-from backend.core import user_db
+from backend.core import user_db, google_db
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 from config.settings import get_settings
@@ -103,14 +104,18 @@ async def lifespan(app: FastAPI):
     _configure_langsmith()
     logger.info("Starting up — loading ChromaDB and models…")
 
-    # Initialise user DB and seed defaults from env vars
-    s = get_settings()
+    # Initialise SQLite user DB (kept for demo counter + legacy compat)
     user_db.init_db()
-    user_db.seed_defaults(
-        site_username=s.site_username,
-        site_password=s.site_password,
-    )
-    logger.info("User DB ready")
+    logger.info("SQLite user DB ready")
+
+    # Initialise PostgreSQL Google OAuth tables
+    try:
+        google_db.init_tables()
+        logger.info("Google OAuth DB tables ready (PostgreSQL)")
+    except Exception as exc:
+        logger.warning(
+            f"Google OAuth DB init failed — Google sign-in will be unavailable: {exc}"
+        )
 
     _restore_chroma_from_s3()
     try:
@@ -150,6 +155,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def kill_switch_middleware(request: Request, call_next):
+    path = request.url.path
+    # Only gate /api/* routes; let auth, admin, health, mcp, and OPTIONS through
+    if (
+        path.startswith("/api/")
+        and not path.startswith("/api/auth/")
+        and not path.startswith("/api/admin/")
+        and not path.startswith("/api/health")
+        and request.method != "OPTIONS"
+    ):
+        try:
+            from backend.core.kill_switch import is_api_enabled
+            if not is_api_enabled():
+                return JSONResponse(
+                    status_code=503,
+                    content={"detail": "Service temporarily unavailable. Please try again later."},
+                )
+        except Exception:
+            pass
+    return await call_next(request)
+
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")

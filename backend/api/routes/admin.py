@@ -20,7 +20,7 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from backend.api.deps import get_admin_user, get_retriever, _secret, _ALGORITHM
-from backend.core import user_db as _user_db
+from backend.core import google_db as _google_db
 from config.settings import get_settings
 
 router = APIRouter(prefix="/admin")
@@ -40,11 +40,14 @@ class LoginRequest(BaseModel):
 
 @router.post("/login")
 async def login(body: LoginRequest):
-    admin_password = get_settings().admin_password or ""
+    settings = get_settings()
+    admin_password = settings.admin_password or ""
     if not admin_password or body.password != admin_password:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+    # Use ADMIN_EMAIL as sub if set, so get_admin_user can verify it
+    sub = (settings.admin_email or "").strip() or "admin"
     exp = datetime.now(tz=timezone.utc) + timedelta(hours=_TOKEN_TTL_HOURS)
-    token = jwt.encode({"sub": "admin", "exp": exp}, _secret(), algorithm=_ALGORITHM)
+    token = jwt.encode({"sub": sub, "exp": exp}, _secret(), algorithm=_ALGORITHM)
     return {"token": token, "expires_at": exp.isoformat()}
 
 
@@ -53,128 +56,76 @@ async def logout(_: Annotated[str, Depends(get_admin_user)]):
     return {"logged_out": True}
 
 
-# ── User management ───────────────────────────────────────────────────────────
-
-class CreateUserRequest(BaseModel):
-    username: str
-    password: str
-    role: str = "user"
-    question_limit: Optional[int] = None
-    is_active: bool = True
+# ── Google OAuth user management ─────────────────────────────────────────────
 
 
-class UpdateUserRequest(BaseModel):
-    password: Optional[str] = None
-    role: Optional[str] = None
-    question_limit: Optional[int] = None
-    is_active: Optional[bool] = None
+class UpdateGoogleUserRequest(BaseModel):
+    is_admin: Optional[bool] = None
+    is_disabled: Optional[bool] = None
 
 
-def _safe_user(u: dict) -> dict:
-    """Strip password_hash before returning to client."""
-    return {k: v for k, v in u.items() if k != "password_hash"}
-
-
-def _enrich_user(u: dict) -> dict:
-    """Add total_cost to a user record."""
-    enriched = _safe_user(u)
-    enriched["total_cost_usd"] = _user_db.get_user_total_cost(u["id"])
-    return enriched
+def _serialize_user(u: dict) -> dict:
+    """Convert PostgreSQL row to JSON-safe dict (timestamps → ISO strings)."""
+    result = {}
+    for k, v in u.items():
+        if hasattr(v, "isoformat"):
+            result[k] = v.isoformat()
+        elif isinstance(v, bool):
+            result[k] = v
+        else:
+            result[k] = v
+    return result
 
 
 @router.get("/users")
 async def list_users(_: Annotated[str, Depends(get_admin_user)]):
-    users = _user_db.list_users()
-    return [_enrich_user(u) for u in users]
-
-
-@router.post("/users", status_code=201)
-async def create_user(
-    body: CreateUserRequest,
-    _: Annotated[str, Depends(get_admin_user)],
-):
-    if _user_db.get_user_by_username(body.username):
-        raise HTTPException(status_code=409, detail="Username already exists")
-    if body.role not in ("user", "demo"):
-        raise HTTPException(status_code=422, detail="role must be 'user' or 'demo'")
-    user = _user_db.create_user(
-        username=body.username,
-        password=body.password,
-        role=body.role,
-        question_limit=body.question_limit,
-        is_active=body.is_active,
-    )
-    return _safe_user(user)
+    """Return all Google OAuth users ordered by last_seen desc."""
+    try:
+        users = _google_db.list_users()
+        return [_serialize_user(u) for u in users]
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"User DB unavailable: {exc}")
 
 
 @router.patch("/users/{user_id}")
 async def update_user(
-    user_id: int,
-    body: UpdateUserRequest,
+    user_id: str,
+    body: UpdateGoogleUserRequest,
     _: Annotated[str, Depends(get_admin_user)],
 ):
-    if not _user_db.get_user_by_id(user_id):
+    """Update is_admin and/or is_disabled flags on a Google user."""
+    try:
+        updated: Optional[dict] = None
+        if body.is_admin is not None:
+            updated = _google_db.set_admin(user_id, body.is_admin)
+        if body.is_disabled is not None:
+            updated = _google_db.set_disabled(user_id, body.is_disabled)
+        if updated is None:
+            users = _google_db.list_users()
+            updated = next((u for u in users if u["user_id"] == user_id), None)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"User DB unavailable: {exc}")
+    if not updated:
         raise HTTPException(status_code=404, detail="User not found")
-    if body.role is not None and body.role not in ("user", "demo"):
-        raise HTTPException(status_code=422, detail="role must be 'user' or 'demo'")
-
-    # Build kwargs from explicitly-provided fields (model_fields_set)
-    kwargs: dict = {}
-    provided = body.model_fields_set
-    if "password" in provided and body.password:
-        kwargs["password"] = body.password
-    if "role" in provided and body.role is not None:
-        kwargs["role"] = body.role
-    if "question_limit" in provided:
-        kwargs["question_limit"] = body.question_limit  # None clears the limit
-    if "is_active" in provided and body.is_active is not None:
-        kwargs["is_active"] = body.is_active
-
-    user = _user_db.update_user(user_id, **kwargs)
-    return _safe_user(user)
+    return _serialize_user(updated)
 
 
-@router.delete("/users/{user_id}", status_code=204)
-async def delete_user(
-    user_id: int,
-    _: Annotated[str, Depends(get_admin_user)],
-):
-    if not _user_db.delete_user(user_id):
-        raise HTTPException(status_code=404, detail="User not found")
+@router.get("/users/summary")
+async def users_summary(_: Annotated[str, Depends(get_admin_user)]):
+    """Return aggregate stats: total users + total queries all time."""
+    try:
+        return _google_db.get_summary()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"User DB unavailable: {exc}")
 
 
-@router.get("/users/{user_id}/usage")
-async def get_user_usage(
-    user_id: int,
-    _: Annotated[str, Depends(get_admin_user)],
-):
-    if not _user_db.get_user_by_id(user_id):
-        raise HTTPException(status_code=404, detail="User not found")
-    logs = _user_db.get_user_usage(user_id)
-    total_cost = sum(l.get("total_cost_usd", 0) for l in logs)
-    return {"user_id": user_id, "logs": logs, "total_cost_usd": total_cost}
-
-
-@router.get("/users/{user_id}/feedback")
-async def get_user_feedback(
-    user_id: int,
-    _: Annotated[str, Depends(get_admin_user)],
-):
-    import json as _json
-    user = _user_db.get_user_by_id(user_id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    # Feedback is stored by session; match on username via session lookup is not
-    # directly available, so we return all feedback with the session_id for context.
-    # Future: join feedback on user sessions when session ownership is tracked.
-    entries = []
-    if _FEEDBACK_FILE.exists():
-        for line in _FEEDBACK_FILE.read_text().strip().splitlines():
-            try:
-                entries.append(_json.loads(line))
-            except Exception:
-                pass
-    return {"user_id": user_id, "username": user["username"], "entries": entries}
+@router.get("/query-logs")
+async def get_query_logs(_: Annotated[str, Depends(get_admin_user)], limit: int = 100):
+    """Return recent query logs with model, token counts, and cost."""
+    try:
+        return _google_db.list_query_logs(limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Query logs unavailable: {exc}")
 
 
 # ── Refresh pipeline ──────────────────────────────────────────────────────────
@@ -214,14 +165,10 @@ async def trigger_github_actions(_: Annotated[str, Depends(get_admin_user)], for
 
 @router.get("/feedback")
 async def get_feedback(_: Annotated[str, Depends(get_admin_user)]):
-    import json as _json
-    entries = []
-    if _FEEDBACK_FILE.exists():
-        for line in _FEEDBACK_FILE.read_text().strip().splitlines():
-            try:
-                entries.append(_json.loads(line))
-            except Exception:
-                pass
+    try:
+        entries = _google_db.list_feedback(limit=200)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Feedback DB unavailable: {exc}")
     total = len(entries)
     thumbs_up = sum(1 for e in entries if e.get("rating") == 1)
     thumbs_down = sum(1 for e in entries if e.get("rating") == -1)
@@ -232,8 +179,34 @@ async def get_feedback(_: Annotated[str, Depends(get_admin_user)]):
             "thumbs_down": thumbs_down,
             "positive_pct": round(thumbs_up / total * 100, 1) if total else 0,
         },
-        "entries": sorted(entries, key=lambda e: e.get("timestamp", ""), reverse=True)[:50],
+        "entries": entries[:50],
     }
+
+
+# ── Kill switch ───────────────────────────────────────────────────────────────
+
+class KillSwitchRequest(BaseModel):
+    enabled: bool
+
+
+@router.get("/kill-switch")
+async def get_kill_switch_status(_: Annotated[str, Depends(get_admin_user)]):
+    from backend.core import kill_switch
+    try:
+        enabled = kill_switch.is_api_enabled()
+    except Exception:
+        enabled = True
+    return {"enabled": enabled}
+
+
+@router.post("/kill-switch")
+async def set_kill_switch(body: KillSwitchRequest, _: Annotated[str, Depends(get_admin_user)]):
+    from backend.core import kill_switch
+    try:
+        kill_switch.set_enabled(body.enabled)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Kill switch unavailable: {exc}")
+    return {"enabled": body.enabled}
 
 
 # ── Demo ──────────────────────────────────────────────────────────────────────
@@ -241,10 +214,6 @@ async def get_feedback(_: Annotated[str, Depends(get_admin_user)]):
 @router.post("/demo/reset")
 async def reset_demo(_: Annotated[str, Depends(get_admin_user)]):
     from backend.core.demo_counter import reset as demo_reset
-    # Also reset the demo user's question_count in the DB
-    demo_user = _user_db.get_user_by_username("demo")
-    if demo_user:
-        _user_db.update_user(demo_user["id"], question_count=0)
     return demo_reset()
 
 
