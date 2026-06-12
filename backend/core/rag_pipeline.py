@@ -39,6 +39,20 @@ logger = logging.getLogger(__name__)
 _HAIKU_MODEL  = "claude-haiku-4-5-20251001"
 _SONNET_MODEL = "claude-sonnet-4-6"
 
+# Returned directly (no LLM) when the query is clearly off-topic
+_OUT_OF_SCOPE_RESPONSE = (
+    "I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, "
+    "Adobe Journey Optimizer, and Adobe Data Collection.\n\n"
+    "That topic is outside my area of expertise. I specialise exclusively in:\n\n"
+    "- **Adobe Analytics** – reporting, data collection, implementation\n"
+    "- **Customer Journey Analytics (CJA)** – cross-channel analysis, connections, data views\n"
+    "- **Adobe Experience Platform (AEP)** – schemas, datasets, segments, destinations, RTCDP\n"
+    "- **Adobe Target** – A/B testing, personalisation, recommendations\n"
+    "- **Adobe Journey Optimizer (AJO)** – journeys, campaigns, decision management\n"
+    "- **Adobe Data Collection** – Tags/Launch, Web SDK, Mobile SDK, Datastreams, Edge Network\n\n"
+    "Please ask me anything related to these products and I'll be happy to help! 😊"
+)
+
 _FOLLOWUP_PATTERNS = re.compile(
     r'\b(it|this|that|one|them|they|those|these|the same|the above|do so|how do i|can i|steps|process)\b',
     re.IGNORECASE,
@@ -288,8 +302,16 @@ class RAGPipeline:
             yield {"type": "done", "model": "none", "session_id": session_id}
             return
 
-        # Off-topic detection: if best match score < 0.25, question isn't about Adobe docs
+        # Off-topic detection: if best match score < 0.25, skip LLM entirely
         off_topic = self._is_off_topic(raw_docs)
+        if off_topic:
+            yield {"type": "token", "content": _OUT_OF_SCOPE_RESPONSE}
+            self.session_store.append_turn(session_id, "user", query)
+            self.session_store.append_turn(session_id, "assistant", _OUT_OF_SCOPE_RESPONSE)
+            yield {"type": "citations", "citations": []}
+            yield {"type": "done", "model": "none", "session_id": session_id,
+                   "input_tokens": 0, "output_tokens": 0}
+            return
 
         # Number docs so the LLM can cite [1], [2], etc. inline
         context = "\n\n---\n\n".join(
@@ -319,6 +341,21 @@ class RAGPipeline:
     # ── Sonnet: LangGraph multi-pass agent ────────────────────────────────────
 
     async def _stream_agent(self, query, session_id, history, settings):
+        # Pre-check: skip expensive Sonnet agent for clearly off-topic queries
+        probe_docs = self.retriever.retrieve(
+            query,
+            n_results=settings.max_retrieval_results,
+            similarity_threshold=settings.similarity_threshold,
+        )
+        if self._is_off_topic(probe_docs):
+            yield {"type": "token", "content": _OUT_OF_SCOPE_RESPONSE}
+            self.session_store.append_turn(session_id, "user", query)
+            self.session_store.append_turn(session_id, "assistant", _OUT_OF_SCOPE_RESPONSE)
+            yield {"type": "citations", "citations": []}
+            yield {"type": "done", "model": "none", "session_id": session_id,
+                   "input_tokens": 0, "output_tokens": 0}
+            return
+
         citations_out: list = []
         search_tool = _make_search_tool(
             self.retriever, self.query_processor, settings, citations_out
