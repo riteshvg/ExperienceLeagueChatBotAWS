@@ -32,7 +32,8 @@ def _connect():
             "DATABASE_URL must be a PostgreSQL connection string for Google OAuth "
             "(e.g. postgresql://user:pass@host:port/dbname)"
         )
-    conn = psycopg2.connect(dsn=url, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn = psycopg2.connect(dsn=url, cursor_factory=psycopg2.extras.RealDictCursor,
+                            connect_timeout=10)
     conn.autocommit = False
     return conn
 

@@ -1,36 +1,42 @@
 """
-Async URL validator with in-memory TTL cache.
+Async URL validator with in-process TTL cache.
 
-Validates citation URLs before they're sent to the client.
-404s are filtered; timeouts / server errors keep the benefit of the doubt.
+Drops citations that return a definitive HTTP 404 or 410.
+Fail-open: network errors / timeouts keep the citation (corporate proxies
+and transient connectivity issues should not silently remove valid sources).
+
+Cache TTLs:
+  valid    → 24 h
+  invalid  →  1 h  (re-check; EXL occasionally restores pages)
 """
 
 import asyncio
 import logging
 import time
-from typing import Sequence
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT = 3.0       # seconds per request
-_CACHE_TTL = 3600    # cache results for 1 hour
+_TIMEOUT = 3.0
+_POS_TTL = 86_400   # 24 h for 200
+_NEG_TTL =  3_600   # 1 h for everything else
 _MAX_CONCURRENT = 10
+_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ExLChatbot/1.0)"}
 
-# url → (is_valid, expires_at)
+# url → (is_valid: bool, checked_at: float)
 _cache: dict[str, tuple[bool, float]] = {}
 
 
 def _cache_get(url: str) -> bool | None:
     entry = _cache.get(url)
-    if entry and entry[1] > time.monotonic():
-        return entry[0]
+    if not entry:
+        return None
+    valid, ts = entry
+    ttl = _POS_TTL if valid else _NEG_TTL
+    if time.monotonic() - ts < ttl:
+        return valid
     return None
-
-
-def _cache_set(url: str, valid: bool) -> None:
-    _cache[url] = (valid, time.monotonic() + _CACHE_TTL)
 
 
 async def _check_url(client: httpx.AsyncClient, url: str) -> tuple[str, bool]:
@@ -40,30 +46,29 @@ async def _check_url(client: httpx.AsyncClient, url: str) -> tuple[str, bool]:
 
     try:
         r = await client.head(url, follow_redirects=True)
-        valid = r.status_code != 404 and r.status_code != 410
-    except Exception:
-        valid = True  # network error → keep
+        valid = r.status_code not in (404, 410)
+    except Exception as exc:
+        logger.debug(f"URL check error for {url}: {exc}")
+        valid = True  # network error / timeout → keep (fail-open)
 
-    _cache_set(url, valid)
-    logger.debug(f"URL check {'✓' if valid else '✗'} {url}")
+    _cache[url] = (valid, time.monotonic())
+    logger.debug(f"URL check {'✓' if valid else '✗'} [{200 if valid else 'non-200'}] {url}")
     return url, valid
 
 
 async def filter_valid_citations(citations: list) -> list:
-    """Return citations whose URLs respond with something other than 404/410."""
+    """Return only citations whose URL resolves to HTTP 200."""
     if not citations:
         return citations
 
-    urls = [c.get("url", "") for c in citations]
-    unique_urls = list(dict.fromkeys(u for u in urls if u))
-
+    unique_urls = list(dict.fromkeys(c.get("url", "") for c in citations if c.get("url")))
     sem = asyncio.Semaphore(_MAX_CONCURRENT)
 
     async def _guarded(client: httpx.AsyncClient, url: str):
         async with sem:
             return await _check_url(client, url)
 
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+    async with httpx.AsyncClient(headers=_HEADERS, timeout=_TIMEOUT) as client:
         results = await asyncio.gather(*[_guarded(client, u) for u in unique_urls])
 
     valid_urls = {url for url, ok in results if ok}
@@ -71,6 +76,6 @@ async def filter_valid_citations(citations: list) -> list:
 
     removed = len(citations) - len(kept)
     if removed:
-        logger.info(f"URL validator: removed {removed} dead citation(s) from {len(citations)}")
+        logger.info(f"URL validator: dropped {removed}/{len(citations)} non-200 citations")
 
     return kept

@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { Play, Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ModelBadge } from './ModelBadge'
+import { CitationCard } from './CitationCard'
 import { useChatStore } from '@/store/chatStore'
 import { type Message } from '@/lib/api'
 
@@ -59,6 +60,8 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
   const [copied, setCopied] = useState(false)
   const { setFeedback } = useChatStore()
   const displayedContent = useTypewriter(message.content || '', !!message.streaming, 12)
+  const citations = message.citations ?? []
+  const processedContent = stripCitationMarkers(sanitizeAdobeMarkup(displayedContent || ' '))
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -140,11 +143,23 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
                   },
                 }}
               >
-                {stripCitationMarkers(sanitizeAdobeMarkup(displayedContent || ' '))}
+                {processedContent}
               </ReactMarkdown>
             </div>
           )}
         </div>
+
+        {/* Citations */}
+        {!isUser && !message.streaming && message.citations && message.citations.length > 0 && (
+          <div className="w-full space-y-1.5">
+            <p className="text-xs text-slate-400 font-medium px-1">Sources</p>
+            <div className="flex flex-wrap gap-1.5">
+              {message.citations.map((c, i) => (
+                <CitationCard key={c.url} citation={c} index={i + 1} />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Footer row: model badge + feedback + copy */}
         {!isUser && message.model && !message.streaming && (

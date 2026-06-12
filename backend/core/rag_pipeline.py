@@ -30,6 +30,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.session_store import SessionStore
 from backend.core.smart_router import classify_query, detect_product_intent
+from backend.core.url_validator import filter_valid_citations
 from config.prompts import NO_CONTEXT_MESSAGE
 from config.settings import get_settings
 from backend.core.query_processor import QueryProcessor
@@ -154,12 +155,13 @@ def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcesso
         parts = []
         for i, doc in enumerate(docs, 1):
             meta = doc.get("metadata", {})
-            title = meta.get("title", f"Document {i}")
+            raw_title = meta.get("title", f"Document {i}")
+            title = re.sub(r"\s*\{#[^}]+\}", "", raw_title).strip()
 
-            # Collect citations — deduplicated by URL, only specific pages
+            # Collect citations — deduplicated by URL, only specific pages above threshold
             url = meta.get("url", "")
             citation_num: int | None = None
-            if is_specific_url(url):
+            if is_specific_url(url) and doc.get("score", 0.0) >= RAGPipeline._CITATION_SCORE_THRESHOLD:
                 existing_idx = next(
                     (j for j, x in enumerate(citations_out) if x.get("url") == url), None
                 )
@@ -326,15 +328,20 @@ class RAGPipeline:
         )
         context += _build_media_context(raw_docs)
 
-        citations = [] if off_topic else self._extract_citations(raw_docs)
+        raw_citations = [] if off_topic else self._extract_citations(raw_docs)
         lc_history = _to_lc_history(history)
         chain = _build_haiku_chain(settings.anthropic_api_key)
+
+        # Kick off URL validation concurrently while the LLM streams — hides latency
+        import asyncio as _asyncio
+        validation_task = _asyncio.create_task(filter_valid_citations(raw_citations))
 
         full_response = ""
         async for chunk in chain.astream({"context": context, "history": lc_history, "query": query}):
             full_response += chunk
             yield {"type": "token", "content": chunk}
 
+        citations = await validation_task
         self.session_store.append_turn(session_id, "user", query)
         self.session_store.append_turn(session_id, "assistant", full_response)
         yield {"type": "citations", "citations": citations}
@@ -418,7 +425,8 @@ class RAGPipeline:
 
         self.session_store.append_turn(session_id, "user", query)
         self.session_store.append_turn(session_id, "assistant", full_response)
-        yield {"type": "citations", "citations": citations_out[:8]}
+        valid_citations = await filter_valid_citations(citations_out[:8])
+        yield {"type": "citations", "citations": valid_citations}
         input_tokens = (len(_AGENT_SYSTEM)
                         + sum(len(getattr(m, "content", "")) for m in messages)) // 4
         output_tokens = len(full_response) // 4
@@ -427,11 +435,18 @@ class RAGPipeline:
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
+    # Minimum similarity score for a doc to become a citation.
+    # Docs retrieved below this threshold are used for LLM context but not shown as sources.
+    _CITATION_SCORE_THRESHOLD = 0.70
+
     def _extract_citations(self, raw_docs: list) -> list:
         """Extract citations from ChromaDB metadata, deduplicated by URL."""
         seen_urls: set = set()
         citations = []
         for doc in raw_docs:
+            score = doc.get("score", 0.0)
+            if score < self._CITATION_SCORE_THRESHOLD:
+                continue
             meta = doc.get("metadata", {})
             url = meta.get("url", "")
             if not is_specific_url(url):
@@ -439,11 +454,14 @@ class RAGPipeline:
             if url in seen_urls:
                 continue
             seen_urls.add(url)
+            # Strip AdobeDocs anchor syntax from titles e.g. "Accessibility {#accessibility}"
+            raw_title = meta.get("title", "")
+            title = re.sub(r"\s*\{#[^}]+\}", "", raw_title).strip()
             c: dict = {
                 "url": url,
-                "title": meta.get("title", ""),
+                "title": title,
                 "product": meta.get("product", ""),
-                "score": doc.get("score", 0.0),
+                "score": score,
             }
             if meta.get("video_url"):
                 c["video_url"] = meta["video_url"]

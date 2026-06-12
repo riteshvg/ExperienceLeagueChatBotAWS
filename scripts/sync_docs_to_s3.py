@@ -56,6 +56,11 @@ REPOS = {
         "branch": "main",
         "s3_prefix": "adobe-docs/experience-platform/",
         "path_filter": "help/",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/experience-platform",
+        "url_path_strip": "help/",
+        "product": "Adobe Experience Platform",
+        "doc_type": "guide",
+        "level": "intermediate",
     },
     "adobe-docs/adobe-target": {
         "github": "AdobeDocs/target.en",

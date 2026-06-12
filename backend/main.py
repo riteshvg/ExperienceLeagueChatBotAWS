@@ -19,6 +19,13 @@ _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+# Load .env into os.environ before any module reads os.getenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv(_ROOT / ".env", override=False)
+except ImportError:
+    pass
+
 from backend.api.routes.admin import router as admin_router
 from backend.api.routes.auth import router as auth_router
 from backend.api.routes.chat import router as chat_router
