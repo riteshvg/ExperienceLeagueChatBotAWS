@@ -124,12 +124,21 @@ def process_collection(collection, product_filter: str = "", dry_run: bool = Fal
     Group chunks by URL, extract media from chunk_index=0 (contains frontmatter),
     then update all chunks for that URL.
     """
-    # Fetch all chunks
+    # Fetch all chunks in pages — SQLite has a variable limit that breaks large single fetches
     logger.info("Fetching all chunks from ChromaDB…")
-    results = collection.get(include=["documents", "metadatas"])
-    ids = results["ids"]
-    docs = results["documents"]
-    metas = results["metadatas"]
+    PAGE = 2000
+    ids, docs, metas = [], [], []
+    offset = 0
+    while True:
+        page = collection.get(include=["documents", "metadatas"], limit=PAGE, offset=offset)
+        if not page["ids"]:
+            break
+        ids.extend(page["ids"])
+        docs.extend(page["documents"])
+        metas.extend(page["metadatas"])
+        offset += len(page["ids"])
+        if len(page["ids"]) < PAGE:
+            break
     logger.info(f"Total chunks: {len(ids)}")
 
     # Group by URL
