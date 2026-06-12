@@ -29,10 +29,11 @@ if str(_PROJECT_ROOT) not in sys.path:
 
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.session_store import SessionStore
-from backend.core.smart_router import classify_query
+from backend.core.smart_router import classify_query, detect_product_intent
 from config.prompts import NO_CONTEXT_MESSAGE
 from config.settings import get_settings
 from backend.core.query_processor import QueryProcessor
+from src.utils.exl_url_mapper import is_specific_url
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,8 @@ def _build_haiku_chain(api_key: str):
 # ── LangGraph agent (Sonnet) ─────────────────────────────────────────────────
 
 def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcessor,
-                      settings, citations_out: list):
+                      settings, citations_out: list,
+                      where_filter: dict | None = None):
     """Create a search_documentation tool scoped to this request's retriever."""
 
     @tool
@@ -141,6 +143,7 @@ def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcesso
             enhanced,
             n_results=settings.max_retrieval_results,
             similarity_threshold=settings.similarity_threshold,
+            where=where_filter,
         )
         if not docs:
             return f"No documentation found for: {query}"
@@ -153,10 +156,10 @@ def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcesso
             meta = doc.get("metadata", {})
             title = meta.get("title", f"Document {i}")
 
-            # Collect citations — deduplicated by URL, using ChromaDB metadata directly
+            # Collect citations — deduplicated by URL, only specific pages
             url = meta.get("url", "")
             citation_num: int | None = None
-            if url.startswith("https://experienceleague.adobe.com"):
+            if is_specific_url(url):
                 existing_idx = next(
                     (j for j, x in enumerate(citations_out) if x.get("url") == url), None
                 )
@@ -292,10 +295,14 @@ class RAGPipeline:
         enhanced, _ = self.query_processor.preprocess_query(query)
         search_query = _contextualize_query(enhanced, history)
 
+        product_intent = detect_product_intent(query)
+        where_filter = {"product": {"$eq": product_intent}} if product_intent else None
+
         raw_docs = self.retriever.retrieve(
             search_query,
             n_results=settings.max_retrieval_results,
             similarity_threshold=settings.similarity_threshold,
+            where=where_filter,
         )
         if not raw_docs:
             yield {"type": "token", "content": NO_CONTEXT_MESSAGE}
@@ -342,10 +349,14 @@ class RAGPipeline:
 
     async def _stream_agent(self, query, session_id, history, settings):
         # Pre-check: skip expensive Sonnet agent for clearly off-topic queries
+        product_intent = detect_product_intent(query)
+        where_filter = {"product": {"$eq": product_intent}} if product_intent else None
+
         probe_docs = self.retriever.retrieve(
             query,
             n_results=settings.max_retrieval_results,
             similarity_threshold=settings.similarity_threshold,
+            where=where_filter,
         )
         if self._is_off_topic(probe_docs):
             yield {"type": "token", "content": _OUT_OF_SCOPE_RESPONSE}
@@ -358,7 +369,8 @@ class RAGPipeline:
 
         citations_out: list = []
         search_tool = _make_search_tool(
-            self.retriever, self.query_processor, settings, citations_out
+            self.retriever, self.query_processor, settings, citations_out,
+            where_filter=where_filter,
         )
 
         llm = ChatAnthropic(
@@ -422,7 +434,7 @@ class RAGPipeline:
         for doc in raw_docs:
             meta = doc.get("metadata", {})
             url = meta.get("url", "")
-            if not url.startswith("https://experienceleague.adobe.com"):
+            if not is_specific_url(url):
                 continue
             if url in seen_urls:
                 continue

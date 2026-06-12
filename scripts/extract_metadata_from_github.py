@@ -6,11 +6,19 @@ Creates a metadata registry for all documents.
 import os
 import re
 import json
+import sys
 import yaml
 import requests
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
+
+# Ensure project root is on path for src.utils imports
+_ROOT = Path(__file__).parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from src.utils.exl_url_mapper import derive_exl_url, is_specific_url
 
 # GitHub repository configurations
 REPOS = {
@@ -18,6 +26,7 @@ REPOS = {
         'owner': 'AdobeDocs',
         'repo': 'analytics.en',
         'product': 'Adobe Analytics',
+        'product_folder': 'adobe-analytics',
         'base_path': 'help',
         'experience_league_base': 'https://experienceleague.adobe.com/en/docs/analytics'
     },
@@ -25,6 +34,7 @@ REPOS = {
         'owner': 'AdobeDocs',
         'repo': 'analytics-platform.en',
         'product': 'Customer Journey Analytics',
+        'product_folder': 'customer-journey-analytics',
         'base_path': 'help',
         'experience_league_base': 'https://experienceleague.adobe.com/en/docs/analytics-platform'
     },
@@ -32,6 +42,7 @@ REPOS = {
         'owner': 'AdobeDocs',
         'repo': 'experience-platform.en',
         'product': 'Adobe Experience Platform',
+        'product_folder': 'experience-platform',
         'base_path': 'help',
         'experience_league_base': 'https://experienceleague.adobe.com/en/docs/experience-platform'
     },
@@ -39,6 +50,7 @@ REPOS = {
         'owner': 'AdobeDocs',
         'repo': 'journey-optimizer.en',
         'product': 'Adobe Journey Optimizer',
+        'product_folder': 'adobe-journey-optimizer',
         'base_path': 'help',
         'experience_league_base': 'https://experienceleague.adobe.com/en/docs/journey-optimizer'
     }
@@ -232,14 +244,20 @@ def extract_document_metadata(
         os.path.basename(file_path).replace('.md', '').replace('-', ' ').title()
     )
     
+    # Build S3 key so derive_exl_url can work on it
+    s3_key = f"adobe-docs/{repo_config['product_folder']}/{file_path}"
+    derived = derive_exl_url(s3_key)
+
     # Build metadata
     metadata = {
         # Identification
         'source_file': file_path,
+        's3_key': s3_key,
         'doc_id': frontmatter.get('exl-id', f"generated-{hash(file_path)}"),
-        
+
         # URLs
-        'experience_league_url': generate_experience_league_url(repo_config, file_path),
+        'experience_league_url': derived or '',
+        'url_source': 'derived' if is_specific_url(derived) else 'missing',
         'github_url': generate_github_url(repo_config, file_path),
         
         # Content metadata
@@ -311,8 +329,8 @@ def build_metadata_registry(github_token: Optional[str] = None, max_files_per_re
             )
             
             if metadata:
-                # Store by source_file path
-                registry[file_path] = metadata
+                # Store by full S3 key so ingest_to_chroma.py can use it directly
+                registry[metadata['s3_key']] = metadata
         
         print(f"  Extracted metadata for {len([m for m in registry.values() if m.get('product_key') == product_key])} documents from {product_key}")
     

@@ -31,6 +31,8 @@ from chromadb.config import Settings as ChromaSettings
 _ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(_ROOT))
 
+from src.utils.exl_url_mapper import derive_exl_url, is_specific_url
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -244,6 +246,20 @@ def main():
             chunk_id = f"{s3_key}#{chunk_idx}"
             embedding = embed(chunk)
 
+            # Derive canonical URL — prefer live derivation over registry snapshot
+            derived_url = derive_exl_url(s3_key)
+            registry_url = meta.get("experience_league_url", "") or meta.get("url", "")
+            chunk_url = (
+                derived_url if is_specific_url(derived_url) else
+                registry_url if is_specific_url(registry_url) else
+                ""
+            )
+            url_source = (
+                "derived" if chunk_url and chunk_url == derived_url else
+                "registry" if chunk_url else
+                "missing"
+            )
+
             ids_batch.append(chunk_id)
             docs_batch.append(chunk)
             embeddings_batch.append(embedding)
@@ -251,7 +267,8 @@ def main():
                 {
                     "s3_key": s3_key,
                     "chunk_index": chunk_idx,
-                    "url": meta.get("experience_league_url") or meta.get("url", ""),
+                    "url": chunk_url,
+                    "url_source": url_source,
                     "title": meta.get("title", ""),
                     "product": meta.get("product", ""),
                     "doc_type": meta.get("doc_type", ""),
