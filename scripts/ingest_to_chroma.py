@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 REGISTRY_PATH = _ROOT / "data" / "metadata_registry.json"
+CHANGED_KEYS_PATH = _ROOT / "data" / "changed_s3_keys.txt"
 CHROMA_DIR = _ROOT / "chroma_db"
 COLLECTION_NAME = "experience_league"
 TITAN_MODEL_ID = "amazon.titan-embed-text-v2:0"
@@ -137,6 +138,11 @@ def main():
     parser.add_argument("--limit", type=int, default=0, help="Max documents to process (0 = all)")
     parser.add_argument("--product", type=str, default="", help="Filter by product name substring")
     parser.add_argument("--reset", action="store_true", help="Drop and re-create ChromaDB collection")
+    parser.add_argument(
+        "--changed-only", action="store_true",
+        help=f"Only ingest keys listed in {CHANGED_KEYS_PATH} (written by sync_docs_to_s3.py). "
+             "Falls back to full ingest if the file is missing or empty.",
+    )
     args = parser.parse_args()
 
     # ── Load metadata registry ─────────────────────────────────────────────
@@ -149,8 +155,24 @@ def main():
 
     logger.info(f"Loaded registry: {len(registry)} entries")
 
-    # Filter by product if requested
+    # Filter to only changed keys if --changed-only and the file exists with content
     entries = list(registry.items())
+    if args.changed_only:
+        if CHANGED_KEYS_PATH.exists():
+            changed_keys = {
+                line.strip() for line in CHANGED_KEYS_PATH.read_text().splitlines() if line.strip()
+            }
+            if changed_keys:
+                entries = [(k, v) for k, v in entries if k in changed_keys]
+                logger.info(f"--changed-only: {len(entries)} entries to re-ingest "
+                            f"({len(changed_keys)} changed keys from {CHANGED_KEYS_PATH.name})")
+            else:
+                logger.info("--changed-only: changed_s3_keys.txt is empty — nothing to ingest")
+                entries = []
+        else:
+            logger.warning(f"--changed-only set but {CHANGED_KEYS_PATH} not found — ingesting all")
+
+    # Filter by product if requested
     if args.product:
         entries = [
             (k, v) for k, v in entries

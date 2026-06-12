@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 MANIFEST_PATH = _ROOT / "data" / "sync_manifest.json"
 REGISTRY_PATH = _ROOT / "data" / "metadata_registry.json"
+CHANGED_KEYS_PATH = _ROOT / "data" / "changed_s3_keys.txt"
 S3_BUCKET = os.getenv("AWS_S3_BUCKET", "experienceleaguechatbot")
 
 REPOS = {
@@ -230,7 +231,7 @@ def download_file(repo: str, path: str, branch: str) -> bytes:
 def sync_repo(repo_key: str, config: dict, s3, manifest: dict,
               dry_run: bool = False, force: bool = False,
               registry: Optional[dict] = None) -> dict:
-    """Sync one repo. Returns stats dict."""
+    """Sync one repo. Returns stats dict with 'changed_keys' list."""
     github_repo = config["github"]
     branch = config["branch"]
     s3_prefix = config["s3_prefix"]
@@ -248,7 +249,7 @@ def sync_repo(repo_key: str, config: dict, s3, manifest: dict,
     logger.info(f"  {len(md_files)} markdown files found")
 
     repo_manifest = manifest.get(repo_key, {})
-    stats = {"checked": len(md_files), "updated": 0, "skipped": 0, "errors": 0}
+    stats = {"checked": len(md_files), "updated": 0, "skipped": 0, "errors": 0, "changed_keys": []}
 
     for i, file in enumerate(md_files):
         path = file["path"]
@@ -263,6 +264,7 @@ def sync_repo(repo_key: str, config: dict, s3, manifest: dict,
         if dry_run:
             logger.debug(f"  [dry-run] would update: {path}")
             stats["updated"] += 1
+            stats["changed_keys"].append(s3_key)
             continue
 
         try:
@@ -270,6 +272,7 @@ def sync_repo(repo_key: str, config: dict, s3, manifest: dict,
             s3.put_object(Bucket=S3_BUCKET, Key=s3_key, Body=content)
             repo_manifest[path] = sha
             stats["updated"] += 1
+            stats["changed_keys"].append(s3_key)
             if generates_registry:
                 registry[s3_key] = _generate_registry_entry(s3_key, path, content, config)
             if stats["updated"] % 50 == 0:
@@ -307,6 +310,8 @@ def main():
     repos_to_sync = {args.repo: REPOS[args.repo]} if args.repo and args.repo in REPOS else REPOS
 
     total_updated = 0
+    all_changed_keys: list[str] = []
+
     for repo_key, config in repos_to_sync.items():
         logger.info(f"\n{'='*50}")
         logger.info(f"Syncing {repo_key}")
@@ -316,6 +321,7 @@ def main():
         logger.info(f"  checked={stats['checked']} updated={stats['updated']} "
                     f"skipped={stats['skipped']} errors={stats['errors']}")
         total_updated += stats["updated"]
+        all_changed_keys.extend(stats["changed_keys"])
 
     if not args.dry_run:
         manifest["_last_sync"] = datetime.now(timezone.utc).isoformat()
@@ -323,6 +329,11 @@ def main():
         _save_manifest(manifest)
         _save_registry(registry)
         logger.info(f"Registry saved — {len(registry)} total entries")
+
+        # Write changed keys for incremental ingest
+        CHANGED_KEYS_PATH.parent.mkdir(parents=True, exist_ok=True)
+        CHANGED_KEYS_PATH.write_text("\n".join(all_changed_keys) + ("\n" if all_changed_keys else ""))
+        logger.info(f"Changed keys written to {CHANGED_KEYS_PATH} ({len(all_changed_keys)} files)")
 
     logger.info(f"\nSync complete — {total_updated} files updated")
     return total_updated
