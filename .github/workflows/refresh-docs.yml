@@ -2,8 +2,8 @@ name: Weekly docs refresh
 
 on:
   schedule:
-    - cron: '0 2 * * 1'   # Every Monday at 2am UTC
-  workflow_dispatch:        # Also allow manual trigger from GitHub Actions UI
+    - cron: '0 2 * * 1' # Every Monday at 2am UTC
+  workflow_dispatch: # Also allow manual trigger from GitHub Actions UI
     inputs:
       force:
         description: 'Force full re-sync (ignore manifest)'
@@ -13,7 +13,7 @@ on:
 jobs:
   refresh:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
 
     steps:
       - uses: actions/checkout@v4
