@@ -57,15 +57,18 @@ def init_tables() -> None:
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS exl_users (
-                    user_id       TEXT PRIMARY KEY,
-                    email         TEXT NOT NULL UNIQUE,
-                    name          TEXT NOT NULL DEFAULT '',
-                    picture       TEXT NOT NULL DEFAULT '',
-                    first_seen    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    last_seen     TIMESTAMPTZ,
-                    total_queries INTEGER NOT NULL DEFAULT 0,
-                    is_admin      BOOLEAN NOT NULL DEFAULT FALSE,
-                    is_disabled   BOOLEAN NOT NULL DEFAULT FALSE
+                    user_id            TEXT PRIMARY KEY,
+                    email              TEXT NOT NULL UNIQUE,
+                    name               TEXT NOT NULL DEFAULT '',
+                    picture            TEXT NOT NULL DEFAULT '',
+                    first_seen         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    last_seen          TIMESTAMPTZ,
+                    total_queries      INTEGER NOT NULL DEFAULT 0,
+                    is_admin           BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_disabled        BOOLEAN NOT NULL DEFAULT FALSE,
+                    daily_query_limit  INTEGER NOT NULL DEFAULT 20,
+                    daily_query_count  INTEGER NOT NULL DEFAULT 0,
+                    daily_reset_at     TIMESTAMPTZ
                 );
 
                 CREATE TABLE IF NOT EXISTS exl_sessions (
@@ -118,6 +121,18 @@ def init_tables() -> None:
                 "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT FALSE"
             )
             cur.execute(
+                "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS daily_query_limit INTEGER NOT NULL DEFAULT 20"
+            )
+            cur.execute(
+                "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS daily_query_count INTEGER NOT NULL DEFAULT 0"
+            )
+            cur.execute(
+                "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS daily_reset_at TIMESTAMPTZ"
+            )
+            cur.execute(
+                "INSERT INTO system_config (key, value) VALUES ('default_daily_limit', '20') ON CONFLICT (key) DO NOTHING"
+            )
+            cur.execute(
                 "ALTER TABLE exl_query_logs ADD COLUMN IF NOT EXISTS message_id TEXT NOT NULL DEFAULT ''"
             )
             cur.execute(
@@ -143,6 +158,15 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
     admin_email = os.getenv(_ADMIN_EMAIL_ENV, "").strip().lower()
     is_admin_value = email.strip().lower() == admin_email if admin_email else False
 
+    # Read default limit for new users
+    default_limit = 20
+    try:
+        raw = get_system_config("default_daily_limit")
+        if raw and raw.isdigit():
+            default_limit = int(raw)
+    except Exception:
+        pass
+
     conn = _connect()
     try:
         with conn.cursor() as cur:
@@ -150,8 +174,8 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
                 # Ensure the admin email always has is_admin=true
                 cur.execute(
                     """
-                    INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, is_admin)
-                    VALUES (%s, %s, %s, %s, NOW(), NOW(), TRUE)
+                    INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, is_admin, daily_query_limit)
+                    VALUES (%s, %s, %s, %s, NOW(), NOW(), TRUE, %s)
                     ON CONFLICT (user_id) DO UPDATE
                         SET email     = EXCLUDED.email,
                             name      = EXCLUDED.name,
@@ -160,13 +184,13 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
                             is_admin  = TRUE
                     RETURNING *
                     """,
-                    (user_id, email, name, picture),
+                    (user_id, email, name, picture, default_limit),
                 )
             else:
                 cur.execute(
                     """
-                    INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen)
-                    VALUES (%s, %s, %s, %s, NOW(), NOW())
+                    INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, daily_query_limit)
+                    VALUES (%s, %s, %s, %s, NOW(), NOW(), %s)
                     ON CONFLICT (user_id) DO UPDATE
                         SET email     = EXCLUDED.email,
                             name      = EXCLUDED.name,
@@ -174,7 +198,7 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
                             last_seen = NOW()
                     RETURNING *
                     """,
-                    (user_id, email, name, picture),
+                    (user_id, email, name, picture, default_limit),
                 )
             row = cur.fetchone()
         conn.commit()
@@ -319,6 +343,167 @@ def set_disabled(user_id: str, is_disabled: bool) -> Optional[dict]:
             row = cur.fetchone()
         conn.commit()
         return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def check_rate_limit(user_id: str) -> dict:
+    """Check if user is within their daily query limit.
+
+    Resets the counter if a new UTC day has started.
+    Does NOT increment the counter.
+    Returns {"allowed": bool, "count": int, "limit": int}.
+    """
+    today = datetime.now(tz=timezone.utc).date()
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT daily_query_count, daily_query_limit, daily_reset_at FROM exl_users WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return {"allowed": True, "count": 0, "limit": 20}
+
+            count = row["daily_query_count"]
+            limit = row["daily_query_limit"]
+            reset_at = row["daily_reset_at"]
+
+            # Reset if this is a new UTC day or never been reset
+            needs_reset = (reset_at is None) or (reset_at.date() < today)
+            if needs_reset:
+                cur.execute(
+                    "UPDATE exl_users SET daily_query_count = 0, daily_reset_at = NOW() WHERE user_id = %s",
+                    (user_id,),
+                )
+                conn.commit()
+                count = 0
+
+            if count >= limit:
+                return {"allowed": False, "count": count, "limit": limit}
+            return {"allowed": True, "count": count, "limit": limit}
+    finally:
+        conn.close()
+
+
+def increment_daily_count(user_id: str) -> dict:
+    """Increment the daily_query_count for a user.
+    Returns {"count": int, "limit": int}.
+    """
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE exl_users SET daily_query_count = daily_query_count + 1 WHERE user_id = %s "
+                "RETURNING daily_query_count, daily_query_limit",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        if row is None:
+            return {"count": 0, "limit": 20}
+        return {"count": row["daily_query_count"], "limit": row["daily_query_limit"]}
+    finally:
+        conn.close()
+
+
+def get_usage_info(user_id: str) -> dict:
+    """Return current daily usage info for a user (read-only, applies reset logic).
+    Returns {"queries_used": int, "queries_limit": int, "queries_remaining": int}.
+    """
+    today = datetime.now(tz=timezone.utc).date()
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT daily_query_count, daily_query_limit, daily_reset_at FROM exl_users WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return {"queries_used": 0, "queries_limit": 20, "queries_remaining": 20}
+
+        count = row["daily_query_count"]
+        limit = row["daily_query_limit"]
+        reset_at = row["daily_reset_at"]
+
+        # If new UTC day, report 0 used (without writing)
+        if (reset_at is None) or (reset_at.date() < today):
+            count = 0
+
+        remaining = max(0, limit - count)
+        return {"queries_used": count, "queries_limit": limit, "queries_remaining": remaining}
+    finally:
+        conn.close()
+
+
+def set_user_daily_limit(user_id: str, limit: int) -> Optional[dict]:
+    """Set the daily_query_limit for a specific user. Returns updated row or None."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE exl_users SET daily_query_limit = %s WHERE user_id = %s RETURNING *",
+                (limit, user_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def apply_default_limit_to_all() -> int:
+    """Apply the default_daily_limit from system_config to all users. Returns rows updated."""
+    default_limit = 20
+    try:
+        raw = get_system_config("default_daily_limit")
+        if raw and raw.isdigit():
+            default_limit = int(raw)
+    except Exception:
+        pass
+
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE exl_users SET daily_query_limit = %s", (default_limit,))
+            count = cur.rowcount
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+
+def get_rate_limit_analytics() -> dict:
+    """Return analytics about daily query usage across all users."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) FILTER (WHERE daily_query_count >= daily_query_limit) AS users_at_limit,
+                    COUNT(*) FILTER (WHERE daily_query_count >= daily_query_limit * 0.75
+                                     AND daily_query_count < daily_query_limit) AS users_above_75pct,
+                    COALESCE(AVG(daily_query_count) FILTER (WHERE daily_query_count > 0), 0) AS avg_queries_active
+                FROM exl_users
+                """
+            )
+            row = dict(cur.fetchone())
+
+            cur.execute(
+                "SELECT email, daily_query_count FROM exl_users ORDER BY daily_query_count DESC LIMIT 1"
+            )
+            top = cur.fetchone()
+
+        return {
+            "users_at_limit": int(row["users_at_limit"]),
+            "users_above_75pct": int(row["users_above_75pct"]),
+            "avg_queries_active_users": float(row["avg_queries_active"]),
+            "highest_usage_email": top["email"] if top else None,
+            "highest_usage_count": int(top["daily_query_count"]) if top else 0,
+        }
     finally:
         conn.close()
 

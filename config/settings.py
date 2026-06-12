@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     # If set, only this email can log into the admin panel
     admin_email: Optional[str] = Field(None, env="ADMIN_EMAIL")
 
+    # Per-user daily query rate limiting (fallback default; authoritative value is in system_config)
+    daily_query_limit: int = Field(default=20, env="DAILY_QUERY_LIMIT")
+
     # LangSmith tracing
     langchain_tracing_v2: bool = Field(default=False, env="LANGCHAIN_TRACING_V2")
     langchain_api_key: Optional[str] = Field(None, env="LANGCHAIN_API_KEY")

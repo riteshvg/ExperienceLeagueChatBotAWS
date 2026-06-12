@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { RotateCcw, ChevronDown, ChevronUp, ChevronRight } from 'lucide-react'
+import { RotateCcw, ChevronDown, ChevronUp, ChevronRight, Pencil, Check, X } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { useAdmin, type GoogleUser, type GoogleUserSummary, type QueryLog } from '@/hooks/useAdmin'
@@ -17,12 +17,17 @@ interface GoogleUsersTabProps {
   onRefresh: () => void
   onSetAdmin: (userId: string, isAdmin: boolean) => Promise<unknown>
   onSetDisabled: (userId: string, isDisabled: boolean) => Promise<unknown>
+  onSetLimit: (userId: string, limit: number) => Promise<unknown>
 }
 
-function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled }: GoogleUsersTabProps) {
+function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, onSetLimit }: GoogleUsersTabProps) {
   const [search, setSearch] = useState('')
   const [sortField, setSortField] = useState<SortField>('last_seen')
   const [sortAsc, setSortAsc] = useState(false)
+  const [editingUserId, setEditingUserId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState<number>(0)
+  const [savingUserId, setSavingUserId] = useState<string | null>(null)
+  const [savedUserId, setSavedUserId] = useState<string | null>(null)
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) setSortAsc((v) => !v)
@@ -46,6 +51,30 @@ function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled }
       ? sortAsc ? <ChevronUp className="w-3 h-3 inline ml-0.5" /> : <ChevronDown className="w-3 h-3 inline ml-0.5" />
       : null
   )
+
+  const startEdit = (user: GoogleUser) => {
+    setEditingUserId(user.user_id)
+    setEditValue(user.daily_query_limit ?? 20)
+  }
+
+  const cancelEdit = () => {
+    setEditingUserId(null)
+  }
+
+  const saveLimit = async (userId: string) => {
+    setSavingUserId(userId)
+    try {
+      await onSetLimit(userId, editValue)
+      setSavedUserId(userId)
+      setEditingUserId(null)
+      setTimeout(() => setSavedUserId(null), 1500)
+    } catch {
+      // revert on error
+      setEditingUserId(null)
+    } finally {
+      setSavingUserId(null)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -102,12 +131,15 @@ function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled }
               </th>
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Admin</th>
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Disabled</th>
+              <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Daily Limit</th>
+              <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Used Today</th>
+              <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Resets At</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">
+                <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">
                   {users.length === 0 ? 'No users have signed in yet.' : 'No users match your search.'}
                 </td>
               </tr>
@@ -162,6 +194,59 @@ function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled }
                       user.is_disabled ? 'translate-x-4' : 'translate-x-0.5',
                     )} />
                   </button>
+                </td>
+                {/* Daily Limit — inline editable */}
+                <td className="px-4 py-3 text-center">
+                  {editingUserId === user.user_id ? (
+                    <div className="flex items-center justify-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        max={999}
+                        value={editValue}
+                        onChange={(e) => setEditValue(Number(e.target.value))}
+                        className="w-16 px-1.5 py-1 rounded border border-slate-300 text-xs text-center focus:outline-none focus:border-blue-400"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => saveLimit(user.user_id)}
+                        disabled={savingUserId === user.user_id}
+                        title="Save"
+                        className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={cancelEdit} title="Cancel" className="text-slate-400 hover:text-slate-600">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className={cn(
+                      'flex items-center justify-center gap-1 group',
+                      savedUserId === user.user_id && 'text-emerald-600',
+                    )}>
+                      <span className="text-sm font-medium text-slate-700">
+                        {user.daily_query_limit ?? 20}
+                      </span>
+                      <button
+                        onClick={() => startEdit(user)}
+                        title="Edit limit"
+                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-500 transition-opacity"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </td>
+                {/* Used Today */}
+                <td className="px-4 py-3 text-center text-sm text-slate-600">
+                  {user.daily_query_count ?? 0}
+                </td>
+                {/* Resets At */}
+                <td className="px-4 py-3 text-center text-xs text-slate-400 whitespace-nowrap">
+                  {user.daily_reset_at
+                    ? new Date(user.daily_reset_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+                    : '—'}
                 </td>
               </tr>
             ))}
@@ -328,12 +413,40 @@ export function AdminPage() {
     googleUsers, googleUserSummary, queryLogs, refreshGoogleUsers,
     setGoogleUserAdmin, setUserDisabled,
     killSwitchEnabled, toggleKillSwitch,
+    defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,
     loading, error,
   } = useAdmin()
   const [refreshing, setRefreshing] = useState(false)
   const [actionsTriggered, setActionsTriggered] = useState(false)
   const [killSwitchConfirm, setKillSwitchConfirm] = useState(false)
   const [killSwitchPending, setKillSwitchPending] = useState(false)
+
+  // Query Limits settings state
+  const [defaultLimitInput, setDefaultLimitInput] = useState<number>(defaultDailyLimit)
+  const [savingDefaultLimit, setSavingDefaultLimit] = useState(false)
+  const [showBulkConfirm, setShowBulkConfirm] = useState(false)
+  const [applyingBulk, setApplyingBulk] = useState(false)
+  const [bulkApplyResult, setBulkApplyResult] = useState<string | null>(null)
+
+  const handleSaveDefaultLimit = async () => {
+    setSavingDefaultLimit(true)
+    try {
+      await updateDefaultLimit(defaultLimitInput)
+    } catch { /* ignore */ }
+    setSavingDefaultLimit(false)
+  }
+
+  const handleBulkApply = async () => {
+    setApplyingBulk(true)
+    try {
+      const result = await bulkApplyDefaultLimit()
+      setBulkApplyResult(`Updated ${result.users_updated} users to ${result.applied_limit} queries/day.`)
+      setTimeout(() => setBulkApplyResult(null), 5000)
+      setShowBulkConfirm(false)
+      await refreshGoogleUsers()
+    } catch { /* ignore */ }
+    setApplyingBulk(false)
+  }
 
   const handleKillSwitch = async (enable: boolean) => {
     setKillSwitchPending(true)
@@ -711,6 +824,57 @@ export function AdminPage() {
                 <StatCard key={k} label={k.replace(/_/g, ' ')} value={String(v ?? "—")} />
               ))}
             </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4">
+              <h2 className="text-sm font-semibold text-slate-700">Query Limits</h2>
+              <div className="flex items-center gap-3">
+                <label className="text-sm text-slate-600 w-48">Default daily limit</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={defaultLimitInput}
+                  onChange={(e) => setDefaultLimitInput(Number(e.target.value))}
+                  className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                <button
+                  onClick={handleSaveDefaultLimit}
+                  disabled={savingDefaultLimit}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingDefaultLimit ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+              <div className="flex items-center gap-3">
+                {showBulkConfirm ? (
+                  <>
+                    <span className="text-sm text-amber-700">Apply {defaultLimitInput} to all users?</span>
+                    <button
+                      onClick={handleBulkApply}
+                      disabled={applyingBulk}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {applyingBulk ? 'Applying…' : 'Confirm'}
+                    </button>
+                    <button
+                      onClick={() => setShowBulkConfirm(false)}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setShowBulkConfirm(true)}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50"
+                  >
+                    Apply default to all users
+                  </button>
+                )}
+              </div>
+              {bulkApplyResult && (
+                <p className="text-sm text-emerald-700">{bulkApplyResult}</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -854,6 +1018,7 @@ export function AdminPage() {
             onRefresh={refreshGoogleUsers}
             onSetAdmin={setGoogleUserAdmin}
             onSetDisabled={setUserDisabled}
+            onSetLimit={updateUserDailyLimit}
           />
         )}
 

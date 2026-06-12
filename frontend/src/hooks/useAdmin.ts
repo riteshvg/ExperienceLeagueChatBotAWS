@@ -3,6 +3,7 @@ import {
   adminLogin, adminLogout, getAdminStatus, getAdminSettings, getAdminAnalytics,
   listGoogleUsers, updateGoogleUser, getGoogleUserSummary, getQueryLogs,
   getKillSwitchStatus, setKillSwitch as apiSetKillSwitch,
+  setUserDailyLimit, setDefaultDailyLimit, applyDefaultLimitToAll, getDefaultDailyLimit,
   type GoogleUser, type GoogleUserSummary, type QueryLog,
 } from '@/lib/api'
 
@@ -34,6 +35,7 @@ export function useAdmin() {
   const [googleUserSummary, setGoogleUserSummary] = useState<GoogleUserSummary | null>(null)
   const [queryLogs, setQueryLogs] = useState<QueryLog[]>([])
   const [killSwitchEnabled, setKillSwitchEnabled] = useState<boolean>(true)
+  const [defaultDailyLimit, setDefaultDailyLimitState] = useState<number>(20)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -67,7 +69,7 @@ export function useAdmin() {
     if (!token) return
     setLoading(true)
     try {
-      const [s, cfg, a, demo, fb, rs, users, summary, logs, ks] = await Promise.all([
+      const [s, cfg, a, demo, fb, rs, users, summary, logs, ks, defaultLimit] = await Promise.all([
         getAdminStatus(token),
         getAdminSettings(token),
         getAdminAnalytics(token),
@@ -84,6 +86,7 @@ export function useAdmin() {
         getGoogleUserSummary(token).catch(() => null),
         getQueryLogs(token).catch(() => []),
         getKillSwitchStatus(token).catch(() => ({ enabled: true })),
+        getDefaultDailyLimit(token).catch(() => ({ default_daily_limit: 20 })),
       ])
       setStatus(s)
       setSettings(cfg)
@@ -95,6 +98,7 @@ export function useAdmin() {
       setGoogleUserSummary(summary)
       setQueryLogs(logs)
       setKillSwitchEnabled((ks as { enabled: boolean }).enabled)
+      setDefaultDailyLimitState((defaultLimit as { default_daily_limit: number }).default_daily_limit)
     } catch {
       logout()
     } finally {
@@ -179,6 +183,24 @@ export function useAdmin() {
     return result
   }, [token])
 
+  const updateUserDailyLimit = useCallback(async (userId: string, limit: number) => {
+    if (!token) throw new Error('Not authenticated')
+    const updated = await setUserDailyLimit(token, userId, limit)
+    setGoogleUsers((prev) => prev.map((u) => (u.user_id === userId ? updated : u)))
+    return updated
+  }, [token])
+
+  const updateDefaultLimit = useCallback(async (limit: number) => {
+    if (!token) throw new Error('Not authenticated')
+    await setDefaultDailyLimit(token, limit)
+    setDefaultDailyLimitState(limit)
+  }, [token])
+
+  const bulkApplyDefaultLimit = useCallback(async () => {
+    if (!token) throw new Error('Not authenticated')
+    return applyDefaultLimitToAll(token)
+  }, [token])
+
   return {
     isAuthenticated: !!token,
     login, logout, refresh, resetDemo,
@@ -187,6 +209,7 @@ export function useAdmin() {
     googleUsers, googleUserSummary, queryLogs, refreshGoogleUsers,
     setGoogleUserAdmin, setUserDisabled,
     killSwitchEnabled, toggleKillSwitch,
+    defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,
     loading, error,
   }
 }

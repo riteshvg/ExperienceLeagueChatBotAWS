@@ -41,7 +41,7 @@ export interface Message {
 export type SSEEvent =
   | { type: 'token'; content: string }
   | { type: 'citations'; citations: Citation[] }
-  | { type: 'done'; model: string; session_id: string }
+  | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number }
   | { type: 'error'; message: string }
 
 // ── Chat ─────────────────────────────────────────────────────────────────────
@@ -62,7 +62,14 @@ export async function* streamChat(
     if (res.status === 403) {
       const data = await res.json().catch(() => ({}))
       const err = new Error(data.detail ?? 'Access denied')
-      ;(err as Error & { status: number }).status = 403
+      ;(err as any).status = 403
+      throw err
+    }
+    if (res.status === 429) {
+      const data = await res.json().catch(() => ({}))
+      const err = new Error(data.detail?.message ?? 'Daily limit reached')
+      ;(err as any).status = 429
+      ;(err as any).detail = data.detail ?? data
       throw err
     }
     throw new Error(`Chat request failed: ${res.status}`)
@@ -177,6 +184,9 @@ export interface GoogleUser {
   total_queries: number
   is_admin: boolean
   is_disabled: boolean
+  daily_query_limit: number
+  daily_query_count: number
+  daily_reset_at: string | null
 }
 
 export interface QueryLog {
@@ -236,3 +246,27 @@ export const getKillSwitchStatus = (token: string): Promise<{ enabled: boolean }
 
 export const setKillSwitch = (token: string, enabled: boolean): Promise<{ enabled: boolean }> =>
   adminMutate('/api/admin/kill-switch', token, 'POST', { enabled })
+
+export const setUserDailyLimit = (token: string, userId: string, limit: number): Promise<GoogleUser> =>
+  adminMutate(`/api/admin/users/${encodeURIComponent(userId)}/limit`, token, 'PATCH', { daily_query_limit: limit })
+
+export const setDefaultDailyLimit = (token: string, limit: number): Promise<{ default_daily_limit: number }> =>
+  adminMutate('/api/admin/settings/default-limit', token, 'PATCH', { default_daily_limit: limit })
+
+export const applyDefaultLimitToAll = (token: string): Promise<{ users_updated: number; applied_limit: number }> =>
+  adminMutate('/api/admin/settings/apply-default-limit', token, 'POST')
+
+export const getDefaultDailyLimit = (token: string): Promise<{ default_daily_limit: number }> =>
+  adminFetch('/api/admin/settings/default-limit', token)
+
+export async function getMe(): Promise<{ queries_used: number; queries_limit: number; queries_remaining: number }> {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/me`, {
+      headers: authHeaders(),
+    })
+    if (!res.ok) return { queries_used: 0, queries_limit: 20, queries_remaining: 20 }
+    return res.json()
+  } catch {
+    return { queries_used: 0, queries_limit: 20, queries_remaining: 20 }
+  }
+}

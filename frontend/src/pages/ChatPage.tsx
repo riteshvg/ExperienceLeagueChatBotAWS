@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import { Menu, Ban } from 'lucide-react'
+import { Menu, Ban, Clock } from 'lucide-react'
 import { useChatStore } from '@/store/chatStore'
 import { useAuthStore } from '@/store/authStore'
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { Sidebar } from '@/components/Sidebar'
+import { getMe } from '@/lib/api'
+import { cn } from '@/lib/utils'
 
 type Category = 'All' | 'Analytics' | 'CJA' | 'AEP' | 'Target' | 'AJO' | 'Cross-Product'
 
@@ -60,7 +62,11 @@ const CATEGORY_COLORS: Record<Exclude<Category, 'All'>, string> = {
 }
 
 export function ChatPage() {
-  const { sessions, activeSessionId, isStreaming, sendMessage, error, accessDenied } = useChatStore()
+  const {
+    sessions, activeSessionId, isStreaming, sendMessage, error, accessDenied,
+    rateLimited, rateLimitMessage, queriesUsed, queriesRemaining, queriesLimit,
+    setUsage,
+  } = useChatStore()
   const { logout } = useAuthStore()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeCategory, setActiveCategory] = useState<Category>('All')
@@ -74,6 +80,10 @@ export function ChatPage() {
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<ChatInputHandle>(null)
+
+  useEffect(() => {
+    getMe().then((usage) => setUsage(usage.queries_used, usage.queries_remaining, usage.queries_limit))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -108,6 +118,24 @@ export function ChatPage() {
           >
             Sign out
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (rateLimited) {
+    return (
+      <div className="flex w-full h-screen items-center justify-center bg-slate-50 p-6">
+        <div className="flex flex-col items-center gap-4 max-w-sm text-center">
+          <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center">
+            <Clock className="w-7 h-7 text-amber-500" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-800 mb-1">Daily Limit Reached</h2>
+            <p className="text-sm text-slate-500">
+              {rateLimitMessage || 'Your daily query limit has been reached. Resets at midnight UTC.'}
+            </p>
+          </div>
         </div>
       </div>
     )
@@ -199,9 +227,21 @@ export function ChatPage() {
         {/* Input */}
         <div className="flex-shrink-0 px-4 py-3 bg-slate-50 border-t border-slate-200">
           <ChatInput ref={inputRef} onSend={sendMessage} disabled={isStreaming} />
-          <p className="text-center text-xs text-slate-400 mt-2">
-            Answers are grounded in Adobe Experience League documentation
-          </p>
+          <div className="mt-2 flex flex-col items-center gap-0.5">
+            <p className="text-center text-xs text-slate-400">
+              Answers are grounded in Adobe Experience League documentation
+            </p>
+            {queriesRemaining !== null && (
+              <p className={cn(
+                'text-center text-xs mt-0.5',
+                queriesRemaining === 0 ? 'text-red-500 font-medium' :
+                queriesRemaining <= queriesLimit * 0.25 ? 'text-amber-500' :
+                'text-slate-400'
+              )}>
+                {queriesUsed} / {queriesLimit} queries used today
+              </p>
+            )}
+          </div>
         </div>
       </main>
     </div>

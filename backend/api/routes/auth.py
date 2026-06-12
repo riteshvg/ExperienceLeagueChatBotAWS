@@ -9,16 +9,18 @@ DELETE /api/auth/session          — invalidate session (logout)
 import logging
 import sys
 from pathlib import Path
+from typing import Annotated
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 
 _ROOT = Path(__file__).parent.parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+from backend.api.deps import get_site_user
 from backend.core import google_db
 from config.settings import get_settings
 
@@ -147,6 +149,24 @@ async def google_callback(
         "is_admin": "1" if is_admin else "0",
     })
     return RedirectResponse(f"{frontend}/callback?{params}")
+
+
+@router.get("/me")
+async def get_me(user: Annotated[dict, Depends(get_site_user)]):
+    """Return current user's daily usage info."""
+    uid = user.get("uid", "")
+    usage: dict = {"queries_used": 0, "queries_limit": 20, "queries_remaining": 20}
+    if uid:
+        try:
+            usage = google_db.get_usage_info(uid)
+        except Exception:
+            pass
+    return {
+        "user_id": uid,
+        "email": user.get("email", ""),
+        "name": user.get("name", ""),
+        **usage,
+    }
 
 
 @router.delete("/session")

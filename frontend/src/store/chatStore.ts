@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation } from '@/lib/api'
 
+
 function makeId() {
   return Math.random().toString(36).slice(2)
 }
@@ -25,6 +26,11 @@ interface ChatState {
   isStreaming: boolean
   error: string | null
   accessDenied: boolean
+  rateLimited: boolean
+  rateLimitMessage: string
+  queriesUsed: number
+  queriesRemaining: number | null
+  queriesLimit: number
 
   sendMessage: (query: string) => Promise<void>
   setFeedback: (messageId: string, rating: 1 | -1, query: string) => void
@@ -32,6 +38,7 @@ interface ChatState {
   switchSession: (id: string) => void
   deleteSession: (id: string) => void
   clearError: () => void
+  setUsage: (used: number, remaining: number, limit: number) => void
 }
 
 function createSession(): ChatSession {
@@ -63,8 +70,15 @@ export const useChatStore = create<ChatState>()(
         isStreaming: false,
         error: null,
         accessDenied: false,
+        rateLimited: false,
+        rateLimitMessage: '',
+        queriesUsed: 0,
+        queriesRemaining: null,
+        queriesLimit: 20,
 
         clearError: () => set({ error: null }),
+
+        setUsage: (used, remaining, limit) => set({ queriesUsed: used, queriesRemaining: remaining, queriesLimit: limit }),
 
         setFeedback: (messageId, rating, _query) => {
           const { activeSessionId, sessions } = get()
@@ -118,8 +132,8 @@ export const useChatStore = create<ChatState>()(
         },
 
         sendMessage: async (query: string) => {
-          const { activeSessionId, isStreaming, accessDenied } = get()
-          if (!query.trim() || isStreaming || accessDenied) return
+          const { activeSessionId, isStreaming, accessDenied, rateLimited } = get()
+          if (!query.trim() || isStreaming || accessDenied || rateLimited) return
           set({ error: null })
 
           const userMsg: Message = { id: makeId(), role: 'user', content: query }
@@ -152,7 +166,12 @@ export const useChatStore = create<ChatState>()(
                   ),
                 }))
               } else if (event.type === 'done') {
+                const updatesFromDone: Partial<ChatState> = {}
+                if (event.queries_used !== undefined) updatesFromDone.queriesUsed = event.queries_used
+                if (event.queries_remaining !== undefined) updatesFromDone.queriesRemaining = event.queries_remaining
+                if (event.queries_limit !== undefined) updatesFromDone.queriesLimit = event.queries_limit
                 set((s) => ({
+                  ...updatesFromDone,
                   sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                     msgs.map((m) => (m.id === assistantId ? { ...m, streaming: false, model: event.model } : m))
                   ),
@@ -170,13 +189,22 @@ export const useChatStore = create<ChatState>()(
             }
           } catch (err) {
             const msg = err instanceof Error ? err.message : String(err)
-            const isDisabled = (err as Error & { status?: number })?.status === 403
+            const errStatus = (err as any)?.status
+            const isDisabled = errStatus === 403
+            const isRateLimited = errStatus === 429
+            const rateLimitMsg = isRateLimited
+              ? ((err as any)?.detail?.message ?? msg)
+              : ''
             set((s) => ({
-              error: msg,
+              error: isRateLimited ? null : msg,
               accessDenied: isDisabled || s.accessDenied,
+              rateLimited: isRateLimited || s.rateLimited,
+              rateLimitMessage: isRateLimited ? rateLimitMsg : s.rateLimitMessage,
               sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                 msgs.map((m) =>
-                  m.id === assistantId ? { ...m, content: isDisabled ? '' : `Error: ${msg}`, streaming: false } : m
+                  m.id === assistantId
+                    ? { ...m, content: isDisabled || isRateLimited ? '' : `Error: ${msg}`, streaming: false }
+                    : m
                 )
               ),
             }))

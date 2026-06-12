@@ -46,6 +46,26 @@ async def chat(
     uid: Optional[str] = user.get("uid")
     session_id = body.session_id or session_store.new_session()
 
+    # Check rate limit BEFORE starting the SSE stream
+    if uid:
+        try:
+            rate_info = google_db.check_rate_limit(uid)
+            if not rate_info["allowed"]:
+                raise HTTPException(
+                    status_code=429,
+                    detail={
+                        "error": "rate_limit_exceeded",
+                        "message": f"You have reached your daily limit of {rate_info['limit']} queries. Your limit resets at midnight UTC.",
+                        "queries_used": rate_info["count"],
+                        "queries_limit": rate_info["limit"],
+                        "resets_at": "midnight UTC",
+                    },
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Rate limit check failed (non-fatal): {e}")
+
     async def event_generator():
         full_response = ""
         last_done: Optional[dict] = None
@@ -58,8 +78,25 @@ async def chat(
             if event["type"] == "token":
                 full_response += event.get("content", "")
             elif event["type"] == "done":
+                # Buffer the done event — augment it with usage info before yielding
                 last_done = event
+                continue
             yield {"data": json.dumps(event)}
+
+        # After the pipeline loop: augment done event with usage counts, then yield it
+        if last_done is not None:
+            if uid:
+                try:
+                    usage = google_db.increment_daily_count(uid)
+                    last_done = {
+                        **last_done,
+                        "queries_used": usage["count"],
+                        "queries_remaining": max(0, usage["limit"] - usage["count"]),
+                        "queries_limit": usage["limit"],
+                    }
+                except Exception as e:
+                    logger.warning(f"Daily count increment failed (non-fatal): {e}")
+            yield {"data": json.dumps(last_done)}
 
         # After streaming: track usage + log query
         if uid and last_done:

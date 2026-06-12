@@ -110,6 +110,23 @@ async def update_user(
     return _serialize_user(updated)
 
 
+class UpdateLimitRequest(BaseModel):
+    daily_query_limit: int
+
+
+@router.patch("/users/{user_id}/limit")
+async def update_user_limit(
+    user_id: str,
+    body: UpdateLimitRequest,
+    _: Annotated[str, Depends(get_admin_user)],
+):
+    """Set per-user daily query limit."""
+    updated = _google_db.set_user_daily_limit(user_id, body.daily_query_limit)
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _serialize_user(updated)
+
+
 @router.get("/users/summary")
 async def users_summary(_: Annotated[str, Depends(get_admin_user)]):
     """Return aggregate stats: total users + total queries all time."""
@@ -273,6 +290,32 @@ async def get_settings_view(_: Annotated[str, Depends(get_admin_user)]):
     }
 
 
+class DefaultLimitRequest(BaseModel):
+    default_daily_limit: int
+
+
+@router.get("/settings/default-limit")
+async def get_default_limit(_: Annotated[str, Depends(get_admin_user)]):
+    """Return the current default daily query limit from system_config."""
+    raw = _google_db.get_system_config("default_daily_limit")
+    return {"default_daily_limit": int(raw) if raw and raw.isdigit() else 20}
+
+
+@router.patch("/settings/default-limit")
+async def update_default_limit(body: DefaultLimitRequest, _: Annotated[str, Depends(get_admin_user)]):
+    """Update the default daily limit for new users."""
+    _google_db.set_system_config("default_daily_limit", str(body.default_daily_limit))
+    return {"default_daily_limit": body.default_daily_limit}
+
+
+@router.post("/settings/apply-default-limit")
+async def apply_default_limit(_: Annotated[str, Depends(get_admin_user)]):
+    """Apply the default_daily_limit to all existing users."""
+    count = _google_db.apply_default_limit_to_all()
+    raw = _google_db.get_system_config("default_daily_limit")
+    return {"users_updated": count, "applied_limit": int(raw) if raw and raw.isdigit() else 20}
+
+
 @router.get("/analytics")
 async def analytics(request: Request, _: Annotated[str, Depends(get_admin_user)]):
     sessions = request.app.state.session_store.list_sessions()
@@ -280,9 +323,15 @@ async def analytics(request: Request, _: Annotated[str, Depends(get_admin_user)]
         len(request.app.state.session_store.get_history(s)) // 2
         for s in sessions
     )
+    rate_limits: dict = {}
+    try:
+        rate_limits = _google_db.get_rate_limit_analytics()
+    except Exception:
+        pass
     return {
         "active_sessions": len(sessions),
         "total_turns": total_turns,
         "citation_registry_hits": _citation_stats.get("registry_hits", 0),
         "citation_fallback_misses": _citation_stats.get("fallback_misses", 0),
+        "rate_limits": rate_limits,
     }
