@@ -124,9 +124,9 @@ def process_collection(collection, product_filter: str = "", dry_run: bool = Fal
     Group chunks by URL, extract media from chunk_index=0 (contains frontmatter),
     then update all chunks for that URL.
     """
-    # Fetch all chunks in pages — SQLite has a variable limit that breaks large single fetches
+    # Fetch all chunks in pages — SQLite has a 999-variable limit that breaks large single fetches
     logger.info("Fetching all chunks from ChromaDB…")
-    PAGE = 2000
+    PAGE = 500  # safe under SQLite's 999-variable limit
     ids, docs, metas = [], [], []
     offset = 0
     while True:
@@ -219,7 +219,13 @@ def process_collection(collection, product_filter: str = "", dry_run: bool = Fal
             updated_metas.append(new_meta)
 
         if not dry_run:
-            collection.update(ids=chunk_ids, metadatas=updated_metas)
+            # Batch updates to avoid SQLite variable limit on large URL chunk sets
+            UPDATE_BATCH = 100
+            for i in range(0, len(chunk_ids), UPDATE_BATCH):
+                collection.update(
+                    ids=chunk_ids[i:i + UPDATE_BATCH],
+                    metadatas=updated_metas[i:i + UPDATE_BATCH],
+                )
 
         stats["pages"] += 1
         stats["chunks"] += len(chunk_ids)
@@ -232,8 +238,8 @@ def process_collection(collection, product_filter: str = "", dry_run: bool = Fal
 
         results_log.append({
             "url": url,
-            "title": first["meta"].get("title", ""),
-            "product": first["meta"].get("product", ""),
+            "title": first["meta"].get("title", "") if first else "",
+            "product": first["meta"].get("product", "") if first else "",
             "chunks": len(chunk_ids),
             "thumbnail_url": media["thumbnail_url"],
             "video_url": media["video_url"],
@@ -241,7 +247,7 @@ def process_collection(collection, product_filter: str = "", dry_run: bool = Fal
         })
 
         logger.debug(
-            f"  {first['meta'].get('title','')[:50]} | "
+            f"  {first['meta'].get('title','')[:50] if first else ''} | "
             f"video={'✓' if media['video_url'] else '✗'} | "
             f"thumb={'✓' if media['thumbnail_url'] else '✗'} | "
             f"imgs={len(media['image_urls'])}"
