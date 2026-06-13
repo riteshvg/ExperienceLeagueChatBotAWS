@@ -60,7 +60,6 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
   const [copied, setCopied] = useState(false)
   const { setFeedback } = useChatStore()
   const displayedContent = useTypewriter(message.content || '', !!message.streaming, 12)
-  const citations = message.citations ?? []
   const processedContent = stripCitationMarkers(sanitizeAdobeMarkup(displayedContent || ' '))
 
   const handleCopy = () => {
@@ -162,7 +161,7 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
         )}
 
         {/* Footer row: model badge + feedback + copy */}
-        {!isUser && message.model && !message.streaming && (
+        {!isUser && message.model && message.model !== 'none' && !message.streaming && (
           <div className="flex items-center gap-2 px-1 flex-wrap">
             <ModelBadge model={message.model} />
             <div className="flex-1" />
