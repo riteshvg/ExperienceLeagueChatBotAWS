@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { RotateCcw, ChevronDown, ChevronUp, ChevronRight, Pencil, Check, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { RotateCcw, ChevronDown, ChevronUp, ChevronRight, Pencil, Check, X, Download } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
-import { useAdmin, type GoogleUser, type GoogleUserSummary, type QueryLog } from '@/hooks/useAdmin'
+import { useAdmin, type GoogleUser, type GoogleUserSummary } from '@/hooks/useAdmin'
+import type { PaginatedQueryLogs } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 type Tab = 'status' | 'settings' | 'analytics' | 'feedback' | 'users' | 'queries' | 'refresh'
@@ -257,17 +258,52 @@ function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, 
   )
 }
 
-function QueryLogsTab({ logs, onRefresh }: { logs: QueryLog[]; onRefresh: () => void }) {
+type SortCol = 'created_at' | 'email' | 'llm_model' | 'input_tokens' | 'output_tokens' | 'cost_usd'
+
+interface QueryLogsTabProps {
+  paginatedData: PaginatedQueryLogs | null
+  onFetchPage: (page: number, pageSize: number, sortBy: string, sortOrder: string) => Promise<void>
+  onExport: () => Promise<void>
+  exporting: boolean
+}
+
+function QueryLogsTab({ paginatedData, onFetchPage, onExport, exporting }: QueryLogsTabProps) {
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [sortBy, setSortBy] = useState<SortCol>('created_at')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [expanded, setExpanded] = useState<Set<number>>(new Set())
-  const totalCost = logs.reduce((s, l) => s + l.cost_usd, 0)
-  const avgCost = logs.length ? totalCost / logs.length : 0
+  const [exportError, setExportError] = useState(false)
+  const [fetching, setFetching] = useState(false)
+
+  const loadPage = (p: number, ps: number, sb: string, so: string) => {
+    setFetching(true)
+    onFetchPage(p, ps, sb, so).finally(() => setFetching(false))
+  }
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadPage(page, pageSize, sortBy, sortOrder) }, [page, pageSize, sortBy, sortOrder])
+
+  const handleSort = (col: SortCol) => {
+    if (col === sortBy) {
+      const next = sortOrder === 'desc' ? 'asc' : 'desc'
+      setSortOrder(next)
+    } else {
+      setSortBy(col)
+      setSortOrder('desc')
+    }
+    setPage(1)
+  }
+
+  const handlePageSize = (ps: number) => { setPageSize(ps); setPage(1) }
+
+  const handleExport = async () => {
+    setExportError(false)
+    try { await onExport() } catch { setExportError(true); setTimeout(() => setExportError(false), 4000) }
+  }
 
   const toggle = (id: number) =>
-    setExpanded((prev) => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
+    setExpanded((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
 
   const modelBadge = (model: string) => {
     const m = model.toLowerCase()
@@ -276,54 +312,118 @@ function QueryLogsTab({ logs, onRefresh }: { logs: QueryLog[]; onRefresh: () => 
     return 'bg-slate-50 text-slate-500 border-slate-200'
   }
 
+  const SortIcon = ({ col }: { col: SortCol }) => {
+    if (col !== sortBy) return <ChevronDown className="w-3 h-3 text-slate-300 ml-0.5" />
+    return sortOrder === 'desc'
+      ? <ChevronDown className="w-3 h-3 text-blue-500 ml-0.5" />
+      : <ChevronUp className="w-3 h-3 text-blue-500 ml-0.5" />
+  }
+
+  const thSort = (col: SortCol, label: string, align = 'left') => (
+    <th
+      className={cn(
+        'px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700',
+        align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left',
+      )}
+      onClick={() => handleSort(col)}
+    >
+      <span className="inline-flex items-center gap-0.5">
+        {label}<SortIcon col={col} />
+      </span>
+    </th>
+  )
+
+  const logs = paginatedData?.data ?? []
+  const pg = paginatedData?.pagination
+  const totalCost = logs.reduce((s, l) => s + l.cost_usd, 0)
+
+  // Page number list with ellipsis
+  const pageNums = (): (number | '…')[] => {
+    if (!pg) return []
+    const t = pg.total_pages, c = pg.page
+    if (t <= 7) return Array.from({ length: t }, (_, i) => i + 1)
+    if (c <= 3) return [1, 2, 3, 4, '…', t]
+    if (c >= t - 2) return [1, '…', t - 3, t - 2, t - 1, t]
+    return [1, '…', c - 1, c, c + 1, '…', t]
+  }
+
   return (
     <div className="space-y-4">
+      {/* Summary cards */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <p className="text-xs text-slate-500 uppercase tracking-wider">Logged queries</p>
-          <p className="text-2xl font-semibold text-slate-800 mt-1">{logs.length}</p>
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Total queries</p>
+          <p className="text-2xl font-semibold text-slate-800 mt-1">{pg ? pg.total_records.toLocaleString() : '—'}</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <p className="text-xs text-slate-500 uppercase tracking-wider">Total cost</p>
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Page cost</p>
           <p className="text-2xl font-semibold text-slate-800 mt-1">${totalCost.toFixed(4)}</p>
         </div>
         <div className="bg-white rounded-xl border border-slate-200 p-4">
-          <p className="text-xs text-slate-500 uppercase tracking-wider">Avg cost / query</p>
-          <p className="text-2xl font-semibold text-slate-800 mt-1">${avgCost.toFixed(5)}</p>
+          <p className="text-xs text-slate-500 uppercase tracking-wider">Page avg cost</p>
+          <p className="text-2xl font-semibold text-slate-800 mt-1">${logs.length ? (totalCost / logs.length).toFixed(5) : '0.00000'}</p>
         </div>
       </div>
 
-      <div className="flex justify-end">
-        <button
-          onClick={onRefresh}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </button>
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        {/* Page size */}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">Rows per page:</span>
+          {[25, 50, 100].map((s) => (
+            <button
+              key={s}
+              onClick={() => handlePageSize(s)}
+              className={cn(
+                'px-2.5 py-1 rounded text-xs font-medium transition-colors',
+                pageSize === s ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+              )}
+            >{s}</button>
+          ))}
+        </div>
+
+        {/* Export */}
+        <div className="flex flex-col items-end gap-0.5">
+          <button
+            onClick={handleExport}
+            disabled={exporting}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+              exporting
+                ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                : 'bg-emerald-600 text-white hover:bg-emerald-700',
+            )}
+          >
+            {exporting
+              ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Exporting…</>
+              : <><Download className="w-3.5 h-3.5" /> Export to Excel</>}
+          </button>
+          <span className="text-[10px] text-slate-400">Exports all query records</span>
+          {exportError && <span className="text-[10px] text-red-500">Export failed. Please try again.</span>}
+        </div>
       </div>
 
+      {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50">
               <th className="w-8 px-3 py-2.5" />
-              <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Time</th>
-              <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">User</th>
+              {thSort('created_at', 'Time')}
+              {thSort('email', 'User')}
               <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Query</th>
-              <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Model</th>
-              <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">In</th>
-              <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Out</th>
-              <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Cost</th>
+              {thSort('llm_model', 'Model', 'center')}
+              {thSort('input_tokens', 'In', 'right')}
+              {thSort('output_tokens', 'Out', 'right')}
+              {thSort('cost_usd', 'Cost', 'right')}
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">FB</th>
             </tr>
           </thead>
           <tbody>
-            {logs.length === 0 ? (
-              <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">
-                  No queries logged yet. Ask something in the chatbot!
-                </td>
-              </tr>
+            {fetching && logs.length === 0 ? (
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">Loading…</td></tr>
+            ) : logs.length === 0 ? (
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400">No queries logged yet.</td></tr>
             ) : logs.map((log, i) => {
               const isExpanded = expanded.has(log.id)
               const isLast = i === logs.length - 1
@@ -333,26 +433,20 @@ function QueryLogsTab({ logs, onRefresh }: { logs: QueryLog[]; onRefresh: () => 
                     key={log.id}
                     className={cn(
                       'border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors',
-                      isExpanded ? 'bg-slate-50' : '',
+                      isExpanded && 'bg-slate-50',
                       isLast && !isExpanded && 'border-0',
                     )}
                     onClick={() => toggle(log.id)}
                   >
                     <td className="w-8 px-3 py-2.5 text-slate-400">
-                      {isExpanded
-                        ? <ChevronDown className="w-3.5 h-3.5" />
-                        : <ChevronRight className="w-3.5 h-3.5" />}
+                      {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
                     </td>
                     <td className="px-4 py-2.5 text-slate-400 text-xs whitespace-nowrap">
                       {new Date(log.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
                     </td>
-                    <td className="px-4 py-2.5 text-slate-500 text-xs max-w-[120px] truncate" title={log.email}>
-                      {log.email}
-                    </td>
+                    <td className="px-4 py-2.5 text-slate-500 text-xs max-w-[120px] truncate" title={log.email}>{log.email}</td>
                     <td className="px-4 py-2.5 text-slate-700 text-xs max-w-[260px]">
-                      <span className={cn('block', isExpanded ? 'whitespace-normal' : 'truncate')}>
-                        {log.query_text}
-                      </span>
+                      <span className={cn('block', isExpanded ? 'whitespace-normal' : 'truncate')}>{log.query_text}</span>
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded border', modelBadge(log.llm_model))}>
@@ -367,12 +461,10 @@ function QueryLogsTab({ logs, onRefresh }: { logs: QueryLog[]; onRefresh: () => 
                     </td>
                   </tr>
                   {isExpanded && (
-                    <tr key={`${log.id}-detail`} className={cn('border-b border-slate-100 bg-slate-50', isLast && 'border-0')}>
+                    <tr key={`${log.id}-exp`} className={cn('border-b border-slate-100 bg-slate-50', isLast && 'border-0')}>
                       <td />
                       <td colSpan={8} className="px-4 pb-3 pt-0">
-                        <p className="text-xs text-slate-700 leading-relaxed bg-white border border-slate-200 rounded-lg p-3">
-                          {log.query_text}
-                        </p>
+                        <p className="text-xs text-slate-700 leading-relaxed bg-white border border-slate-200 rounded-lg p-3">{log.query_text}</p>
                       </td>
                     </tr>
                   )}
@@ -382,6 +474,40 @@ function QueryLogsTab({ logs, onRefresh }: { logs: QueryLog[]; onRefresh: () => 
           </tbody>
         </table>
       </div>
+
+      {/* Pagination footer */}
+      {pg && pg.total_pages > 1 && (
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <span className="text-xs text-slate-500">
+            Showing {((pg.page - 1) * pg.page_size + 1).toLocaleString()}–{Math.min(pg.page * pg.page_size, pg.total_records).toLocaleString()} of {pg.total_records.toLocaleString()} records
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPage(pg.page - 1)}
+              disabled={!pg.has_prev || fetching}
+              className="px-2.5 py-1 rounded text-xs text-slate-600 border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+            >← Prev</button>
+            {pageNums().map((n, i) =>
+              n === '…'
+                ? <span key={`ellipsis-${i}`} className="px-1.5 text-xs text-slate-400">…</span>
+                : <button
+                    key={n}
+                    onClick={() => setPage(n as number)}
+                    disabled={fetching}
+                    className={cn(
+                      'w-7 h-7 rounded text-xs font-medium transition-colors',
+                      n === pg.page ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100',
+                    )}
+                  >{n}</button>
+            )}
+            <button
+              onClick={() => setPage(pg.page + 1)}
+              disabled={!pg.has_next || fetching}
+              className="px-2.5 py-1 rounded text-xs text-slate-600 border border-slate-200 disabled:opacity-40 hover:bg-slate-50 transition-colors"
+            >Next →</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -411,6 +537,7 @@ export function AdminPage() {
     triggerRefresh, triggerGitHubActions,
     status, settings, analytics, demoStatus, feedback, refreshStatus,
     googleUsers, googleUserSummary, queryLogs, refreshGoogleUsers,
+    fetchQueryPage, exportQueries, exporting,
     setGoogleUserAdmin, setUserDisabled,
     killSwitchEnabled, toggleKillSwitch,
     defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,
@@ -1023,7 +1150,12 @@ export function AdminPage() {
         )}
 
         {tab === 'queries' && (
-          <QueryLogsTab logs={queryLogs} onRefresh={refreshGoogleUsers} />
+          <QueryLogsTab
+            paginatedData={queryLogs}
+            onFetchPage={fetchQueryPage}
+            onExport={exportQueries}
+            exporting={exporting}
+          />
         )}
 
         {loading && (

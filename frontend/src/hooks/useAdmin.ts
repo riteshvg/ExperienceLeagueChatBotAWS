@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   adminLogin, adminLogout, getAdminStatus, getAdminSettings, getAdminAnalytics,
-  listGoogleUsers, updateGoogleUser, getGoogleUserSummary, getQueryLogs,
+  listGoogleUsers, updateGoogleUser, getGoogleUserSummary, getQueryLogs, exportQueriesExcel,
   getKillSwitchStatus, setKillSwitch as apiSetKillSwitch,
   setUserDailyLimit, setDefaultDailyLimit, applyDefaultLimitToAll, getDefaultDailyLimit,
-  type GoogleUser, type GoogleUserSummary, type QueryLog,
+  type GoogleUser, type GoogleUserSummary, type QueryLog, type PaginatedQueryLogs,
 } from '@/lib/api'
 
 const TOKEN_KEY = 'el_admin_token'
@@ -33,7 +33,8 @@ export function useAdmin() {
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null)
   const [googleUsers, setGoogleUsers] = useState<GoogleUser[]>([])
   const [googleUserSummary, setGoogleUserSummary] = useState<GoogleUserSummary | null>(null)
-  const [queryLogs, setQueryLogs] = useState<QueryLog[]>([])
+  const [queryLogs, setQueryLogs] = useState<PaginatedQueryLogs | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [killSwitchEnabled, setKillSwitchEnabled] = useState<boolean>(true)
   const [defaultDailyLimit, setDefaultDailyLimitState] = useState<number>(20)
   const [loading, setLoading] = useState(false)
@@ -62,7 +63,7 @@ export function useAdmin() {
     setAnalytics(null)
     setGoogleUsers([])
     setGoogleUserSummary(null)
-    setQueryLogs([])
+    setQueryLogs(null)
   }, [token])
 
   const refresh = useCallback(async () => {
@@ -84,7 +85,7 @@ export function useAdmin() {
         }).then((r) => r.json()),
         listGoogleUsers(token).catch(() => []),
         getGoogleUserSummary(token).catch(() => null),
-        getQueryLogs(token).catch(() => []),
+        getQueryLogs(token).catch(() => null),
         getKillSwitchStatus(token).catch(() => ({ enabled: true })),
         getDefaultDailyLimit(token).catch(() => ({ default_daily_limit: 20 })),
       ])
@@ -109,15 +110,36 @@ export function useAdmin() {
   const refreshGoogleUsers = useCallback(async () => {
     if (!token) return
     try {
-      const [users, summary, logs] = await Promise.all([
+      const [users, summary] = await Promise.all([
         listGoogleUsers(token),
         getGoogleUserSummary(token),
-        getQueryLogs(token),
       ])
       setGoogleUsers(users)
       setGoogleUserSummary(summary)
-      setQueryLogs(logs)
     } catch { /* silent */ }
+  }, [token])
+
+  const fetchQueryPage = useCallback(async (
+    page = 1,
+    pageSize = 25,
+    sortBy = 'created_at',
+    sortOrder = 'desc',
+  ) => {
+    if (!token) return
+    try {
+      const data = await getQueryLogs(token, { page, pageSize, sortBy, sortOrder })
+      setQueryLogs(data)
+    } catch { /* silent — don't log out on a pagination call */ }
+  }, [token])
+
+  const exportQueries = useCallback(async (dateFrom?: string, dateTo?: string) => {
+    if (!token) return
+    setExporting(true)
+    try {
+      await exportQueriesExcel(token, dateFrom, dateTo)
+    } finally {
+      setExporting(false)
+    }
   }, [token])
 
   const resetDemo = useCallback(async () => {
@@ -207,6 +229,7 @@ export function useAdmin() {
     triggerRefresh, triggerGitHubActions,
     status, settings, analytics, demoStatus, feedback, refreshStatus,
     googleUsers, googleUserSummary, queryLogs, refreshGoogleUsers,
+    fetchQueryPage, exportQueries, exporting,
     setGoogleUserAdmin, setUserDisabled,
     killSwitchEnabled, toggleKillSwitch,
     defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,

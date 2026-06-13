@@ -137,12 +137,88 @@ async def users_summary(_: Annotated[str, Depends(get_admin_user)]):
 
 
 @router.get("/query-logs")
-async def get_query_logs(_: Annotated[str, Depends(get_admin_user)], limit: int = 100):
-    """Return recent query logs with model, token counts, and cost."""
+async def get_query_logs(
+    _: Annotated[str, Depends(get_admin_user)],
+    page: int = 1,
+    page_size: int = 25,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+):
+    """Return paginated query logs with sort and total count."""
     try:
-        return _google_db.list_query_logs(limit=limit)
+        return _google_db.list_query_logs_paginated(
+            page=max(1, page),
+            page_size=min(max(1, page_size), 100),
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"Query logs unavailable: {exc}")
+
+
+@router.get("/export/queries/excel")
+async def export_queries_excel(
+    _: Annotated[str, Depends(get_admin_user)],
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+):
+    """Export all query logs as an Excel file."""
+    import io
+    from datetime import date, datetime
+    from fastapi.responses import StreamingResponse
+    import openpyxl
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    try:
+        records = _google_db.export_all_query_logs(date_from=date_from, date_to=date_to)
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Export failed: {exc}")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Query Logs"
+
+    headers = ["Time", "User Email", "Query", "Model", "Input Tokens", "Output Tokens", "Cost (USD)"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    for r in records:
+        created_at = r.get("created_at", "")
+        try:
+            dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            created_at = dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+        ws.append([
+            created_at,
+            r.get("email", ""),
+            r.get("query_text", ""),
+            r.get("llm_model", ""),
+            r.get("input_tokens", 0),
+            r.get("output_tokens", 0),
+            round(float(r.get("cost_usd") or 0), 2),
+        ])
+
+    for col_idx in range(1, len(headers) + 1):
+        col_letter = get_column_letter(col_idx)
+        max_len = max(
+            (len(str(ws.cell(row=row, column=col_idx).value or "")) for row in range(1, ws.max_row + 1)),
+            default=10,
+        )
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 80)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"rovr-queries-{date.today().isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 # ── Refresh pipeline ──────────────────────────────────────────────────────────

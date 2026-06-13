@@ -535,6 +535,23 @@ def log_query(
         conn.close()
 
 
+_QUERY_SORT_ALLOWLIST = {"created_at", "email", "llm_model", "input_tokens", "output_tokens", "cost_usd"}
+
+
+def _rows_to_query_log_dicts(rows) -> list[dict]:
+    result = []
+    for r in rows:
+        d = dict(r)
+        if hasattr(d.get("created_at"), "isoformat"):
+            d["created_at"] = d["created_at"].isoformat()
+        if d.get("cost_usd") is not None:
+            d["cost_usd"] = float(d["cost_usd"])
+        if d.get("feedback_rating") is not None:
+            d["feedback_rating"] = int(d["feedback_rating"])
+        result.append(d)
+    return result
+
+
 def list_query_logs(limit: int = 100) -> list[dict]:
     """Return recent query logs with feedback rating joined from exl_feedback."""
     conn = _connect()
@@ -552,6 +569,87 @@ def list_query_logs(limit: int = 100) -> list[dict]:
                 (limit,),
             )
             rows = cur.fetchall()
+        return _rows_to_query_log_dicts(rows)
+    finally:
+        conn.close()
+
+
+def list_query_logs_paginated(
+    page: int = 1,
+    page_size: int = 25,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
+) -> dict:
+    """Return paginated query logs with total count metadata."""
+    if sort_by not in _QUERY_SORT_ALLOWLIST:
+        sort_by = "created_at"
+    direction = "ASC" if sort_order.lower() == "asc" else "DESC"
+    offset = (page - 1) * page_size
+
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM exl_query_logs")
+            total = cur.fetchone()["count"]
+            cur.execute(
+                f"""
+                SELECT q.id, q.message_id, q.user_id, q.email, q.query_text,
+                       q.llm_model, q.input_tokens, q.output_tokens, q.cost_usd, q.created_at,
+                       f.rating AS feedback_rating
+                FROM exl_query_logs q
+                LEFT JOIN exl_feedback f ON f.message_id = q.message_id AND q.message_id <> ''
+                ORDER BY q.{sort_by} {direction}
+                LIMIT %s OFFSET %s
+                """,
+                (page_size, offset),
+            )
+            rows = cur.fetchall()
+        total_pages = max(1, -(-total // page_size))  # ceiling division
+        return {
+            "data": _rows_to_query_log_dicts(rows),
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_records": total,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+            },
+        }
+    finally:
+        conn.close()
+
+
+def export_all_query_logs(
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> list[dict]:
+    """Return all query logs for Excel export, optionally filtered by date range."""
+    conditions: list[str] = []
+    params: list = []
+    if date_from:
+        conditions.append("q.created_at >= %s")
+        params.append(date_from)
+    if date_to:
+        conditions.append("q.created_at <= %s")
+        params.append(date_to)
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            query = f"""
+                SELECT q.email, q.query_text, q.llm_model,
+                       q.input_tokens, q.output_tokens, q.cost_usd, q.created_at
+                FROM exl_query_logs q
+                {where}
+                ORDER BY q.created_at DESC
+            """
+            if params:
+                cur.execute(query, params)
+            else:
+                cur.execute(query)
+            rows = cur.fetchall()
         result = []
         for r in rows:
             d = dict(r)
@@ -559,8 +657,6 @@ def list_query_logs(limit: int = 100) -> list[dict]:
                 d["created_at"] = d["created_at"].isoformat()
             if d.get("cost_usd") is not None:
                 d["cost_usd"] = float(d["cost_usd"])
-            if d.get("feedback_rating") is not None:
-                d["feedback_rating"] = int(d["feedback_rating"])
             result.append(d)
         return result
     finally:

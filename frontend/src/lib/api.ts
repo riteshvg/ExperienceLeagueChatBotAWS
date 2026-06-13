@@ -203,6 +203,20 @@ export interface QueryLog {
   feedback_rating?: 1 | -1 | null
 }
 
+export interface Pagination {
+  page: number
+  page_size: number
+  total_records: number
+  total_pages: number
+  has_next: boolean
+  has_prev: boolean
+}
+
+export interface PaginatedQueryLogs {
+  data: QueryLog[]
+  pagination: Pagination
+}
+
 export interface GoogleUserSummary {
   total_users: number
   total_queries_all_time: number
@@ -238,8 +252,42 @@ export const updateGoogleUser = (
 export const getGoogleUserSummary = (token: string): Promise<GoogleUserSummary> =>
   adminFetch('/api/admin/users/summary', token)
 
-export const getQueryLogs = (token: string, limit = 100): Promise<QueryLog[]> =>
-  adminFetch(`/api/admin/query-logs?limit=${limit}`, token)
+export const getQueryLogs = (
+  token: string,
+  params: { page?: number; pageSize?: number; sortBy?: string; sortOrder?: string } = {},
+): Promise<PaginatedQueryLogs> => {
+  const { page = 1, pageSize = 25, sortBy = 'created_at', sortOrder = 'desc' } = params
+  return adminFetch(
+    `/api/admin/query-logs?page=${page}&page_size=${pageSize}&sort_by=${sortBy}&sort_order=${sortOrder}`,
+    token,
+  )
+}
+
+export async function exportQueriesExcel(
+  token: string,
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<void> {
+  const p = new URLSearchParams()
+  if (dateFrom) p.set('date_from', dateFrom)
+  if (dateTo) p.set('date_to', dateTo)
+  const qs = p.toString() ? `?${p}` : ''
+  const res = await fetch(`${API_BASE}/api/admin/export/queries/excel${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const m = cd.match(/filename=([^;]+)/)
+  a.download = m ? m[1] : `rovr-queries-${new Date().toISOString().slice(0, 10)}.xlsx`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 
 export const getKillSwitchStatus = (token: string): Promise<{ enabled: boolean }> =>
   adminFetch('/api/admin/kill-switch', token)
