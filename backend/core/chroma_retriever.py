@@ -113,8 +113,18 @@ class ChromaRetriever:
         if total == 0:
             return []
 
-        results = self.collection.get(include=["metadatas"])
-        metas = results.get("metadatas", [])
+        metas = []
+        offset = 0
+        PAGE = 500
+        while True:
+            page = self.collection.get(include=["metadatas"], limit=PAGE, offset=offset)
+            batch = page.get("metadatas", [])
+            if not batch:
+                break
+            metas.extend(batch)
+            offset += len(batch)
+            if len(batch) < PAGE:
+                break
 
         from collections import defaultdict
         chunks: dict[str, int] = defaultdict(int)
