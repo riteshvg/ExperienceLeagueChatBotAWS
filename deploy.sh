@@ -16,8 +16,18 @@ echo "════════════════════════�
 echo ""
 echo "▶ [1/5] Deploying backend → Railway…"
 cd "$CHATBOT_ROOT"
+# railway up streams live logs after deploy; Ctrl+C detaches but returns
+# exit code 130 (SIGINT). Treat 0 and 130 as success — the deploy itself
+# completes before log streaming begins.
+set +e
 railway up
-echo "  ✓ Railway deploy triggered"
+RAILWAY_EXIT=$?
+set -e
+if [ $RAILWAY_EXIT -ne 0 ] && [ $RAILWAY_EXIT -ne 130 ]; then
+  echo "  ✗ Railway deploy failed (exit $RAILWAY_EXIT)" >&2
+  exit $RAILWAY_EXIT
+fi
+echo "  ✓ Railway deploy complete"
 
 # ── 2. Build React frontend ────────────────────────────────────────────────
 echo ""
