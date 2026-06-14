@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { hashUserId, setHashedUserId } from '@/analytics'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 const SESSION_KEY = 'exl_session'
@@ -42,6 +43,10 @@ function loadSession(): SessionData | null {
 }
 
 const initial = loadSession()
+// Seed analytics hash for returning users whose session survived a page reload
+if (initial) {
+  hashUserId(initial.userId).then(setHashedUserId).catch(() => {})
+}
 
 export const useAuthStore = create<AuthState>()((set, get) => ({
   session: initial,
@@ -50,6 +55,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
   setSession(data) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(data))
     set({ session: data, isAuthenticated: true })
+    // Pre-compute hashed userId for analytics — fire-and-forget
+    hashUserId(data.userId).then(setHashedUserId).catch(() => {})
   },
 
   initiateGoogleLogin() {

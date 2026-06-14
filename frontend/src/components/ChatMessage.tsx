@@ -11,6 +11,7 @@ import { type Message } from '@/lib/api'
 interface Props {
   message: Message
   onFollowUpClick: (text: string) => void
+  turnNumber?: number
 }
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
@@ -55,7 +56,7 @@ function stripCitationMarkers(text: string): string {
   return text.replace(/\[\d+\](?!\()/g, '')
 }
 
-export function ChatMessage({ message, onFollowUpClick }: Props) {
+export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
   const { setFeedback } = useChatStore()
@@ -154,7 +155,7 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
             <p className="text-xs text-slate-400 font-medium px-1">Sources</p>
             <div className="flex flex-wrap gap-1.5">
               {message.citations.map((c, i) => (
-                <CitationCard key={c.url} citation={c} index={i + 1} />
+                <CitationCard key={c.url} citation={c} index={i + 1} turnNumber={turnNumber} />
               ))}
             </div>
           </div>

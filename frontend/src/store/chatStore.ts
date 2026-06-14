@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation } from '@/lib/api'
+import {
+  trackQuerySent,
+  trackFollowupQuery,
+  trackSessionStart,
+  trackSessionEnd,
+  trackFeedbackPositive,
+  trackFeedbackNegative,
+  trackNoAnswer,
+} from '@/analytics'
 
 
 function makeId() {
@@ -86,7 +95,13 @@ export const useChatStore = create<ChatState>()(
           const msgs = sessions[activeSessionId]?.messages ?? []
           const idx = msgs.findIndex((m) => m.id === messageId)
           const precedingQuery = idx > 0 ? msgs[idx - 1].content : ''
+          const turnNumber = msgs.slice(0, idx + 1).filter((m) => m.role === 'user').length
           submitFeedback(messageId, activeSessionId, rating, precedingQuery).catch(() => {})
+          if (rating === 1) {
+            trackFeedbackPositive(precedingQuery, turnNumber)
+          } else {
+            trackFeedbackNegative(precedingQuery, turnNumber)
+          }
           set((s) => ({
             sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
               msgs.map((m) => (m.id === messageId ? { ...m, feedback: rating } : m))
@@ -122,8 +137,12 @@ export const useChatStore = create<ChatState>()(
           if (isStreaming) return
           // Don't create a blank session if current one is already empty
           if ((sessions[activeSessionId]?.messages.length ?? 0) === 0) return
+          // End the current analytics session before starting a new one
+          const totalTurns = sessions[activeSessionId]?.messages.filter((m) => m.role === 'user').length ?? 0
+          trackSessionEnd(totalTurns)
           clearHistory(activeSessionId).catch(() => {})
           const fresh = createSession()
+          trackSessionStart('new_chat_button')
           set((s) => ({
             sessions: { ...s.sessions, [fresh.id]: fresh },
             activeSessionId: fresh.id,
@@ -135,6 +154,14 @@ export const useChatStore = create<ChatState>()(
           const { activeSessionId, isStreaming, accessDenied, rateLimited } = get()
           if (!query.trim() || isStreaming || accessDenied || rateLimited) return
           set({ error: null })
+
+          // Turn number = existing user messages + 1 (this one)
+          const existingMsgs = get().sessions[activeSessionId]?.messages ?? []
+          const turnNumber = existingMsgs.filter((m) => m.role === 'user').length + 1
+
+          // Fire analytics before the API call
+          trackQuerySent(query, turnNumber, 'unknown', 'uncategorised')
+          if (turnNumber >= 2) trackFollowupQuery(query, turnNumber)
 
           const userMsg: Message = { id: makeId(), role: 'user', content: query }
           const assistantId = makeId()
@@ -170,6 +197,10 @@ export const useChatStore = create<ChatState>()(
                 if (event.queries_used !== undefined) updatesFromDone.queriesUsed = event.queries_used
                 if (event.queries_remaining !== undefined) updatesFromDone.queriesRemaining = event.queries_remaining
                 if (event.queries_limit !== undefined) updatesFromDone.queriesLimit = event.queries_limit
+                // Track no-answer when the pipeline returned nothing (model: 'none')
+                if (event.model === 'none') {
+                  trackNoAnswer(query, turnNumber, 'no_retrieval')
+                }
                 set((s) => ({
                   ...updatesFromDone,
                   sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
@@ -177,6 +208,7 @@ export const useChatStore = create<ChatState>()(
                   ),
                 }))
               } else if (event.type === 'error') {
+                trackNoAnswer(query, turnNumber, 'error')
                 set((s) => ({
                   error: event.message,
                   sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>

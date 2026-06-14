@@ -7,6 +7,7 @@ import { ChatMessage } from '@/components/ChatMessage'
 import { Sidebar } from '@/components/Sidebar'
 import { getMe } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { trackSessionStart, trackSessionEnd } from '@/analytics'
 
 type Category = 'All' | 'Analytics' | 'CJA' | 'AEP' | 'Target' | 'AJO' | 'Cross-Product'
 
@@ -83,6 +84,20 @@ export function ChatPage() {
 
   useEffect(() => {
     getMe().then((usage) => setUsage(usage.queries_used, usage.queries_remaining, usage.queries_limit))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Analytics: fire session_start on page load for fresh sessions
+  useEffect(() => {
+    if (messages.length === 0) {
+      trackSessionStart('page_load')
+    }
+    // Register beforeunload to track session_end when the tab closes
+    const handleUnload = () => {
+      const totalTurns = messages.filter((m) => m.role === 'user').length
+      trackSessionEnd(totalTurns)
+    }
+    window.addEventListener('beforeunload', handleUnload)
+    return () => window.removeEventListener('beforeunload', handleUnload)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -206,9 +221,14 @@ export function ChatPage() {
             </div>
           )}
 
-          {messages.map((msg) => (
-            <ChatMessage key={msg.id} message={msg} onFollowUpClick={handleSelectPrompt} />
-          ))}
+          {(() => {
+            let userTurn = 0
+            return messages.map((msg) => {
+              if (msg.role === 'user') userTurn++
+              const turn = userTurn
+              return <ChatMessage key={msg.id} message={msg} onFollowUpClick={handleSelectPrompt} turnNumber={turn} />
+            })
+          })()}
 
           {error && (
             <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">
