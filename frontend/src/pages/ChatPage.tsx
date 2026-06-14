@@ -72,7 +72,7 @@ export function ChatPage() {
     queriesUsed, queriesRemaining, queriesLimit, setUsage,
   } = useChatStore()
   const { logout } = useAuthStore()
-  const { monthlyLimit, monthlyRemaining, resetDate, isNewUser, isExhausted, fetchQuota } = useQuotaStore()
+  const { monthlyLimit, monthlyUsed, monthlyRemaining, resetDate, isNewUser, isExhausted, fetchQuota } = useQuotaStore()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeCategory, setActiveCategory] = useState<Category>('All')
   const [welcomeDismissed, setWelcomeDismissed] = useState(() => !!localStorage.getItem(WELCOME_KEY))
@@ -298,31 +298,18 @@ export function ChatPage() {
             <p className="text-center text-xs text-slate-400">
               Answers are grounded in Adobe Experience League documentation
             </p>
-            <div className="flex items-center gap-3 mt-0.5 flex-wrap justify-center">
-              {queriesRemaining !== null && (
-                <p className={cn(
-                  'text-xs',
-                  queriesRemaining === 0 ? 'text-red-500 font-medium' :
-                  queriesRemaining <= queriesLimit * 0.25 ? 'text-amber-500' :
-                  'text-slate-400'
-                )}>
-                  {queriesUsed} / {queriesLimit} today
-                </p>
-              )}
-              {monthlyLimit < 9999 && (
-                <>
-                  {queriesRemaining !== null && <span className="text-slate-300 text-xs">·</span>}
-                  <p className={cn(
-                    'text-xs',
-                    isExhausted || monthlyExhausted ? 'text-red-500 font-medium' :
-                    monthlyRemaining <= 5 ? 'text-amber-500' :
-                    'text-slate-400'
-                  )}>
-                    {isExhausted || monthlyExhausted ? '0' : monthlyRemaining} / {monthlyLimit} this month
-                  </p>
-                </>
-              )}
-            </div>
+            {monthlyLimit < 9999 && (
+              <p className={cn(
+                'text-xs mt-0.5',
+                isExhausted || monthlyExhausted ? 'text-red-500 font-medium' :
+                monthlyRemaining <= 5 ? 'text-amber-500' :
+                'text-slate-400'
+              )}>
+                {monthlyLimit} queries per month.{' '}
+                {isExhausted || monthlyExhausted ? monthlyLimit : monthlyUsed}/{monthlyLimit} used until now.{' '}
+                {isExhausted || monthlyExhausted ? 0 : monthlyRemaining} pending for the month.
+              </p>
+            )}
           </div>
         </div>
       </main>
