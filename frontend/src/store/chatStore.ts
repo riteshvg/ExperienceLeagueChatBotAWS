@@ -215,7 +215,7 @@ export const useChatStore = create<ChatState>()(
           // After streaming: generate follow-up questions (non-blocking)
           const finalMsg = get().sessions[get().activeSessionId]?.messages
             .find((m) => m.id === assistantId)
-          if (finalMsg && finalMsg.content && !finalMsg.content.startsWith('Error:')) {
+          if (finalMsg && finalMsg.content && !finalMsg.content.startsWith('Error:') && finalMsg.model !== 'none') {
             getFollowUps(query, finalMsg.content).then((follow_ups) => {
               if (follow_ups.length > 0) {
                 set((s) => ({
