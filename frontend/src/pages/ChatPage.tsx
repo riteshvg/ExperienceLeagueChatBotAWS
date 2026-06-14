@@ -6,7 +6,7 @@ import { useQuotaStore } from '@/store/quotaStore'
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { Sidebar } from '@/components/Sidebar'
-import { getMe } from '@/lib/api'
+import { getMe, isApiDisabled } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { trackSessionStart, trackSessionEnd } from '@/analytics'
 
@@ -69,7 +69,7 @@ export function ChatPage() {
   const {
     sessions, activeSessionId, isStreaming, sendMessage, error, accessDenied,
     rateLimited, rateLimitMessage, apiDisabled, monthlyExhausted,
-    queriesUsed, queriesRemaining, queriesLimit, setUsage,
+    queriesUsed, queriesRemaining, queriesLimit, setUsage, setApiDisabled,
   } = useChatStore()
   const { logout } = useAuthStore()
   const { monthlyLimit, monthlyUsed, monthlyRemaining, resetDate, isNewUser, isExhausted, fetchQuota } = useQuotaStore()
@@ -90,6 +90,7 @@ export function ChatPage() {
   useEffect(() => {
     getMe().then((usage) => setUsage(usage.queries_used, usage.queries_remaining, usage.queries_limit))
     fetchQuota()
+    isApiDisabled().then((disabled) => { if (disabled) setApiDisabled(true) })
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-fetch quota after each message completes

@@ -49,6 +49,7 @@ interface ChatState {
   switchSession: (id: string) => void
   deleteSession: (id: string) => void
   clearError: () => void
+  setApiDisabled: (disabled: boolean) => void
   setUsage: (used: number, remaining: number, limit: number) => void
 }
 
@@ -90,6 +91,8 @@ export const useChatStore = create<ChatState>()(
         queriesLimit: 20,
 
         clearError: () => set({ error: null }),
+
+        setApiDisabled: (disabled) => set({ apiDisabled: disabled }),
 
         setUsage: (used, remaining, limit) => set({ queriesUsed: used, queriesRemaining: remaining, queriesLimit: limit }),
 

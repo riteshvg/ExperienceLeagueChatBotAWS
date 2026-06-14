@@ -282,3 +282,10 @@ async def submit_feedback(body: FeedbackRequest, _user: Annotated[dict, Depends(
         with open(FEEDBACK_FILE, "a") as f:
             f.write(json.dumps(entry) + "\n")
     return {"status": "ok"}
+
+
+@router.get("/ping")
+async def ping():
+    """Lightweight liveness probe — kill switch middleware intercepts this and returns 503 when disabled."""
+    return {"ok": True}
+

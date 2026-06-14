@@ -357,3 +357,17 @@ export async function getMe(): Promise<{ queries_used: number; queries_limit: nu
     return { queries_used: 0, queries_limit: 20, queries_remaining: 20 }
   }
 }
+
+/** Returns true when the kill switch is active (API disabled by admin). */
+export async function isApiDisabled(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/ping`, { headers: authHeaders() })
+    if (res.status === 503) {
+      const body = await res.json().catch(() => ({}))
+      return body?.detail === 'API_DISABLED'
+    }
+    return false
+  } catch {
+    return false
+  }
+}
