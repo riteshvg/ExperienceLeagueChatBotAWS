@@ -55,6 +55,33 @@ _OUT_OF_SCOPE_RESPONSE = (
     "Please ask me anything related to these products and I'll be happy to help! 😊"
 )
 
+_NON_ENGLISH_RESPONSE = (
+    "I'm sorry, I can only understand and respond to questions in **English**.\n\n"
+    "Please rephrase your question in English and I'll be happy to help! 😊"
+)
+
+# Unicode ranges that are definitively non-Latin scripts
+_NON_LATIN_RE = re.compile(
+    r'[Ѐ-ӿ'   # Cyrillic
+    r'؀-ۿ'    # Arabic
+    r'ऀ-ॿ'    # Devanagari
+    r'一-鿿'    # CJK Unified Ideographs (Chinese/Japanese)
+    r'぀-ヿ'    # Hiragana / Katakana
+    r'가-힯'    # Hangul (Korean)
+    r'฀-๿'    # Thai
+    r'Ͱ-Ͽ]'   # Greek
+)
+
+
+def _is_non_english(text: str) -> bool:
+    """Return True when non-Latin script characters make up >20% of word chars."""
+    word_chars = [c for c in text if c.isalpha()]
+    if not word_chars:
+        return False
+    non_latin = sum(1 for c in word_chars if _NON_LATIN_RE.match(c))
+    return non_latin / len(word_chars) > 0.20
+
+
 _FOLLOWUP_PATTERNS = re.compile(
     r'\b(it|this|that|one|them|they|those|these|the same|the above|do so|how do i|can i|steps|process)\b',
     re.IGNORECASE,
@@ -275,6 +302,16 @@ class RAGPipeline:
         try:
             settings = get_settings()
             history = self.session_store.get_history(session_id)
+
+            # Language gate: reject non-English queries before any LLM call
+            if _is_non_english(query):
+                yield {"type": "token", "content": _NON_ENGLISH_RESPONSE}
+                self.session_store.append_turn(session_id, "user", query)
+                self.session_store.append_turn(session_id, "assistant", _NON_ENGLISH_RESPONSE)
+                yield {"type": "citations", "citations": []}
+                yield {"type": "done", "model": "none", "session_id": session_id,
+                       "input_tokens": 0, "output_tokens": 0}
+                return
 
             # Route: haiku_only flag overrides auto-routing
             routed = "haiku" if haiku_only else classify_query(query)
