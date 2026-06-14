@@ -28,6 +28,52 @@ FEEDBACK_FILE = _ROOT / "data" / "feedback.jsonl"
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_NON_ENGLISH_MSG = (
+    "For now, only English language questions are supported. "
+    "Please rephrase your question in English and I'll be happy to help!"
+)
+
+# Common non-English words that are unambiguously not English
+_NON_ENGLISH_WORDS = {
+    # French
+    "quelles", "quelle", "sont", "les", "des", "est", "comment", "pourquoi",
+    "quand", "avec", "dans", "pour", "sur", "par", "qui", "que", "une", "votre",
+    "vous", "nous", "ils", "elles", "mais", "donc", "puis", "aussi", "comme",
+    "dernières", "derniers", "fonctionnalités", "fonctionnalité",
+    # Spanish
+    "cómo", "cuál", "cuáles", "qué", "cuándo", "dónde", "quién", "quiénes",
+    "configurar", "configuración", "últimas", "últimos", "características",
+    "para", "con", "como", "desde", "hasta", "tiene", "puede", "están",
+    # German
+    "wie", "was", "wann", "warum", "welche", "welcher", "welches", "können",
+    "ist", "sind", "hat", "haben", "mit", "von", "für", "nach", "über",
+    "einrichten", "konfigurieren", "neuesten", "funktionen",
+    # Italian
+    "come", "cosa", "quando", "perché", "quale", "quali", "configurare",
+    "ultime", "funzionalità",
+    # Portuguese
+    "como", "qual", "quais", "quando", "porque", "configurar",
+    "últimas", "últimos", "funcionalidades",
+}
+
+
+def _is_non_english(text: str) -> bool:
+    """Detect non-English via accented chars or known non-English stopwords."""
+    # 1. Any non-ASCII alphabetic character (é è ê ç ñ ü ä ō etc.) → non-English
+    non_ascii_alpha = sum(1 for c in text if c.isalpha() and ord(c) > 127)
+    if non_ascii_alpha >= 1:
+        logger.info(f"[lang] non-ASCII alpha={non_ascii_alpha}, blocking: {text[:60]!r}")
+        return True
+
+    # 2. Check for unambiguous non-English words
+    words = {w.lower().strip("?!.,;:'\"") for w in text.split()}
+    hit = words & _NON_ENGLISH_WORDS
+    if hit:
+        logger.info(f"[lang] non-English words={hit}, blocking: {text[:60]!r}")
+        return True
+
+    return False
+
 
 class ChatRequest(BaseModel):
     query: str
@@ -65,6 +111,15 @@ async def chat(
             raise
         except Exception as e:
             logger.warning(f"Rate limit check failed (non-fatal): {e}")
+
+    # Language gate — before any LLM call
+    if _is_non_english(body.query):
+        async def _non_english_gen():
+            yield {"data": json.dumps({"type": "token", "content": _NON_ENGLISH_MSG})}
+            yield {"data": json.dumps({"type": "citations", "citations": []})}
+            yield {"data": json.dumps({"type": "done", "model": "none", "session_id": session_id,
+                                       "input_tokens": 0, "output_tokens": 0})}
+        return EventSourceResponse(_non_english_gen())
 
     async def event_generator():
         full_response = ""

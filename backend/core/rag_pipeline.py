@@ -55,23 +55,6 @@ _OUT_OF_SCOPE_RESPONSE = (
     "Please ask me anything related to these products and I'll be happy to help! 😊"
 )
 
-_NON_ENGLISH_RESPONSE = (
-    "For now, only English language questions are supported. "
-    "Please rephrase your question in English and I'll be happy to help!"
-)
-
-_LANG_DETECT_MIN_LEN = 20  # skip detection for very short queries — langdetect is unreliable below this
-
-
-def _is_non_english(text: str) -> bool:
-    """Return True if langdetect is confident the query is not English."""
-    if len(text.strip()) < _LANG_DETECT_MIN_LEN:
-        return False
-    try:
-        from langdetect import detect, LangDetectException
-        return detect(text) != "en"
-    except Exception:
-        return False
 
 
 _FOLLOWUP_PATTERNS = re.compile(
@@ -294,16 +277,6 @@ class RAGPipeline:
         try:
             settings = get_settings()
             history = self.session_store.get_history(session_id)
-
-            # Language gate: reject non-English queries before any LLM call
-            if _is_non_english(query):
-                yield {"type": "token", "content": _NON_ENGLISH_RESPONSE}
-                self.session_store.append_turn(session_id, "user", query)
-                self.session_store.append_turn(session_id, "assistant", _NON_ENGLISH_RESPONSE)
-                yield {"type": "citations", "citations": []}
-                yield {"type": "done", "model": "none", "session_id": session_id,
-                       "input_tokens": 0, "output_tokens": 0}
-                return
 
             # Route: haiku_only flag overrides auto-routing
             routed = "haiku" if haiku_only else classify_query(query)
