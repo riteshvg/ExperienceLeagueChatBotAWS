@@ -212,7 +212,7 @@ export function ChatPage() {
 
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center px-4 py-8">
-              <img src="/rovrlogo.png" alt="Rovr" className="h-12 w-auto mb-4" />
+              <img src={`${import.meta.env.BASE_URL}rovrlogo.png`} alt="Rovr" className="h-12 w-auto mb-4" />
               <h2 className="text-lg font-semibold text-slate-700 mb-1 text-center">
                 Ask about Adobe Experience League docs
               </h2>

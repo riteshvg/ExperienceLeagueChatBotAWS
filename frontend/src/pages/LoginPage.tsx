@@ -22,7 +22,7 @@ export function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <img src="/rovrlogo.png" alt="Rovr" className="h-14 w-auto mb-4" />
+          <img src={`${import.meta.env.BASE_URL}rovrlogo.png`} alt="Rovr" className="h-14 w-auto mb-4" />
           <h1 className="text-xl font-semibold text-slate-800">Rovr</h1>
           <p className="text-sm text-slate-400 mt-1">Sign in to continue</p>
         </div>

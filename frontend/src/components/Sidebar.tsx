@@ -86,7 +86,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
           <button onClick={onClose} className="md:hidden p-1 text-white/60 hover:text-white">
             <X className="w-4 h-4" />
           </button>
-          <img src="/rovrlogo.png" alt="Rovr" className={cn('flex-shrink-0', collapsed ? 'h-7 w-auto' : 'h-8 w-auto')} />
+          <img src={`${import.meta.env.BASE_URL}rovrlogo.png`} alt="Rovr" className={cn('flex-shrink-0', collapsed ? 'h-7 w-auto' : 'h-8 w-auto')} />
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <span className="font-semibold text-sm truncate">Rovr</span>
