@@ -184,6 +184,21 @@ export function trackCitationClick(
  * @example
  *   trackNoAnswer('How do I migrate RTCDP to v2?', 3, 'no_retrieval')
  */
+// ─── Terms acceptance ─────────────────────────────────────────────────────────
+
+/**
+ * Fire chatbot:terms_accepted when the user checks the checkbox and clicks
+ * "I agree" on the first-sign-in terms modal.
+ */
+export function trackTermsAccepted(): void {
+  pushEvent({
+    ...makeBase(),
+    event: 'chatbot:terms_accepted',
+  })
+}
+
+// ─── No answer ────────────────────────────────────────────────────────────────
+
 export function trackNoAnswer(
   queryText: string,
   turnNumber: number,

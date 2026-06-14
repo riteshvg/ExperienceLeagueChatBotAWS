@@ -68,8 +68,7 @@ const CATEGORY_COLORS: Record<Exclude<Category, 'All'>, string> = {
 export function ChatPage() {
   const {
     sessions, activeSessionId, isStreaming, sendMessage, error, accessDenied,
-    rateLimited, rateLimitMessage, apiDisabled, monthlyExhausted,
-    queriesUsed, queriesRemaining, queriesLimit, setUsage,
+    rateLimited, rateLimitMessage, apiDisabled, monthlyExhausted, setUsage,
   } = useChatStore()
   const { logout } = useAuthStore()
   const { monthlyLimit, monthlyUsed, monthlyRemaining, resetDate, isNewUser, isExhausted, fetchQuota } = useQuotaStore()

@@ -21,6 +21,7 @@ export {
   trackFeedbackNegative,
   trackCitationClick,
   trackNoAnswer,
+  trackTermsAccepted,
 } from './events'
 
 // React hook

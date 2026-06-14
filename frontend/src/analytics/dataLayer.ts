@@ -197,6 +197,10 @@ export interface NoAnswerEvent extends BaseEvent {
   readonly failureReason: 'no_retrieval' | 'low_confidence' | 'error'
 }
 
+export interface TermsAcceptedEvent extends BaseEvent {
+  readonly event: 'chatbot:terms_accepted'
+}
+
 /** Discriminated union of all Rovr data layer events. */
 export type RovrEvent =
   | PageViewEvent
@@ -208,6 +212,7 @@ export type RovrEvent =
   | FeedbackNegativeEvent
   | CitationClickEvent
   | NoAnswerEvent
+  | TermsAcceptedEvent
 
 // ─── Internal base constructor ────────────────────────────────────────────────
 
