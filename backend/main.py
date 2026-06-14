@@ -149,20 +149,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",   # Vite dev server
-        "http://localhost:4173",   # Vite preview
-        "http://localhost:3000",
-        "https://thelearningproject.in",
-        "https://www.thelearningproject.in",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+# Kill switch must be registered BEFORE CORSMiddleware.
+# Starlette inserts each new middleware at the outermost position, so the last
+# registration ends up outermost. Registering CORS last guarantees it wraps
+# kill_switch and adds Access-Control-Allow-Origin to the 503 response.
 @app.middleware("http")
 async def kill_switch_middleware(request: Request, call_next):
     path = request.url.path
@@ -184,6 +174,21 @@ async def kill_switch_middleware(request: Request, call_next):
         except Exception:
             pass
     return await call_next(request)
+
+# CORS registered last = outermost middleware = wraps everything including kill_switch
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",   # Vite dev server
+        "http://localhost:4173",   # Vite preview
+        "http://localhost:3000",
+        "https://thelearningproject.in",
+        "https://www.thelearningproject.in",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 app.include_router(auth_router, prefix="/api")

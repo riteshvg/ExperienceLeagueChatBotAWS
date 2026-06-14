@@ -298,16 +298,31 @@ export function ChatPage() {
             <p className="text-center text-xs text-slate-400">
               Answers are grounded in Adobe Experience League documentation
             </p>
-            {queriesRemaining !== null && (
-              <p className={cn(
-                'text-center text-xs mt-0.5',
-                queriesRemaining === 0 ? 'text-red-500 font-medium' :
-                queriesRemaining <= queriesLimit * 0.25 ? 'text-amber-500' :
-                'text-slate-400'
-              )}>
-                {queriesUsed} / {queriesLimit} queries used today
-              </p>
-            )}
+            <div className="flex items-center gap-3 mt-0.5 flex-wrap justify-center">
+              {queriesRemaining !== null && (
+                <p className={cn(
+                  'text-xs',
+                  queriesRemaining === 0 ? 'text-red-500 font-medium' :
+                  queriesRemaining <= queriesLimit * 0.25 ? 'text-amber-500' :
+                  'text-slate-400'
+                )}>
+                  {queriesUsed} / {queriesLimit} today
+                </p>
+              )}
+              {monthlyLimit < 9999 && (
+                <>
+                  {queriesRemaining !== null && <span className="text-slate-300 text-xs">·</span>}
+                  <p className={cn(
+                    'text-xs',
+                    isExhausted || monthlyExhausted ? 'text-red-500 font-medium' :
+                    monthlyRemaining <= 5 ? 'text-amber-500' :
+                    'text-slate-400'
+                  )}>
+                    {isExhausted || monthlyExhausted ? '0' : monthlyRemaining} / {monthlyLimit} this month
+                  </p>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </main>
