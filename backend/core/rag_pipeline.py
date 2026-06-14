@@ -56,30 +56,22 @@ _OUT_OF_SCOPE_RESPONSE = (
 )
 
 _NON_ENGLISH_RESPONSE = (
-    "I'm sorry, I can only understand and respond to questions in **English**.\n\n"
-    "Please rephrase your question in English and I'll be happy to help! 😊"
+    "For now, only English language questions are supported. "
+    "Please rephrase your question in English and I'll be happy to help!"
 )
 
-# Unicode ranges that are definitively non-Latin scripts
-_NON_LATIN_RE = re.compile(
-    r'[Ѐ-ӿ'   # Cyrillic
-    r'؀-ۿ'    # Arabic
-    r'ऀ-ॿ'    # Devanagari
-    r'一-鿿'    # CJK Unified Ideographs (Chinese/Japanese)
-    r'぀-ヿ'    # Hiragana / Katakana
-    r'가-힯'    # Hangul (Korean)
-    r'฀-๿'    # Thai
-    r'Ͱ-Ͽ]'   # Greek
-)
+_LANG_DETECT_MIN_LEN = 20  # skip detection for very short queries — langdetect is unreliable below this
 
 
 def _is_non_english(text: str) -> bool:
-    """Return True when non-Latin script characters make up >20% of word chars."""
-    word_chars = [c for c in text if c.isalpha()]
-    if not word_chars:
+    """Return True if langdetect is confident the query is not English."""
+    if len(text.strip()) < _LANG_DETECT_MIN_LEN:
         return False
-    non_latin = sum(1 for c in word_chars if _NON_LATIN_RE.match(c))
-    return non_latin / len(word_chars) > 0.20
+    try:
+        from langdetect import detect, LangDetectException
+        return detect(text) != "en"
+    except Exception:
+        return False
 
 
 _FOLLOWUP_PATTERNS = re.compile(
