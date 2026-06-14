@@ -81,7 +81,7 @@ export function ChatMessage({ message, onFollowUpClick }: Props) {
         <div className={cn(
           'px-4 py-3 rounded-2xl text-sm leading-relaxed',
           isUser
-            ? 'bg-blue-600 text-white rounded-br-sm'
+            ? 'bg-[#14532D] text-white rounded-br-sm'
             : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm',
         )}>
           {isUser ? (

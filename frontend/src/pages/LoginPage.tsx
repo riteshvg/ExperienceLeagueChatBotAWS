@@ -22,11 +22,8 @@ export function LoginPage() {
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600
-            flex items-center justify-center mb-4 shadow-md">
-            <span className="text-white font-bold text-lg">EL</span>
-          </div>
-          <h1 className="text-xl font-semibold text-slate-800">Experience League Assistant</h1>
+          <img src="/rovrlogo.png" alt="Rovr" className="h-14 w-auto mb-4" />
+          <h1 className="text-xl font-semibold text-slate-800">Rovr</h1>
           <p className="text-sm text-slate-400 mt-1">Sign in to continue</p>
         </div>
 
@@ -61,9 +58,6 @@ export function LoginPage() {
           </p>
         </div>
 
-        <p className="text-center text-xs text-slate-400 mt-6">
-          Unofficial tool — not an Adobe product
-        </p>
       </div>
     </div>
   )

@@ -41,7 +41,7 @@ body {
 .prose th, .prose td { border: 1px solid #e2e8f0; padding: 0.4em 0.75em; text-align: left; }
 .prose th { background: #f7fafc; font-weight: 600; }
 .prose blockquote { border-left: 3px solid #cbd5e0; padding-left: 1em; color: #718096; margin: 0.75em 0; }
-.prose a { color: #3b82f6; text-decoration: none; }
+.prose a { color: #10B981; text-decoration: none; }
 .prose a:hover { text-decoration: underline; }
 
 /* Streaming cursor */
@@ -53,5 +53,5 @@ body {
   content: '▋';
   animation: blink 0.8s infinite;
   margin-left: 1px;
-  color: #3b82f6;
+  color: #10B981;
 }

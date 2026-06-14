@@ -62,7 +62,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
         />
       )}
     <aside className={cn(
-      'flex-shrink-0 bg-slate-900 text-white flex flex-col h-full z-30 transition-all duration-200',
+      'flex-shrink-0 bg-[#14532D] text-white flex flex-col h-full z-30 transition-all duration-200',
       // Desktop: always visible, collapsible
       'md:relative md:translate-x-0',
       collapsed ? 'md:w-14' : 'md:w-64',
@@ -71,26 +71,21 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
       isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
     )}>
       {/* Logo */}
-      <div className={cn('py-4 border-b border-slate-700', collapsed ? 'px-3' : 'px-4')}>
+      <div className={cn('py-4 border-b border-white/10', collapsed ? 'px-3' : 'px-4')}>
         <div className="flex items-center gap-2 justify-between">
-          <button onClick={onClose} className="md:hidden p-1 text-slate-400 hover:text-white">
+          <button onClick={onClose} className="md:hidden p-1 text-white/60 hover:text-white">
             <X className="w-4 h-4" />
           </button>
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-xs font-bold">EL</span>
-          </div>
+          <img src="/rovrlogo.png" alt="Rovr" className={cn('flex-shrink-0', collapsed ? 'h-7 w-auto' : 'h-8 w-auto')} />
           {!collapsed && (
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5">
-                <span className="font-semibold text-sm truncate">Experience League</span>
-                <span className="text-xs text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded-full leading-none flex-shrink-0">unofficial</span>
-              </div>
+              <span className="font-semibold text-sm truncate">Rovr</span>
             </div>
           )}
           {/* Collapse toggle — desktop only */}
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="hidden md:flex p-1 text-slate-400 hover:text-white flex-shrink-0"
+            className="hidden md:flex p-1 text-white/60 hover:text-white flex-shrink-0"
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {collapsed
@@ -109,7 +104,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
           className={cn(
             'w-full flex items-center rounded-lg text-sm transition-colors',
             collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2',
-            isStreaming ? 'text-slate-500 cursor-not-allowed' : 'text-slate-300 hover:bg-slate-700 hover:text-white',
+            isStreaming ? 'text-slate-500 cursor-not-allowed' : 'text-white/80 hover:bg-white/10 hover:text-white',
           )}
         >
           <Plus className="w-4 h-4 flex-shrink-0" />
@@ -132,7 +127,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
                     key={session.id}
                     className={cn(
                       'group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors',
-                      isActive ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200',
+                      isActive ? 'bg-white/20 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white',
                     )}
                     onClick={() => switchSession(session.id)}
                   >
@@ -153,12 +148,12 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
         ))}
 
         {/* Prompt Library */}
-        <div className="border-t border-slate-700 pt-3">
+        <div className="border-t border-white/10 pt-3">
           <button
             onClick={() => setShowPrompts((v) => !v)}
-            className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+            className="w-full flex items-center gap-2 px-2 py-2 rounded-lg text-sm text-white/80 hover:bg-white/10 hover:text-white transition-colors"
           >
-            <BookOpen className="w-4 h-4 flex-shrink-0 text-violet-400" />
+            <BookOpen className="w-4 h-4 flex-shrink-0 text-[#A7F3D0]" />
             <span className="flex-1 text-left font-medium">Prompt Library</span>
             {showPrompts ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
           </button>
@@ -169,7 +164,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
                 <div key={cat.category}>
                   <button
                     onClick={() => toggleCategory(cat.category)}
-                    className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200 transition-colors"
+                    className="w-full flex items-center gap-1.5 px-2 py-1.5 text-xs font-semibold text-white/60 hover:text-slate-200 transition-colors"
                   >
                     {openCategories[cat.category]
                       ? <ChevronDown className="w-3 h-3" />
@@ -183,7 +178,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
                         <button
                           key={p.id}
                           onClick={() => onSelectPrompt(p.text)}
-                          className="w-full text-left px-2 py-1.5 rounded-md text-xs text-slate-400 hover:bg-slate-700 hover:text-white transition-colors truncate"
+                          className="w-full text-left px-2 py-1.5 rounded-md text-xs text-white/60 hover:bg-white/10 hover:text-white transition-colors truncate"
                           title={p.text}
                         >
                           {p.title}
@@ -200,15 +195,15 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
 
       {/* Disclaimer — hidden when collapsed */}
       {!collapsed && (
-        <div className="px-4 py-3 mx-3 mb-2 rounded-lg bg-slate-800 border border-slate-700">
-          <p className="text-xs text-slate-400 leading-relaxed">
+        <div className="px-4 py-3 mx-3 mb-2 rounded-lg bg-black/20 border border-white/10">
+          <p className="text-xs text-white/50 leading-relaxed">
             Built for learning purposes only. Not affiliated with or endorsed by Adobe. All documentation belongs to Adobe.
           </p>
         </div>
       )}
 
       {/* Footer */}
-      <div className={cn('py-3 border-t border-slate-700 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
+      <div className={cn('py-3 border-t border-white/10 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
         {/* User avatar + name */}
         {session && !collapsed && (
           <div className="flex items-center gap-2 px-3 py-2 mb-1">
@@ -220,13 +215,13 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
                 referrerPolicy="no-referrer"
               />
             ) : (
-              <div className="w-7 h-7 rounded-full bg-slate-600 flex items-center justify-center flex-shrink-0">
-                <span className="text-xs font-medium text-slate-300">
+              <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
+                <span className="text-xs font-medium text-white/80">
                   {session.name.charAt(0).toUpperCase()}
                 </span>
               </div>
             )}
-            <span className="text-xs text-slate-300 truncate">{session.name || session.email}</span>
+            <span className="text-xs text-white/80 truncate">{session.name || session.email}</span>
           </div>
         )}
         {session && collapsed && session.picture && (
@@ -245,7 +240,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
             to="/admin"
             title="Admin"
             className={cn(
-              'flex items-center rounded-lg text-sm text-slate-400 hover:bg-slate-700 hover:text-white transition-colors no-underline',
+              'flex items-center rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-white transition-colors no-underline',
               collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
             )}
           >
@@ -257,7 +252,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
           onClick={handleLogout}
           title="Sign out"
           className={cn(
-            'w-full flex items-center rounded-lg text-sm text-slate-400 hover:bg-slate-700 hover:text-red-400 transition-colors',
+            'w-full flex items-center rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-red-400 transition-colors',
             collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
           )}
         >

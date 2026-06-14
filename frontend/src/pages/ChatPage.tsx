@@ -109,7 +109,7 @@ export function ChatPage() {
           <div>
             <h2 className="text-lg font-semibold text-slate-800 mb-1">Account Disabled</h2>
             <p className="text-sm text-slate-500">
-              Your access to EXL Chatbot has been disabled. If you believe this is an error, please contact the administrator.
+              Your access to Rovr has been disabled. If you believe this is an error, please contact the administrator.
             </p>
           </div>
           <button
@@ -155,19 +155,14 @@ export function ChatPage() {
           >
             <Menu className="w-4 h-4" />
           </button>
-          <h1 className="text-sm font-semibold text-slate-700">
-            Adobe Docs Assistant
-            <span className="ml-2 text-xs font-normal text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">unofficial</span>
-          </h1>
+          <h1 className="text-sm font-semibold text-slate-700">Rovr</h1>
         </header>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center px-4 py-8">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 flex items-center justify-center mb-4">
-                <span className="text-white font-bold text-sm">EL</span>
-              </div>
+              <img src="/rovrlogo.png" alt="Rovr" className="h-12 w-auto mb-4" />
               <h2 className="text-lg font-semibold text-slate-700 mb-1 text-center">
                 Ask about Adobe Experience League docs
               </h2>
@@ -183,8 +178,8 @@ export function ChatPage() {
                     onClick={() => setActiveCategory(cat)}
                     className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                       activeCategory === cat
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white text-slate-500 border-slate-200 hover:border-indigo-300 hover:text-indigo-600'
+                        ? 'bg-[#10B981] text-white border-[#10B981]'
+                        : 'bg-white text-slate-500 border-slate-200 hover:border-[#10B981] hover:text-[#10B981]'
                     }`}
                   >
                     {cat}
@@ -204,7 +199,7 @@ export function ChatPage() {
                     <span className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border mb-1.5 ${CATEGORY_COLORS[cat]}`}>
                       {cat}
                     </span>
-                    <p className="text-sm text-slate-600 group-hover:text-indigo-700 leading-snug">{q}</p>
+                    <p className="text-sm text-slate-600 group-hover:text-[#14532D] leading-snug">{q}</p>
                   </button>
                 ))}
               </div>
