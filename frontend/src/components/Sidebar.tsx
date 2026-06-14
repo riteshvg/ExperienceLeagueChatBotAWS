@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut, X, PanelLeftClose, PanelLeftOpen, House } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useChatStore, type ChatSession } from '@/store/chatStore'
@@ -274,6 +274,20 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
             />
           </div>
         )}
+
+        <a
+          href="https://thelearningproject.in"
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Back to homepage"
+          className={cn(
+            'flex items-center rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-white transition-colors no-underline',
+            collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
+          )}
+        >
+          <House className="w-4 h-4 flex-shrink-0" />
+          {!collapsed && 'Back to homepage'}
+        </a>
 
         {session?.is_admin && (
           <Link
