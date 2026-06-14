@@ -68,7 +68,8 @@ const CATEGORY_COLORS: Record<Exclude<Category, 'All'>, string> = {
 export function ChatPage() {
   const {
     sessions, activeSessionId, isStreaming, sendMessage, error, accessDenied,
-    rateLimited, rateLimitMessage, apiDisabled, monthlyExhausted, setUsage,
+    rateLimited, rateLimitMessage, apiDisabled, monthlyExhausted,
+    queriesUsed, queriesRemaining, queriesLimit, setUsage,
   } = useChatStore()
   const { logout } = useAuthStore()
   const { monthlyLimit, monthlyUsed, monthlyRemaining, resetDate, isNewUser, isExhausted, fetchQuota } = useQuotaStore()
@@ -297,7 +298,8 @@ export function ChatPage() {
             <p className="text-center text-xs text-slate-400">
               Answers are grounded in Adobe Experience League documentation
             </p>
-            {monthlyLimit < 9999 && (
+            {monthlyLimit < 9999 ? (
+              // Real monthly limit set — show monthly counter
               <p className={cn(
                 'text-xs mt-0.5',
                 isExhausted || monthlyExhausted ? 'text-red-500 font-medium' :
@@ -308,7 +310,17 @@ export function ChatPage() {
                 {isExhausted || monthlyExhausted ? monthlyLimit : monthlyUsed}/{monthlyLimit} used until now.{' '}
                 {isExhausted || monthlyExhausted ? 0 : monthlyRemaining} pending for the month.
               </p>
-            )}
+            ) : queriesRemaining !== null ? (
+              // No monthly limit — fall back to daily counter
+              <p className={cn(
+                'text-xs mt-0.5',
+                queriesRemaining === 0 ? 'text-red-500 font-medium' :
+                queriesRemaining <= queriesLimit * 0.25 ? 'text-amber-500' :
+                'text-slate-400'
+              )}>
+                {queriesUsed} / {queriesLimit} queries used today
+              </p>
+            ) : null}
           </div>
         </div>
       </main>
