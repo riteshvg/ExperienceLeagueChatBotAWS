@@ -6,7 +6,7 @@ import path from 'path'
 const isProd = process.env.NODE_ENV === 'production'
 
 export default defineConfig({
-  base: isProd ? '/tools/exlunofficialchatbot/' : '/',
+  base: isProd ? '/tools/rovr/' : '/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
