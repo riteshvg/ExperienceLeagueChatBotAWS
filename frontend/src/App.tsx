@@ -19,7 +19,7 @@ function RouterAnalytics() {
 
 export default function App() {
   return (
-    <BrowserRouter basename={import.meta.env.PROD ? '/tools/exlunofficialchatbot' : '/'}>
+    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
       <RouterAnalytics />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
