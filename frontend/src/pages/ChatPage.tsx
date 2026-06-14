@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { Menu, Ban, Clock } from 'lucide-react'
+import { Menu, Ban, Clock, WifiOff, CalendarX } from 'lucide-react'
 import { useChatStore } from '@/store/chatStore'
 import { useAuthStore } from '@/store/authStore'
+import { useQuotaStore } from '@/store/quotaStore'
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput'
 import { ChatMessage } from '@/components/ChatMessage'
 import { Sidebar } from '@/components/Sidebar'
 import { getMe } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { trackSessionStart, trackSessionEnd } from '@/analytics'
+
+const WELCOME_KEY = 'rovr_welcome_dismissed'
 
 type Category = 'All' | 'Analytics' | 'CJA' | 'AEP' | 'Target' | 'AJO' | 'Cross-Product'
 
@@ -65,12 +68,14 @@ const CATEGORY_COLORS: Record<Exclude<Category, 'All'>, string> = {
 export function ChatPage() {
   const {
     sessions, activeSessionId, isStreaming, sendMessage, error, accessDenied,
-    rateLimited, rateLimitMessage, queriesUsed, queriesRemaining, queriesLimit,
-    setUsage,
+    rateLimited, rateLimitMessage, apiDisabled, monthlyExhausted,
+    queriesUsed, queriesRemaining, queriesLimit, setUsage,
   } = useChatStore()
   const { logout } = useAuthStore()
+  const { monthlyLimit, monthlyRemaining, resetDate, isNewUser, isExhausted, fetchQuota } = useQuotaStore()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [activeCategory, setActiveCategory] = useState<Category>('All')
+  const [welcomeDismissed, setWelcomeDismissed] = useState(() => !!localStorage.getItem(WELCOME_KEY))
   const messages = sessions[activeSessionId]?.messages ?? []
 
   const visibleQuestions = activeCategory === 'All'
@@ -84,7 +89,13 @@ export function ChatPage() {
 
   useEffect(() => {
     getMe().then((usage) => setUsage(usage.queries_used, usage.queries_remaining, usage.queries_limit))
+    fetchQuota()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch quota after each message completes
+  useEffect(() => {
+    if (!isStreaming && messages.length > 0) fetchQuota()
+  }, [isStreaming]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Analytics: fire session_start on page load for fresh sessions
   useEffect(() => {
@@ -175,6 +186,30 @@ export function ChatPage() {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+          {/* Kill switch banner */}
+          {apiDisabled && (
+            <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+              <WifiOff className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
+              <p className="text-sm">
+                Rovr is temporarily unavailable. The administrator has disabled the API. Please check back shortly.
+              </p>
+            </div>
+          )}
+
+          {/* Monthly quota exhausted banner */}
+          {(isExhausted || monthlyExhausted) && !apiDisabled && (
+            <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-800">
+              <CalendarX className="w-4 h-4 flex-shrink-0 mt-0.5 text-blue-600" />
+              <p className="text-sm">
+                You've used all {monthlyLimit} queries for this month.{' '}
+                {resetDate
+                  ? `Your quota resets on ${new Date(resetDate + 'T00:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })}.`
+                  : 'Your quota resets at the start of next month.'}{' '}
+                Contact your administrator if you need additional access.
+              </p>
+            </div>
+          )}
+
           {messages.length === 0 && (
             <div className="h-full flex flex-col items-center justify-center px-4 py-8">
               <img src="/rovrlogo.png" alt="Rovr" className="h-12 w-auto mb-4" />
@@ -184,6 +219,23 @@ export function ChatPage() {
               <p className="text-sm text-slate-400 max-w-md text-center mb-5">
                 Analytics · CJA · Experience Platform · Target
               </p>
+
+              {/* First-time welcome card */}
+              {isNewUser && monthlyRemaining > 0 && !welcomeDismissed && monthlyLimit < 9999 && (
+                <div className="w-full max-w-md mb-5 px-5 py-4 rounded-xl bg-emerald-50 border border-emerald-200 text-left">
+                  <h3 className="text-sm font-semibold text-emerald-800 mb-1">Welcome to Rovr</h3>
+                  <p className="text-xs text-emerald-700 leading-relaxed">
+                    You have {monthlyLimit} free queries this month to explore Adobe Experience Cloud documentation.
+                    Your quota resets on the 1st of each month. An administrator can adjust your limit if you need more.
+                  </p>
+                  <button
+                    onClick={() => { localStorage.setItem(WELCOME_KEY, 'true'); setWelcomeDismissed(true) }}
+                    className="mt-3 px-3 py-1.5 rounded-lg bg-[#14532D] text-white text-xs font-medium hover:bg-[#10B981] transition-colors"
+                  >
+                    Got it
+                  </button>
+                </div>
+              )}
 
               {/* Category filter chips */}
               <div className="flex flex-wrap justify-center gap-1.5 mb-4 max-w-lg">
@@ -241,7 +293,7 @@ export function ChatPage() {
 
         {/* Input */}
         <div className="flex-shrink-0 px-4 py-3 bg-slate-50 border-t border-slate-200">
-          <ChatInput ref={inputRef} onSend={sendMessage} disabled={isStreaming} />
+          <ChatInput ref={inputRef} onSend={sendMessage} disabled={isStreaming || apiDisabled || isExhausted || monthlyExhausted} />
           <div className="mt-2 flex flex-col items-center gap-0.5">
             <p className="text-center text-xs text-slate-400">
               Answers are grounded in Adobe Experience League documentation

@@ -92,7 +92,7 @@ async def chat(
     uid: Optional[str] = user.get("uid")
     session_id = body.session_id or session_store.new_session()
 
-    # Check rate limit BEFORE starting the SSE stream
+    # Check daily rate limit BEFORE starting the SSE stream
     if uid:
         try:
             rate_info = google_db.check_rate_limit(uid)
@@ -111,6 +111,20 @@ async def chat(
             raise
         except Exception as e:
             logger.warning(f"Rate limit check failed (non-fatal): {e}")
+
+    # Check monthly quota BEFORE starting the SSE stream
+    if uid:
+        try:
+            monthly_info = google_db.check_monthly_quota(uid)
+            if not monthly_info["allowed"]:
+                raise HTTPException(
+                    status_code=429,
+                    detail="MONTHLY_QUOTA_EXCEEDED",
+                )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.warning(f"Monthly quota check failed (non-fatal): {e}")
 
     # Language gate — before any LLM call
     if _is_non_english(body.query):
@@ -151,6 +165,10 @@ async def chat(
                     }
                 except Exception as e:
                     logger.warning(f"Daily count increment failed (non-fatal): {e}")
+                try:
+                    google_db.increment_monthly_count(uid)
+                except Exception as e:
+                    logger.warning(f"Monthly count increment failed (non-fatal): {e}")
             yield {"data": json.dumps(last_done)}
 
         # After streaming: track usage + log query

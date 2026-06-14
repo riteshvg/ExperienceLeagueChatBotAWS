@@ -59,17 +59,26 @@ export async function* streamChat(
   })
 
   if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    if (res.status === 503) {
+      const err = new Error(body.detail === 'API_DISABLED' ? 'API_DISABLED' : `Service unavailable: ${res.status}`)
+      ;(err as any).status = 503
+      throw err
+    }
     if (res.status === 403) {
-      const data = await res.json().catch(() => ({}))
-      const err = new Error(data.detail ?? 'Access denied')
+      const err = new Error(body.detail ?? 'Access denied')
       ;(err as any).status = 403
       throw err
     }
     if (res.status === 429) {
-      const data = await res.json().catch(() => ({}))
-      const err = new Error(data.detail?.message ?? 'Daily limit reached')
+      if (body.detail === 'MONTHLY_QUOTA_EXCEEDED') {
+        const err = new Error('MONTHLY_QUOTA_EXCEEDED')
+        ;(err as any).status = 429
+        throw err
+      }
+      const err = new Error(body.detail?.message ?? 'Daily limit reached')
       ;(err as any).status = 429
-      ;(err as any).detail = data.detail ?? data
+      ;(err as any).detail = body.detail ?? body
       throw err
     }
     throw new Error(`Chat request failed: ${res.status}`)
@@ -187,6 +196,17 @@ export interface GoogleUser {
   daily_query_limit: number
   daily_query_count: number
   daily_reset_at: string | null
+  monthly_query_limit: number
+  monthly_queries_used: number
+  quota_reset_date: string | null
+}
+
+export interface UserQuota {
+  monthly_limit: number
+  monthly_used: number
+  monthly_remaining: number
+  reset_date: string | null
+  is_new_user: boolean
 }
 
 export interface QueryLog {
@@ -306,6 +326,25 @@ export const applyDefaultLimitToAll = (token: string): Promise<{ users_updated: 
 
 export const getDefaultDailyLimit = (token: string): Promise<{ default_daily_limit: number }> =>
   adminFetch('/api/admin/settings/default-limit', token)
+
+export const setUserMonthlyLimit = (token: string, userId: string, limit: number): Promise<GoogleUser> =>
+  adminMutate(`/api/admin/users/${encodeURIComponent(userId)}/monthly-limit`, token, 'PATCH', { monthly_query_limit: limit })
+
+export const getDefaultMonthlyLimit = (token: string): Promise<{ default_monthly_limit: number }> =>
+  adminFetch('/api/admin/settings/default-monthly-limit', token)
+
+export const setDefaultMonthlyLimit = (token: string, limit: number): Promise<{ default_monthly_limit: number }> =>
+  adminMutate('/api/admin/settings/default-monthly-limit', token, 'PATCH', { default_monthly_limit: limit })
+
+export async function getUserQuota(): Promise<UserQuota> {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/quota`, { headers: authHeaders() })
+    if (!res.ok) return { monthly_limit: 999999, monthly_used: 0, monthly_remaining: 999999, reset_date: null, is_new_user: false }
+    return res.json()
+  } catch {
+    return { monthly_limit: 999999, monthly_used: 0, monthly_remaining: 999999, reset_date: null, is_new_user: false }
+  }
+}
 
 export async function getMe(): Promise<{ queries_used: number; queries_limit: number; queries_remaining: number }> {
   try {

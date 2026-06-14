@@ -37,6 +37,8 @@ interface ChatState {
   accessDenied: boolean
   rateLimited: boolean
   rateLimitMessage: string
+  apiDisabled: boolean
+  monthlyExhausted: boolean
   queriesUsed: number
   queriesRemaining: number | null
   queriesLimit: number
@@ -81,6 +83,8 @@ export const useChatStore = create<ChatState>()(
         accessDenied: false,
         rateLimited: false,
         rateLimitMessage: '',
+        apiDisabled: false,
+        monthlyExhausted: false,
         queriesUsed: 0,
         queriesRemaining: null,
         queriesLimit: 20,
@@ -151,8 +155,8 @@ export const useChatStore = create<ChatState>()(
         },
 
         sendMessage: async (query: string) => {
-          const { activeSessionId, isStreaming, accessDenied, rateLimited } = get()
-          if (!query.trim() || isStreaming || accessDenied || rateLimited) return
+          const { activeSessionId, isStreaming, accessDenied, rateLimited, apiDisabled, monthlyExhausted } = get()
+          if (!query.trim() || isStreaming || accessDenied || rateLimited || apiDisabled || monthlyExhausted) return
           set({ error: null })
 
           // Turn number = existing user messages + 1 (this one)
@@ -223,19 +227,22 @@ export const useChatStore = create<ChatState>()(
             const msg = err instanceof Error ? err.message : String(err)
             const errStatus = (err as any)?.status
             const isDisabled = errStatus === 403
-            const isRateLimited = errStatus === 429
-            const rateLimitMsg = isRateLimited
-              ? ((err as any)?.detail?.message ?? msg)
-              : ''
+            const isApiDisabled = errStatus === 503 && msg === 'API_DISABLED'
+            const isMonthlyExhausted = errStatus === 429 && msg === 'MONTHLY_QUOTA_EXCEEDED'
+            const isRateLimited = errStatus === 429 && !isMonthlyExhausted
+            const rateLimitMsg = isRateLimited ? ((err as any)?.detail?.message ?? msg) : ''
+            const suppressContent = isDisabled || isApiDisabled || isRateLimited || isMonthlyExhausted
             set((s) => ({
-              error: isRateLimited ? null : msg,
+              error: suppressContent ? null : msg,
               accessDenied: isDisabled || s.accessDenied,
               rateLimited: isRateLimited || s.rateLimited,
               rateLimitMessage: isRateLimited ? rateLimitMsg : s.rateLimitMessage,
+              apiDisabled: isApiDisabled || s.apiDisabled,
+              monthlyExhausted: isMonthlyExhausted || s.monthlyExhausted,
               sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                 msgs.map((m) =>
                   m.id === assistantId
-                    ? { ...m, content: isDisabled || isRateLimited ? '' : `Error: ${msg}`, streaming: false }
+                    ? { ...m, content: suppressContent ? '' : `Error: ${msg}`, streaming: false }
                     : m
                 )
               ),

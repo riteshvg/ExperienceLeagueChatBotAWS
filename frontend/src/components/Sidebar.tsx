@@ -4,7 +4,16 @@ import { Link, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useChatStore, type ChatSession } from '@/store/chatStore'
 import { useAuthStore } from '@/store/authStore'
+import { useQuotaStore } from '@/store/quotaStore'
 import { PROMPT_LIBRARY } from '@/lib/prompts'
+
+function formatResetDate(isoDate: string | null): string {
+  if (!isoDate) return ''
+  try {
+    const d = new Date(isoDate + 'T00:00:00Z')
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' })
+  } catch { return isoDate }
+}
 
 interface Props {
   onSelectPrompt: (text: string) => void
@@ -36,6 +45,7 @@ function groupByDate(sessions: ChatSession[]): { label: string; items: ChatSessi
 export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
   const { sessions, activeSessionId, isStreaming, startNewChat, switchSession, deleteSession } = useChatStore()
   const { logout, session } = useAuthStore()
+  const { monthlyLimit, monthlyUsed, monthlyRemaining, resetDate, isExhausted } = useQuotaStore()
   const navigate = useNavigate()
   const [showPrompts, setShowPrompts] = useState(false)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
@@ -111,6 +121,36 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
           {!collapsed && 'New chat'}
         </button>
       </div>
+
+      {/* Monthly quota bar — only for users with a real limit (< 9999) */}
+      {!collapsed && monthlyLimit < 9999 && (
+        <div className="px-4 pb-3">
+          <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden">
+            <div
+              className={cn(
+                'h-1.5 rounded-full transition-all',
+                isExhausted ? 'bg-red-400' :
+                monthlyRemaining <= 5 ? 'bg-amber-400' :
+                'bg-[#10B981]'
+              )}
+              style={{ width: `${Math.min(100, Math.round((monthlyUsed / monthlyLimit) * 100))}%` }}
+            />
+          </div>
+          <p className={cn(
+            'text-xs mt-1',
+            isExhausted ? 'text-red-300' :
+            monthlyRemaining <= 5 ? 'text-amber-300' :
+            'text-white/60'
+          )}>
+            {isExhausted
+              ? 'Monthly quota exhausted'
+              : `${monthlyRemaining} of ${monthlyLimit} queries remaining`}
+          </p>
+          {resetDate && (
+            <p className="text-xs text-white/40 mt-0.5">Resets {formatResetDate(resetDate)}</p>
+          )}
+        </div>
+      )}
 
       {/* Scrollable content — hidden when collapsed */}
       <div className={cn('flex-1 overflow-y-auto pb-3 space-y-4', collapsed ? 'hidden md:hidden' : 'px-3')}>

@@ -19,16 +19,23 @@ interface GoogleUsersTabProps {
   onSetAdmin: (userId: string, isAdmin: boolean) => Promise<unknown>
   onSetDisabled: (userId: string, isDisabled: boolean) => Promise<unknown>
   onSetLimit: (userId: string, limit: number) => Promise<unknown>
+  onSetMonthlyLimit: (userId: string, limit: number) => Promise<unknown>
 }
 
-function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, onSetLimit }: GoogleUsersTabProps) {
+function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, onSetLimit, onSetMonthlyLimit }: GoogleUsersTabProps) {
   const [search, setSearch] = useState('')
   const [sortField, setSortField] = useState<SortField>('last_seen')
   const [sortAsc, setSortAsc] = useState(false)
+  // Daily limit edit state
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState<number>(0)
   const [savingUserId, setSavingUserId] = useState<string | null>(null)
   const [savedUserId, setSavedUserId] = useState<string | null>(null)
+  // Monthly limit edit state
+  const [editingMonthlyUserId, setEditingMonthlyUserId] = useState<string | null>(null)
+  const [editMonthlyValue, setEditMonthlyValue] = useState<number>(0)
+  const [savingMonthlyUserId, setSavingMonthlyUserId] = useState<string | null>(null)
+  const [savedMonthlyUserId, setSavedMonthlyUserId] = useState<string | null>(null)
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) setSortAsc((v) => !v)
@@ -70,10 +77,30 @@ function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, 
       setEditingUserId(null)
       setTimeout(() => setSavedUserId(null), 1500)
     } catch {
-      // revert on error
       setEditingUserId(null)
     } finally {
       setSavingUserId(null)
+    }
+  }
+
+  const startEditMonthly = (user: GoogleUser) => {
+    setEditingMonthlyUserId(user.user_id)
+    setEditMonthlyValue(user.monthly_query_limit ?? 20)
+  }
+
+  const cancelEditMonthly = () => setEditingMonthlyUserId(null)
+
+  const saveMonthlyLimit = async (userId: string) => {
+    setSavingMonthlyUserId(userId)
+    try {
+      await onSetMonthlyLimit(userId, editMonthlyValue)
+      setSavedMonthlyUserId(userId)
+      setEditingMonthlyUserId(null)
+      setTimeout(() => setSavedMonthlyUserId(null), 1500)
+    } catch {
+      setEditingMonthlyUserId(null)
+    } finally {
+      setSavingMonthlyUserId(null)
     }
   }
 
@@ -133,6 +160,7 @@ function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, 
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Admin</th>
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Disabled</th>
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Daily Limit</th>
+              <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Monthly Limit</th>
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Used Today</th>
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Resets At</th>
             </tr>
@@ -140,7 +168,7 @@ function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, 
           <tbody>
             {filtered.length === 0 ? (
               <tr>
-                <td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400">
+                <td colSpan={11} className="px-4 py-8 text-center text-sm text-slate-400">
                   {users.length === 0 ? 'No users have signed in yet.' : 'No users match your search.'}
                 </td>
               </tr>
@@ -232,6 +260,49 @@ function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, 
                       <button
                         onClick={() => startEdit(user)}
                         title="Edit limit"
+                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-500 transition-opacity"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </td>
+                {/* Monthly Limit — inline editable */}
+                <td className="px-4 py-3 text-center">
+                  {editingMonthlyUserId === user.user_id ? (
+                    <div className="flex items-center justify-center gap-1">
+                      <input
+                        type="number"
+                        min={0}
+                        max={999999}
+                        value={editMonthlyValue}
+                        onChange={(e) => setEditMonthlyValue(Number(e.target.value))}
+                        className="w-20 px-1.5 py-1 rounded border border-slate-300 text-xs text-center focus:outline-none focus:border-blue-400"
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => saveMonthlyLimit(user.user_id)}
+                        disabled={savingMonthlyUserId === user.user_id}
+                        title="Save"
+                        className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={cancelEditMonthly} title="Cancel" className="text-slate-400 hover:text-slate-600">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className={cn(
+                      'flex items-center justify-center gap-1 group',
+                      savedMonthlyUserId === user.user_id && 'text-emerald-600',
+                    )}>
+                      <span className="text-sm font-medium text-slate-700">
+                        {(user.monthly_query_limit ?? 999999) >= 999999 ? '∞' : user.monthly_query_limit}
+                      </span>
+                      <button
+                        onClick={() => startEditMonthly(user)}
+                        title="Edit monthly limit"
                         className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-500 transition-opacity"
                       >
                         <Pencil className="w-3 h-3" />
@@ -541,6 +612,7 @@ export function AdminPage() {
     setGoogleUserAdmin, setUserDisabled,
     killSwitchEnabled, toggleKillSwitch,
     defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,
+    defaultMonthlyLimit, updateUserMonthlyLimit, updateDefaultMonthlyLimit,
     loading, error,
   } = useAdmin()
   const [refreshing, setRefreshing] = useState(false)
@@ -554,6 +626,8 @@ export function AdminPage() {
   const [showBulkConfirm, setShowBulkConfirm] = useState(false)
   const [applyingBulk, setApplyingBulk] = useState(false)
   const [bulkApplyResult, setBulkApplyResult] = useState<string | null>(null)
+  const [defaultMonthlyLimitInput, setDefaultMonthlyLimitInput] = useState<number>(defaultMonthlyLimit)
+  const [savingDefaultMonthlyLimit, setSavingDefaultMonthlyLimit] = useState(false)
 
   const handleSaveDefaultLimit = async () => {
     setSavingDefaultLimit(true)
@@ -561,6 +635,14 @@ export function AdminPage() {
       await updateDefaultLimit(defaultLimitInput)
     } catch { /* ignore */ }
     setSavingDefaultLimit(false)
+  }
+
+  const handleSaveDefaultMonthlyLimit = async () => {
+    setSavingDefaultMonthlyLimit(true)
+    try {
+      await updateDefaultMonthlyLimit(defaultMonthlyLimitInput)
+    } catch { /* ignore */ }
+    setSavingDefaultMonthlyLimit(false)
   }
 
   const handleBulkApply = async () => {
@@ -972,6 +1054,24 @@ export function AdminPage() {
                 </button>
               </div>
               <div className="flex items-center gap-3">
+                <label className="text-sm text-slate-600 w-48">Default monthly limit</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={defaultMonthlyLimitInput}
+                  onChange={(e) => setDefaultMonthlyLimitInput(Number(e.target.value))}
+                  className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                />
+                <button
+                  onClick={handleSaveDefaultMonthlyLimit}
+                  disabled={savingDefaultMonthlyLimit}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {savingDefaultMonthlyLimit ? 'Saving…' : 'Save'}
+                </button>
+                <span className="text-xs text-slate-400">For new signups only</span>
+              </div>
+              <div className="flex items-center gap-3">
                 {showBulkConfirm ? (
                   <>
                     <span className="text-sm text-amber-700">Apply {defaultLimitInput} to all users?</span>
@@ -1146,6 +1246,7 @@ export function AdminPage() {
             onSetAdmin={setGoogleUserAdmin}
             onSetDisabled={setUserDisabled}
             onSetLimit={updateUserDailyLimit}
+            onSetMonthlyLimit={updateUserMonthlyLimit}
           />
         )}
 

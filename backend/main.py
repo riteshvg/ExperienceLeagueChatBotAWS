@@ -179,7 +179,7 @@ async def kill_switch_middleware(request: Request, call_next):
             if not is_api_enabled():
                 return JSONResponse(
                     status_code=503,
-                    content={"detail": "Service temporarily unavailable. Please try again later."},
+                    content={"detail": "API_DISABLED"},
                 )
         except Exception:
             pass

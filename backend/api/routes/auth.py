@@ -153,12 +153,17 @@ async def google_callback(
 
 @router.get("/me")
 async def get_me(user: Annotated[dict, Depends(get_site_user)]):
-    """Return current user's daily usage info."""
+    """Return current user's daily and monthly usage info."""
     uid = user.get("uid", "")
     usage: dict = {"queries_used": 0, "queries_limit": 20, "queries_remaining": 20}
+    monthly: dict = {"monthly_limit": 999999, "monthly_used": 0, "monthly_remaining": 999999, "reset_date": None, "is_new_user": False}
     if uid:
         try:
             usage = google_db.get_usage_info(uid)
+        except Exception:
+            pass
+        try:
+            monthly = google_db.get_monthly_quota_info(uid)
         except Exception:
             pass
     return {
@@ -166,7 +171,25 @@ async def get_me(user: Annotated[dict, Depends(get_site_user)]):
         "email": user.get("email", ""),
         "name": user.get("name", ""),
         **usage,
+        **monthly,
     }
+
+
+@router.get("/quota")
+async def get_quota(user: Annotated[dict, Depends(get_site_user)]):
+    """Return current user's monthly quota state."""
+    uid = user.get("uid", "")
+    if not uid:
+        from datetime import date as _date
+        today = __import__('datetime').datetime.now().date()
+        yr, mo = today.year, today.month
+        from datetime import date as d
+        reset = d(yr + 1, 1, 1).isoformat() if mo == 12 else d(yr, mo + 1, 1).isoformat()
+        return {"monthly_limit": 999999, "monthly_used": 0, "monthly_remaining": 999999, "reset_date": reset, "is_new_user": False}
+    try:
+        return google_db.get_monthly_quota_info(uid)
+    except Exception:
+        return {"monthly_limit": 999999, "monthly_used": 0, "monthly_remaining": 999999, "reset_date": None, "is_new_user": False}
 
 
 @router.delete("/session")

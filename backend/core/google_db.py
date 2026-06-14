@@ -58,18 +58,21 @@ def init_tables() -> None:
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS exl_users (
-                    user_id            TEXT PRIMARY KEY,
-                    email              TEXT NOT NULL UNIQUE,
-                    name               TEXT NOT NULL DEFAULT '',
-                    picture            TEXT NOT NULL DEFAULT '',
-                    first_seen         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    last_seen          TIMESTAMPTZ,
-                    total_queries      INTEGER NOT NULL DEFAULT 0,
-                    is_admin           BOOLEAN NOT NULL DEFAULT FALSE,
-                    is_disabled        BOOLEAN NOT NULL DEFAULT FALSE,
-                    daily_query_limit  INTEGER NOT NULL DEFAULT 20,
-                    daily_query_count  INTEGER NOT NULL DEFAULT 0,
-                    daily_reset_at     TIMESTAMPTZ
+                    user_id               TEXT PRIMARY KEY,
+                    email                 TEXT NOT NULL UNIQUE,
+                    name                  TEXT NOT NULL DEFAULT '',
+                    picture               TEXT NOT NULL DEFAULT '',
+                    first_seen            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    last_seen             TIMESTAMPTZ,
+                    total_queries         INTEGER NOT NULL DEFAULT 0,
+                    is_admin              BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_disabled           BOOLEAN NOT NULL DEFAULT FALSE,
+                    daily_query_limit     INTEGER NOT NULL DEFAULT 20,
+                    daily_query_count     INTEGER NOT NULL DEFAULT 0,
+                    daily_reset_at        TIMESTAMPTZ,
+                    monthly_query_limit   INTEGER NOT NULL DEFAULT 999999,
+                    monthly_queries_used  INTEGER NOT NULL DEFAULT 0,
+                    quota_reset_date      DATE NOT NULL DEFAULT DATE_TRUNC('month', NOW())::DATE
                 );
 
                 CREATE TABLE IF NOT EXISTS exl_sessions (
@@ -149,6 +152,19 @@ def init_tables() -> None:
             cur.execute(
                 "INSERT INTO system_config (key, value) VALUES ('api_enabled', 'true') ON CONFLICT (key) DO NOTHING"
             )
+            # Monthly quota columns (999999 = effectively unlimited for existing users)
+            cur.execute(
+                "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS monthly_query_limit INTEGER NOT NULL DEFAULT 999999"
+            )
+            cur.execute(
+                "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS monthly_queries_used INTEGER NOT NULL DEFAULT 0"
+            )
+            cur.execute(
+                "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS quota_reset_date DATE NOT NULL DEFAULT DATE_TRUNC('month', NOW())::DATE"
+            )
+            cur.execute(
+                "INSERT INTO system_config (key, value) VALUES ('default_monthly_limit', '20') ON CONFLICT (key) DO NOTHING"
+            )
         conn.commit()
     finally:
         conn.close()
@@ -159,12 +175,20 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
     admin_email = os.getenv(_ADMIN_EMAIL_ENV, "").strip().lower()
     is_admin_value = email.strip().lower() == admin_email if admin_email else False
 
-    # Read default limit for new users
+    # Read default limits for new users
     default_limit = 20
     try:
         raw = get_system_config("default_daily_limit")
         if raw and raw.isdigit():
             default_limit = int(raw)
+    except Exception:
+        pass
+
+    default_monthly_limit = 20
+    try:
+        raw_monthly = get_system_config("default_monthly_limit")
+        if raw_monthly and raw_monthly.isdigit():
+            default_monthly_limit = int(raw_monthly)
     except Exception:
         pass
 
@@ -175,8 +199,8 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
                 # Ensure the admin email always has is_admin=true
                 cur.execute(
                     """
-                    INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, is_admin, daily_query_limit)
-                    VALUES (%s, %s, %s, %s, NOW(), NOW(), TRUE, %s)
+                    INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, is_admin, daily_query_limit, monthly_query_limit)
+                    VALUES (%s, %s, %s, %s, NOW(), NOW(), TRUE, %s, %s)
                     ON CONFLICT (user_id) DO UPDATE
                         SET email     = EXCLUDED.email,
                             name      = EXCLUDED.name,
@@ -185,13 +209,13 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
                             is_admin  = TRUE
                     RETURNING *
                     """,
-                    (user_id, email, name, picture, default_limit),
+                    (user_id, email, name, picture, default_limit, default_monthly_limit),
                 )
             else:
                 cur.execute(
                     """
-                    INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, daily_query_limit)
-                    VALUES (%s, %s, %s, %s, NOW(), NOW(), %s)
+                    INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, daily_query_limit, monthly_query_limit)
+                    VALUES (%s, %s, %s, %s, NOW(), NOW(), %s, %s)
                     ON CONFLICT (user_id) DO UPDATE
                         SET email     = EXCLUDED.email,
                             name      = EXCLUDED.name,
@@ -199,7 +223,7 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
                             last_seen = NOW()
                     RETURNING *
                     """,
-                    (user_id, email, name, picture, default_limit),
+                    (user_id, email, name, picture, default_limit, default_monthly_limit),
                 )
             row = cur.fetchone()
         conn.commit()
@@ -730,6 +754,141 @@ def set_system_config(key: str, value: str) -> None:
                 (key, value),
             )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def check_monthly_quota(user_id: str) -> dict:
+    """Check if user is within their monthly query quota.
+
+    Resets counter if quota_reset_date is before the first of the current month.
+    Does NOT increment the counter.
+    Returns {"allowed": bool, "used": int, "limit": int, "reset_date": date}.
+    """
+    from datetime import date as _date
+    today = datetime.now(tz=timezone.utc).date()
+    first_of_this_month = today.replace(day=1)
+    yr, mo = today.year, today.month
+    first_of_next_month = _date(yr + 1, 1, 1) if mo == 12 else _date(yr, mo + 1, 1)
+
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT monthly_queries_used, monthly_query_limit, quota_reset_date FROM exl_users WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return {"allowed": True, "used": 0, "limit": 999999, "reset_date": first_of_next_month}
+
+            used = row["monthly_queries_used"]
+            limit = row["monthly_query_limit"]
+            reset_date = row["quota_reset_date"]
+
+            # Reset if the stored reset date is before the first of this month
+            needs_reset = (reset_date is None) or (reset_date < first_of_this_month)
+            if needs_reset:
+                cur.execute(
+                    "UPDATE exl_users SET monthly_queries_used = 0, quota_reset_date = %s WHERE user_id = %s",
+                    (first_of_this_month, user_id),
+                )
+                conn.commit()
+                used = 0
+
+            if used >= limit:
+                return {"allowed": False, "used": used, "limit": limit, "reset_date": first_of_next_month}
+            return {"allowed": True, "used": used, "limit": limit, "reset_date": first_of_next_month}
+    finally:
+        conn.close()
+
+
+def increment_monthly_count(user_id: str) -> dict:
+    """Increment monthly_queries_used for a user.
+    Returns {"used": int, "limit": int}.
+    """
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE exl_users SET monthly_queries_used = monthly_queries_used + 1 WHERE user_id = %s "
+                "RETURNING monthly_queries_used, monthly_query_limit",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        if row is None:
+            return {"used": 0, "limit": 999999}
+        return {"used": row["monthly_queries_used"], "limit": row["monthly_query_limit"]}
+    finally:
+        conn.close()
+
+
+def get_monthly_quota_info(user_id: str) -> dict:
+    """Return full monthly quota state for the /api/auth/quota endpoint.
+    Returns {"monthly_limit", "monthly_used", "monthly_remaining", "reset_date", "is_new_user"}.
+    """
+    from datetime import date as _date
+    today = datetime.now(tz=timezone.utc).date()
+    first_of_this_month = today.replace(day=1)
+    yr, mo = today.year, today.month
+    first_of_next_month = _date(yr + 1, 1, 1) if mo == 12 else _date(yr, mo + 1, 1)
+
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT monthly_queries_used, monthly_query_limit, quota_reset_date, first_seen FROM exl_users WHERE user_id = %s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return {
+                "monthly_limit": 999999,
+                "monthly_used": 0,
+                "monthly_remaining": 999999,
+                "reset_date": first_of_next_month.isoformat(),
+                "is_new_user": True,
+            }
+
+        used = row["monthly_queries_used"]
+        limit = row["monthly_query_limit"]
+        reset_date = row["quota_reset_date"]
+        first_seen = row["first_seen"]
+
+        # Read-only reset logic (don't write here — check_monthly_quota writes on actual requests)
+        if (reset_date is None) or (reset_date < first_of_this_month):
+            used = 0
+
+        is_new_user = False
+        if first_seen:
+            seen_date = first_seen.date() if hasattr(first_seen, "date") else first_seen
+            is_new_user = seen_date >= first_of_this_month
+
+        remaining = max(0, limit - used)
+        return {
+            "monthly_limit": limit,
+            "monthly_used": used,
+            "monthly_remaining": remaining,
+            "reset_date": first_of_next_month.isoformat(),
+            "is_new_user": is_new_user,
+        }
+    finally:
+        conn.close()
+
+
+def set_user_monthly_limit(user_id: str, limit: int) -> Optional[dict]:
+    """Set the monthly_query_limit for a specific user. Returns updated row or None."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE exl_users SET monthly_query_limit = %s WHERE user_id = %s RETURNING *",
+                (limit, user_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return dict(row) if row else None
     finally:
         conn.close()
 
