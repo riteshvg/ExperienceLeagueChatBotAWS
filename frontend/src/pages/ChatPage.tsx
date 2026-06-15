@@ -95,6 +95,8 @@ export function ChatPage() {
     queriesUsed,
     queriesRemaining,
     queriesLimit,
+    feedbackToast,
+    dismissFeedbackToast,
     setUsage,
     setApiDisabled,
   } = useChatStore();
@@ -129,6 +131,12 @@ export function ChatPage() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
+
+  useEffect(() => {
+    if (!feedbackToast) return
+    const t = setTimeout(dismissFeedbackToast, 3000)
+    return () => clearTimeout(t)
+  }, [feedbackToast, dismissFeedbackToast])
 
   useEffect(() => {
     getMe().then((usage) =>
@@ -394,7 +402,6 @@ export function ChatPage() {
               Answers are grounded in Adobe Experience League documentation
             </p>
             {monthlyLimit < 9999 ? (
-              // Real monthly limit set — show monthly counter
               <p
                 className={cn(
                   'text-xs mt-0.5',
@@ -405,14 +412,10 @@ export function ChatPage() {
                       : 'text-slate-400',
                 )}
               >
-                {monthlyLimit} queries per month.{' '}
-                {isExhausted || monthlyExhausted ? monthlyLimit : monthlyUsed}/
-                {monthlyLimit} used until now.{' '}
-                {isExhausted || monthlyExhausted ? 0 : monthlyRemaining} pending
-                for the month.
+                {isExhausted || monthlyExhausted ? monthlyLimit : monthlyUsed} / {monthlyLimit} queries used this month
+                {' '}· {isExhausted || monthlyExhausted ? 0 : monthlyRemaining} remaining
               </p>
             ) : queriesRemaining !== null ? (
-              // No monthly limit — fall back to daily counter
               <p
                 className={cn(
                   'text-xs mt-0.5',
@@ -423,12 +426,27 @@ export function ChatPage() {
                       : 'text-slate-400',
                 )}
               >
-                {queriesUsed} / {queriesLimit} queries used today
+                {queriesUsed} / {queriesLimit} queries used this month
+                {' '}· {queriesRemaining} remaining
               </p>
             ) : null}
           </div>
         </div>
       </main>
+
+      {/* Feedback thank-you toast */}
+      <div
+        className={cn(
+          'fixed bottom-6 left-1/2 -translate-x-1/2 z-50',
+          'flex items-center gap-2 px-4 py-2.5 rounded-full',
+          'bg-[#14532D] text-white text-sm font-medium shadow-lg',
+          'transition-all duration-300',
+          feedbackToast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-3 pointer-events-none',
+        )}
+      >
+        <span className="text-base leading-none">👍</span>
+        Thank you for your feedback
+      </div>
     </div>
   );
 }

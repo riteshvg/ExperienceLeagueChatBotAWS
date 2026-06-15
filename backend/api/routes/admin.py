@@ -196,7 +196,7 @@ async def export_queries_excel(
     ws = wb.active
     ws.title = "Query Logs"
 
-    headers = ["Time", "User Email", "Query", "Model", "Input Tokens", "Output Tokens", "Cost (USD)"]
+    headers = ["Time", "User Email", "Query", "Model", "Input Tokens", "Output Tokens", "Cost (USD)", "Feedback"]
     ws.append(headers)
     for cell in ws[1]:
         cell.font = Font(bold=True)
@@ -208,6 +208,14 @@ async def export_queries_excel(
             created_at = dt.strftime("%Y-%m-%d %H:%M:%S")
         except Exception:
             pass
+        fb_rating = r.get("feedback_rating")
+        fb_comment = (r.get("feedback_comment") or "").strip()
+        if fb_rating == 1:
+            feedback_val = "Positive"
+        elif fb_rating == -1:
+            feedback_val = f"Negative: {fb_comment}" if fb_comment else "Negative"
+        else:
+            feedback_val = ""
         ws.append([
             created_at,
             r.get("email", ""),
@@ -216,6 +224,7 @@ async def export_queries_excel(
             r.get("input_tokens", 0),
             r.get("output_tokens", 0),
             round(float(r.get("cost_usd") or 0), 2),
+            feedback_val,
         ])
 
     for col_idx in range(1, len(headers) + 1):

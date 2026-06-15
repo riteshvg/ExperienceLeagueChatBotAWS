@@ -148,6 +148,9 @@ def init_tables() -> None:
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_exl_feedback_message_id ON exl_feedback (message_id)"
             )
+            cur.execute(
+                "ALTER TABLE exl_feedback ADD COLUMN IF NOT EXISTS comment TEXT"
+            )
             # Seed kill switch default
             cur.execute(
                 "INSERT INTO system_config (key, value) VALUES ('api_enabled', 'true') ON CONFLICT (key) DO NOTHING"
@@ -585,7 +588,7 @@ def list_query_logs(limit: int = 100) -> list[dict]:
                 """
                 SELECT q.id, q.message_id, q.user_id, q.email, q.query_text,
                        q.llm_model, q.input_tokens, q.output_tokens, q.cost_usd, q.created_at,
-                       f.rating AS feedback_rating
+                       f.rating AS feedback_rating, f.comment AS feedback_comment
                 FROM exl_query_logs q
                 LEFT JOIN exl_feedback f ON f.message_id = q.message_id AND q.message_id <> ''
                 ORDER BY q.created_at DESC LIMIT %s
@@ -619,7 +622,7 @@ def list_query_logs_paginated(
                 f"""
                 SELECT q.id, q.message_id, q.user_id, q.email, q.query_text,
                        q.llm_model, q.input_tokens, q.output_tokens, q.cost_usd, q.created_at,
-                       f.rating AS feedback_rating
+                       f.rating AS feedback_rating, f.comment AS feedback_comment
                 FROM exl_query_logs q
                 LEFT JOIN exl_feedback f ON f.message_id = q.message_id AND q.message_id <> ''
                 ORDER BY q.{sort_by} {direction}
@@ -664,8 +667,10 @@ def export_all_query_logs(
         with conn.cursor() as cur:
             query = f"""
                 SELECT q.email, q.query_text, q.llm_model,
-                       q.input_tokens, q.output_tokens, q.cost_usd, q.created_at
+                       q.input_tokens, q.output_tokens, q.cost_usd, q.created_at,
+                       f.rating AS feedback_rating, f.comment AS feedback_comment
                 FROM exl_query_logs q
+                LEFT JOIN exl_feedback f ON f.message_id = q.message_id AND q.message_id <> ''
                 {where}
                 ORDER BY q.created_at DESC
             """
@@ -687,18 +692,18 @@ def export_all_query_logs(
         conn.close()
 
 
-def log_feedback(message_id: str, user_id: str, email: str, query_text: str, rating: int) -> None:
+def log_feedback(message_id: str, user_id: str, email: str, query_text: str, rating: int, comment: str = "") -> None:
     """Insert or replace a feedback row for a given message_id."""
     conn = _connect()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO exl_feedback (message_id, user_id, email, query_text, rating)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO exl_feedback (message_id, user_id, email, query_text, rating, comment)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT DO NOTHING
                 """,
-                (message_id, user_id, email, query_text, rating),
+                (message_id, user_id, email, query_text, rating, comment or ""),
             )
         conn.commit()
     finally:

@@ -534,8 +534,17 @@ function QueryLogsTab({ paginatedData, onFetchPage, onExport, exporting }: Query
                   {isExpanded && (
                     <tr key={`${log.id}-exp`} className={cn('border-b border-slate-100 bg-slate-50', isLast && 'border-0')}>
                       <td />
-                      <td colSpan={8} className="px-4 pb-3 pt-0">
+                      <td colSpan={8} className="px-4 pb-3 pt-0 space-y-2">
                         <p className="text-xs text-slate-700 leading-relaxed bg-white border border-slate-200 rounded-lg p-3">{log.query_text}</p>
+                        {log.feedback_rating != null && (
+                          <p className="text-xs text-slate-600 px-1">
+                            {log.feedback_rating === 1
+                              ? '👍'
+                              : log.feedback_comment
+                                ? <>👎 Feedback: <span className="italic">"{log.feedback_comment}"</span></>
+                                : '👎'}
+                          </p>
+                        )}
                       </td>
                     </tr>
                   )}

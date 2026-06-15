@@ -57,16 +57,22 @@ function stripCitationMarkers(text: string): string {
 }
 
 function stripMdLinks(text: string): string {
-  // Replace [link text](anything.md) with just the link text — .md paths are raw source files
-  return text.replace(/\[([^\]]+)\]\([^)]*\.md[^)]*\)/g, '$1')
+  return text
+    .replace(/\[([^\]]+)\]\([^)]*\.md[^)]*\)/g, '$1')
+    // Strip inline EXL/developer.adobe.com doc links — 404-prone; citations panel handles sources
+    .replace(/\[([^\]]+)\]\(https?:\/\/(?:experienceleague|developer)\.adobe\.com[^)]+\)/g, '$1')
 }
 
 export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
+  const [showFeedbackInput, setShowFeedbackInput] = useState(false)
+  const [feedbackComment, setFeedbackComment] = useState('')
   const { setFeedback } = useChatStore()
   const displayedContent = useTypewriter(message.content || '', !!message.streaming, 12)
   const processedContent = stripMdLinks(stripCitationMarkers(sanitizeAdobeMarkup(displayedContent || ' ')))
+
+  const MAX_COMMENT = 500
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -76,7 +82,21 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
 
   const handleFeedback = (rating: 1 | -1) => {
     if (message.feedback !== undefined) return
-    setFeedback(message.id, rating, '')  // query resolved in store from preceding message
+    if (rating === -1) {
+      setShowFeedbackInput(true)
+    } else {
+      setFeedback(message.id, rating, '')
+    }
+  }
+
+  const handleSubmitFeedback = () => {
+    setFeedback(message.id, -1, '', feedbackComment.trim())
+    setShowFeedbackInput(false)
+  }
+
+  const handleSkipFeedback = () => {
+    setFeedback(message.id, -1, '', '')
+    setShowFeedbackInput(false)
   }
 
   return (
@@ -168,42 +188,77 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
 
         {/* Footer row: model badge + feedback + copy */}
         {!isUser && message.model && message.model !== 'none' && !message.streaming && (
-          <div className="flex items-center gap-2 px-1 flex-wrap">
-            <ModelBadge model={message.model} />
-            <div className="flex-1" />
-            {/* Feedback */}
-            <button
-              onClick={() => handleFeedback(1)}
-              title="Helpful"
-              className={cn(
-                'p-1 rounded-md transition-colors',
-                message.feedback === 1
-                  ? 'text-emerald-600 bg-emerald-50'
-                  : 'text-slate-300 hover:text-emerald-500 hover:bg-emerald-50',
-              )}
-            >
-              <ThumbsUp className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => handleFeedback(-1)}
-              title="Not helpful"
-              className={cn(
-                'p-1 rounded-md transition-colors',
-                message.feedback === -1
-                  ? 'text-red-500 bg-red-50'
-                  : 'text-slate-300 hover:text-red-400 hover:bg-red-50',
-              )}
-            >
-              <ThumbsDown className="w-3.5 h-3.5" />
-            </button>
-            {/* Copy */}
-            <button
-              onClick={handleCopy}
-              title="Copy answer"
-              className="p-1 rounded-md text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-colors"
-            >
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-            </button>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 px-1 flex-wrap">
+              <ModelBadge model={message.model} />
+              <div className="flex-1" />
+              {/* Feedback */}
+              <button
+                onClick={() => handleFeedback(1)}
+                title="Helpful"
+                disabled={message.feedback !== undefined}
+                className={cn(
+                  'p-1 rounded-md transition-colors',
+                  message.feedback === 1
+                    ? 'text-emerald-600 bg-emerald-50'
+                    : 'text-slate-300 hover:text-emerald-500 hover:bg-emerald-50 disabled:cursor-default',
+                )}
+              >
+                <ThumbsUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => handleFeedback(-1)}
+                title="Not helpful"
+                disabled={message.feedback !== undefined}
+                className={cn(
+                  'p-1 rounded-md transition-colors',
+                  message.feedback === -1
+                    ? 'text-red-500 bg-red-50'
+                    : 'text-slate-300 hover:text-red-400 hover:bg-red-50 disabled:cursor-default',
+                )}
+              >
+                <ThumbsDown className="w-3.5 h-3.5" />
+              </button>
+              {/* Copy */}
+              <button
+                onClick={handleCopy}
+                title="Copy answer"
+                className="p-1 rounded-md text-slate-300 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            {/* Inline negative feedback input */}
+            {showFeedbackInput && (
+              <div className="px-1">
+                <textarea
+                  autoFocus
+                  value={feedbackComment}
+                  onChange={(e) => setFeedbackComment(e.target.value.slice(0, MAX_COMMENT))}
+                  placeholder="What was wrong with this answer? (optional)"
+                  rows={2}
+                  className="w-full text-xs text-slate-700 placeholder-slate-400 border border-slate-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-slate-300 bg-white"
+                />
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-[10px] text-slate-400">{feedbackComment.length} / {MAX_COMMENT}</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleSkipFeedback}
+                      className="text-xs px-2.5 py-1 rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 transition-colors"
+                    >
+                      Skip
+                    </button>
+                    <button
+                      onClick={handleSubmitFeedback}
+                      className="text-xs px-2.5 py-1 rounded-md bg-slate-800 text-white hover:bg-slate-700 transition-colors"
+                    >
+                      Submit
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -131,11 +131,12 @@ export async function submitFeedback(
   sessionId: string,
   rating: 1 | -1,
   query: string,
+  comment = '',
 ): Promise<void> {
   await fetch(`${API_BASE}/api/chat/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ message_id: messageId, session_id: sessionId, rating, query }),
+    body: JSON.stringify({ message_id: messageId, session_id: sessionId, rating, query, comment }),
   })
 }
 
@@ -221,6 +222,7 @@ export interface QueryLog {
   cost_usd: number
   created_at: string
   feedback_rating?: 1 | -1 | null
+  feedback_comment?: string | null
 }
 
 export interface Pagination {

@@ -81,6 +81,7 @@ Media embedding rules:
 - Embed videos inline using: [▶ Watch: Brief Title](video_url)
 - Place media naturally after the relevant paragraph.
 - Never include links ending in .md — only use full https:// URLs.
+- Do not include inline hyperlinks to Adobe documentation pages in your answer. Describe topics and guide titles by name only — source links are shown automatically in the citations panel.
 
 Retrieved documentation context:
 {context}"""
@@ -108,6 +109,7 @@ Media embedding rules:
 - Embed videos inline using: [▶ Watch: Brief Title](video_url)
 - Place media naturally after the relevant paragraph.
 - Never include links ending in .md — only use full https:// URLs.
+- Do not include inline hyperlinks to Adobe documentation pages in your answer. Describe topics and guide titles by name only — source links are shown automatically in the citations panel.
 
 Retrieved documentation context:
 {context}"""

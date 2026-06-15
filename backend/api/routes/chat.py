@@ -256,6 +256,7 @@ class FeedbackRequest(BaseModel):
     session_id: str
     rating: int
     query: str
+    comment: str = ""
 
 
 @router.post("/chat/feedback")
@@ -267,6 +268,7 @@ async def submit_feedback(body: FeedbackRequest, _user: Annotated[dict, Depends(
             email=_user.get("email", ""),
             query_text=body.query,
             rating=body.rating,
+            comment=body.comment,
         )
     except Exception as e:
         logger.warning(f"Feedback DB write failed (non-fatal): {e}")

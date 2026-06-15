@@ -43,8 +43,10 @@ interface ChatState {
   queriesRemaining: number | null
   queriesLimit: number
 
+  feedbackToast: boolean
   sendMessage: (query: string) => Promise<void>
-  setFeedback: (messageId: string, rating: 1 | -1, query: string) => void
+  setFeedback: (messageId: string, rating: 1 | -1, query: string, comment?: string) => void
+  dismissFeedbackToast: () => void
   startNewChat: () => void
   switchSession: (id: string) => void
   deleteSession: (id: string) => void
@@ -89,27 +91,30 @@ export const useChatStore = create<ChatState>()(
         queriesUsed: 0,
         queriesRemaining: null,
         queriesLimit: 20,
+        feedbackToast: false,
 
         clearError: () => set({ error: null }),
+        dismissFeedbackToast: () => set({ feedbackToast: false }),
 
         setApiDisabled: (disabled) => set({ apiDisabled: disabled }),
 
         setUsage: (used, remaining, limit) => set({ queriesUsed: used, queriesRemaining: remaining, queriesLimit: limit }),
 
-        setFeedback: (messageId, rating, _query) => {
+        setFeedback: (messageId, rating, _query, comment = '') => {
           const { activeSessionId, sessions } = get()
           // Find the user message that preceded this assistant message
           const msgs = sessions[activeSessionId]?.messages ?? []
           const idx = msgs.findIndex((m) => m.id === messageId)
           const precedingQuery = idx > 0 ? msgs[idx - 1].content : ''
           const turnNumber = msgs.slice(0, idx + 1).filter((m) => m.role === 'user').length
-          submitFeedback(messageId, activeSessionId, rating, precedingQuery).catch(() => {})
+          submitFeedback(messageId, activeSessionId, rating, precedingQuery, comment).catch(() => {})
           if (rating === 1) {
             trackFeedbackPositive(precedingQuery, turnNumber)
           } else {
             trackFeedbackNegative(precedingQuery, turnNumber)
           }
           set((s) => ({
+            feedbackToast: true,
             sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
               msgs.map((m) => (m.id === messageId ? { ...m, feedback: rating } : m))
             ),
