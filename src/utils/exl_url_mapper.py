@@ -107,9 +107,12 @@ def derive_exl_url(s3_key: str) -> str | None:
 def is_specific_url(url: str | None) -> bool:
     """
     Returns True if the URL points to a specific documentation page.
-    Rejects generic homepages, bare product roots, and navigation-only files.
+    Rejects generic homepages, bare product roots, navigation-only files, and raw .md paths.
     """
     if not url:
+        return False
+    # Raw markdown source files are never valid citation URLs
+    if url.lower().endswith(".md"):
         return False
     generic = [
         "https://experienceleague.adobe.com/en/docs",

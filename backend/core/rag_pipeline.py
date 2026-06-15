@@ -80,6 +80,7 @@ Media embedding rules:
 - Embed images inline using: ![description](url)
 - Embed videos inline using: [▶ Watch: Brief Title](video_url)
 - Place media naturally after the relevant paragraph.
+- Never include links ending in .md — only use full https:// URLs.
 
 Retrieved documentation context:
 {context}"""
@@ -106,6 +107,7 @@ Media embedding rules:
 - Embed images inline using: ![description](url)
 - Embed videos inline using: [▶ Watch: Brief Title](video_url)
 - Place media naturally after the relevant paragraph.
+- Never include links ending in .md — only use full https:// URLs.
 
 Retrieved documentation context:
 {context}"""
