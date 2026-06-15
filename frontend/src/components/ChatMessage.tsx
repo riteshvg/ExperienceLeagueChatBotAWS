@@ -56,12 +56,17 @@ function stripCitationMarkers(text: string): string {
   return text.replace(/\[\d+\](?!\()/g, '')
 }
 
+function stripMdLinks(text: string): string {
+  // Replace [link text](anything.md) with just the link text — .md paths are raw source files
+  return text.replace(/\[([^\]]+)\]\([^)]*\.md[^)]*\)/g, '$1')
+}
+
 export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
   const { setFeedback } = useChatStore()
   const displayedContent = useTypewriter(message.content || '', !!message.streaming, 12)
-  const processedContent = stripCitationMarkers(sanitizeAdobeMarkup(displayedContent || ' '))
+  const processedContent = stripMdLinks(stripCitationMarkers(sanitizeAdobeMarkup(displayedContent || ' ')))
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
