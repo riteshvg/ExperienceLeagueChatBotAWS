@@ -1,12 +1,11 @@
 """
-RAG pipeline — LangChain LCEL + LangGraph Strands-style agent.
+RAG pipeline — LangChain LCEL dual-model routing.
 
 Routing:
-  Haiku queries → single-pass LCEL chain  (fast, cheap, definitions/lookups)
-  Sonnet queries → LangGraph ReAct agent  (multi-pass retrieval, complex tasks)
+  Haiku  → single-pass LCEL chain  (fast, cheap, definitions/lookups)
+  Sonnet → single-pass LCEL chain  (higher quality, complex/procedural queries)
 
-The agent calls search_documentation() up to 3 times before answering,
-fixing shallow responses when the first retrieval misses key steps.
+Both paths: retrieve once → build context → stream answer.
 """
 
 import json as _json
@@ -17,11 +16,9 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
 
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
@@ -87,28 +84,31 @@ Media embedding rules:
 Retrieved documentation context:
 {context}"""
 
-_AGENT_SYSTEM = """You are a senior Adobe Experience Cloud solutions consultant with deep \
+_SONNET_SYSTEM = """You are a senior Adobe Experience Cloud solutions consultant with deep \
 expertise in Adobe Analytics, Customer Journey Analytics (CJA), Adobe Experience Platform (AEP), \
 Adobe Target, Adobe Journey Optimizer (AJO), and Adobe Data Collection (Tags/Launch, Web SDK, \
 Datastreams, Edge Network).
 
-You ONLY answer questions about these Adobe products. If asked about anything unrelated \
-(food, general knowledge, other software, etc.), respond:
+You ONLY answer questions about these Adobe products. If asked about anything unrelated, respond:
 "I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe Journey Optimizer, \
 and Adobe Data Collection."
 
-INSTRUCTIONS for Adobe questions:
-1. Always call search_documentation at least once before answering.
-2. After reviewing the results, if the context is incomplete or missing key steps, \
-call search_documentation again with a more specific or different query.
-3. You may search up to 3 times to gather sufficient context.
-4. Once you have enough context, synthesize a complete, step-by-step answer.
-5. Never invent features, UI paths, or procedures not in the retrieved documentation.
-6. For procedural questions: number every step, state prerequisites first.
-7. Use **bold** for UI elements and `code` for API/function names.
-8. Embed images inline using: ![description](url)
-9. Embed videos inline using: [▶ Watch: Brief Title](video_url)
-10. Place media naturally after the relevant paragraph — not all grouped at the end."""
+Guidelines for Adobe questions:
+- Synthesize a complete, accurate answer using the retrieved context below.
+- Never invent features, UI paths, or procedures not in the retrieved documentation.
+- For procedural questions: number every step and state prerequisites first.
+- Use **bold** for UI elements and `code` for API/function names.
+- Use headers, bullet points, and numbered steps to structure longer answers.
+- Do NOT redirect users to "check the documentation" — synthesize the information directly.
+- Only say you don't know if the topic is completely absent from the context.
+
+Media embedding rules:
+- Embed images inline using: ![description](url)
+- Embed videos inline using: [▶ Watch: Brief Title](video_url)
+- Place media naturally after the relevant paragraph.
+
+Retrieved documentation context:
+{context}"""
 
 _HAIKU_PROMPT = ChatPromptTemplate.from_messages([
     ("system", _HAIKU_SYSTEM),
@@ -116,99 +116,23 @@ _HAIKU_PROMPT = ChatPromptTemplate.from_messages([
     ("human", "{query}"),
 ])
 
+_SONNET_PROMPT = ChatPromptTemplate.from_messages([
+    ("system", _SONNET_SYSTEM),
+    MessagesPlaceholder("history"),
+    ("human", "{query}"),
+])
 
-# ── LCEL chain (Haiku) ────────────────────────────────────────────────────────
+
+# ── LCEL chains ───────────────────────────────────────────────────────────────
 
 def _build_haiku_chain(api_key: str):
     llm = ChatAnthropic(model=_HAIKU_MODEL, api_key=api_key, max_tokens=2000, streaming=True)
     return _HAIKU_PROMPT | llm | StrOutputParser()
 
 
-# ── LangGraph agent (Sonnet) ─────────────────────────────────────────────────
-
-def _make_search_tool(retriever: ChromaRetriever, query_processor: QueryProcessor,
-                      settings, citations_out: list,
-                      where_filter: dict | None = None):
-    """Create a search_documentation tool scoped to this request's retriever."""
-
-    @tool
-    def search_documentation(query: str) -> str:
-        """
-        Search Adobe Experience League documentation for the given query.
-        Call this whenever you need information about Adobe Analytics, CJA, AEP, AJO, or Target.
-        Use specific Adobe terminology. Call multiple times with refined queries if needed.
-
-        Args:
-            query: The search query — be specific.
-        """
-        enhanced, _ = query_processor.preprocess_query(query)
-        docs = retriever.retrieve(
-            enhanced,
-            n_results=settings.max_retrieval_results,
-            similarity_threshold=settings.similarity_threshold,
-            where=where_filter,
-        )
-        if not docs:
-            return f"No documentation found for: {query}"
-
-        # Snapshot offset so numbering is globally consistent across multiple tool calls
-        offset = len(citations_out)
-
-        parts = []
-        for i, doc in enumerate(docs, 1):
-            meta = doc.get("metadata", {})
-            raw_title = meta.get("title", f"Document {i}")
-            title = re.sub(r"\s*\{#[^}]+\}", "", raw_title).strip()
-
-            # Collect citations — deduplicated by URL, only specific pages above threshold
-            url = meta.get("url", "")
-            citation_num: int | None = None
-            if is_specific_url(url) and doc.get("score", 0.0) >= RAGPipeline._CITATION_SCORE_THRESHOLD:
-                existing_idx = next(
-                    (j for j, x in enumerate(citations_out) if x.get("url") == url), None
-                )
-                if existing_idx is not None:
-                    citation_num = existing_idx + 1
-                else:
-                    c: dict = {
-                        "url": url,
-                        "title": title,
-                        "product": meta.get("product", ""),
-                        "score": doc.get("score", 0.0),
-                    }
-                    if meta.get("video_url"):
-                        c["video_url"] = meta["video_url"]
-                    if meta.get("thumbnail_url"):
-                        c["thumbnail_url"] = meta["thumbnail_url"]
-                    if meta.get("image_urls"):
-                        try:
-                            c["image_urls"] = _json.loads(meta["image_urls"])
-                        except Exception:
-                            pass
-                    citations_out.append(c)
-                    citation_num = len(citations_out)
-
-            # Use citation_num for perfect alignment; fall back to offset+i for filtered docs
-            doc_num = citation_num if citation_num is not None else offset + i
-
-            # Build text block with media hints for inline embedding
-            block = f"[{doc_num}] {title}\n{doc['content']}"
-            media_hints = []
-            if meta.get("image_urls"):
-                try:
-                    for url in _json.loads(meta["image_urls"])[:2]:
-                        media_hints.append(f"Image: {url}")
-                except Exception:
-                    pass
-            if meta.get("video_url"):
-                media_hints.append(f"Video: {meta['video_url']} (Title: {title})")
-            if media_hints:
-                block += "\n\nAVAILABLE MEDIA (embed inline where relevant):\n" + "\n".join(media_hints)
-            parts.append(block)
-
-        return "\n\n---\n\n".join(parts)
-
-    return search_documentation
+def _build_sonnet_chain(api_key: str):
+    llm = ChatAnthropic(model=_SONNET_MODEL, api_key=api_key, max_tokens=4000, streaming=True)
+    return _SONNET_PROMPT | llm | StrOutputParser()
 
 
 def _to_lc_history(history: list[dict]) -> list:
@@ -354,20 +278,28 @@ class RAGPipeline:
         yield {"type": "done", "model": "haiku", "session_id": session_id,
                "input_tokens": input_tokens, "output_tokens": output_tokens}
 
-    # ── Sonnet: LangGraph multi-pass agent ────────────────────────────────────
+    # ── Sonnet: single-pass LCEL chain ───────────────────────────────────────
 
     async def _stream_agent(self, query, session_id, history, settings):
-        # Pre-check: skip expensive Sonnet agent for clearly off-topic queries
+        enhanced, _ = self.query_processor.preprocess_query(query)
+        search_query = _contextualize_query(enhanced, history)
+
         product_intent = detect_product_intent(query)
         where_filter = {"product": {"$eq": product_intent}} if product_intent else None
 
-        probe_docs = self.retriever.retrieve(
-            query,
+        raw_docs = self.retriever.retrieve(
+            search_query,
             n_results=settings.max_retrieval_results,
             similarity_threshold=settings.similarity_threshold,
             where=where_filter,
         )
-        if self._is_off_topic(probe_docs):
+        if not raw_docs:
+            yield {"type": "token", "content": NO_CONTEXT_MESSAGE}
+            yield {"type": "done", "model": "none", "session_id": session_id}
+            return
+
+        off_topic = self._is_off_topic(raw_docs)
+        if off_topic:
             yield {"type": "token", "content": _OUT_OF_SCOPE_RESPONSE}
             self.session_store.append_turn(session_id, "user", query)
             self.session_store.append_turn(session_id, "assistant", _OUT_OF_SCOPE_RESPONSE)
@@ -376,61 +308,29 @@ class RAGPipeline:
                    "input_tokens": 0, "output_tokens": 0}
             return
 
-        citations_out: list = []
-        search_tool = _make_search_tool(
-            self.retriever, self.query_processor, settings, citations_out,
-            where_filter=where_filter,
+        context = "\n\n---\n\n".join(
+            f"[{i+1}] {doc['content']}" for i, doc in enumerate(raw_docs)
         )
+        context += _build_media_context(raw_docs)
 
-        llm = ChatAnthropic(
-            model=_SONNET_MODEL,
-            api_key=settings.anthropic_api_key,
-            max_tokens=4000,
-            streaming=True,
-        )
+        raw_citations = self._extract_citations(raw_docs)
+        lc_history = _to_lc_history(history)
+        chain = _build_sonnet_chain(settings.anthropic_api_key)
 
-        agent = create_react_agent(
-            llm,
-            tools=[search_tool],
-            prompt=SystemMessage(content=_AGENT_SYSTEM),
-        )
-
-        # Build message history
-        messages = _to_lc_history(history) + [HumanMessage(content=query)]
+        import asyncio as _asyncio
+        validation_task = _asyncio.create_task(filter_valid_citations(raw_citations))
 
         full_response = ""
-        try:
-            async for event in agent.astream_events(
-                {"messages": messages},
-                version="v2",
-            ):
-                if event["event"] == "on_chat_model_stream":
-                    chunk = event["data"]["chunk"]
-                    content = chunk.content
-                    # Claude with tool use returns content as a list of blocks
-                    # e.g. [{"type": "text", "text": "..."}] or [] for tool calls
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                text = block.get("text", "")
-                                if text:
-                                    full_response += text
-                                    yield {"type": "token", "content": text}
-                    elif isinstance(content, str) and content:
-                        full_response += content
-                        yield {"type": "token", "content": content}
+        async for chunk in chain.astream({"context": context, "history": lc_history, "query": query}):
+            full_response += chunk
+            yield {"type": "token", "content": chunk}
 
-        except Exception as exc:
-            logger.exception("Agent stream error")
-            yield {"type": "error", "message": str(exc)}
-            return
-
+        citations = await validation_task
         self.session_store.append_turn(session_id, "user", query)
         self.session_store.append_turn(session_id, "assistant", full_response)
-        valid_citations = await filter_valid_citations(citations_out[:8])
-        yield {"type": "citations", "citations": valid_citations}
-        input_tokens = (len(_AGENT_SYSTEM)
-                        + sum(len(getattr(m, "content", "")) for m in messages)) // 4
+        yield {"type": "citations", "citations": citations}
+        input_tokens = (len(_SONNET_SYSTEM) + len(context) + len(query)
+                        + sum(len(getattr(m, "content", "")) for m in lc_history)) // 4
         output_tokens = len(full_response) // 4
         yield {"type": "done", "model": "sonnet", "session_id": session_id,
                "input_tokens": input_tokens, "output_tokens": output_tokens}

@@ -1,18 +1,25 @@
-import { useEffect, useRef, useState } from 'react'
-import { Menu, Ban, Clock, WifiOff, CalendarX } from 'lucide-react'
-import { useChatStore } from '@/store/chatStore'
-import { useAuthStore } from '@/store/authStore'
-import { useQuotaStore } from '@/store/quotaStore'
-import { ChatInput, type ChatInputHandle } from '@/components/ChatInput'
-import { ChatMessage } from '@/components/ChatMessage'
-import { Sidebar } from '@/components/Sidebar'
-import { getMe, isApiDisabled } from '@/lib/api'
-import { cn } from '@/lib/utils'
-import { trackSessionStart, trackSessionEnd } from '@/analytics'
+import { useEffect, useRef, useState } from 'react';
+import { Menu, Ban, Clock, WifiOff, CalendarX } from 'lucide-react';
+import { useChatStore } from '@/store/chatStore';
+import { useAuthStore } from '@/store/authStore';
+import { useQuotaStore } from '@/store/quotaStore';
+import { ChatInput, type ChatInputHandle } from '@/components/ChatInput';
+import { ChatMessage } from '@/components/ChatMessage';
+import { Sidebar } from '@/components/Sidebar';
+import { getMe, isApiDisabled } from '@/lib/api';
+import { cn } from '@/lib/utils';
+import { trackSessionStart, trackSessionEnd } from '@/analytics';
 
-const WELCOME_KEY = 'rovr_welcome_dismissed'
+const WELCOME_KEY = 'rovr_welcome_dismissed';
 
-type Category = 'All' | 'Analytics' | 'CJA' | 'AEP' | 'Target' | 'AJO' | 'Cross-Product'
+type Category =
+  | 'All'
+  | 'Analytics'
+  | 'CJA'
+  | 'AEP'
+  | 'Target'
+  | 'AJO'
+  | 'Cross-Product';
 
 const QUESTION_BANK: Record<Exclude<Category, 'All'>, string[]> = {
   Analytics: [
@@ -52,79 +59,123 @@ const QUESTION_BANK: Record<Exclude<Category, 'All'>, string[]> = {
     'What is the difference between Adobe Analytics and Real-Time CDP for audience building?',
     'How do server-side forwarding and the Experience Platform Web SDK compare for sending data to AEP?',
   ],
-}
+};
 
-const CATEGORIES: Category[] = ['All', 'Analytics', 'CJA', 'AEP', 'Target', 'AJO', 'Cross-Product']
+const CATEGORIES: Category[] = [
+  'All',
+  'Analytics',
+  'CJA',
+  'AEP',
+  'Target',
+  'AJO',
+  'Cross-Product',
+];
 
 const CATEGORY_COLORS: Record<Exclude<Category, 'All'>, string> = {
-  Analytics:       'bg-orange-50 text-orange-700 border-orange-200',
-  CJA:             'bg-violet-50 text-violet-700 border-violet-200',
-  AEP:             'bg-blue-50 text-blue-700 border-blue-200',
-  Target:          'bg-red-50 text-red-700 border-red-200',
-  AJO:             'bg-green-50 text-green-700 border-green-200',
+  Analytics: 'bg-orange-50 text-orange-700 border-orange-200',
+  CJA: 'bg-violet-50 text-violet-700 border-violet-200',
+  AEP: 'bg-blue-50 text-blue-700 border-blue-200',
+  Target: 'bg-red-50 text-red-700 border-red-200',
+  AJO: 'bg-green-50 text-green-700 border-green-200',
   'Cross-Product': 'bg-teal-50 text-teal-700 border-teal-200',
-}
+};
 
 export function ChatPage() {
   const {
-    sessions, activeSessionId, isStreaming, sendMessage, error, accessDenied,
-    rateLimited, rateLimitMessage, apiDisabled, monthlyExhausted,
-    queriesUsed, queriesRemaining, queriesLimit, setUsage, setApiDisabled,
-  } = useChatStore()
-  const { logout } = useAuthStore()
-  const { monthlyLimit, monthlyUsed, monthlyRemaining, resetDate, isNewUser, isExhausted, fetchQuota } = useQuotaStore()
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [activeCategory, setActiveCategory] = useState<Category>('All')
-  const [welcomeDismissed, setWelcomeDismissed] = useState(() => !!localStorage.getItem(WELCOME_KEY))
-  const messages = sessions[activeSessionId]?.messages ?? []
+    sessions,
+    activeSessionId,
+    isStreaming,
+    sendMessage,
+    error,
+    accessDenied,
+    rateLimited,
+    rateLimitMessage,
+    apiDisabled,
+    monthlyExhausted,
+    queriesUsed,
+    queriesRemaining,
+    queriesLimit,
+    setUsage,
+    setApiDisabled,
+  } = useChatStore();
+  const { logout } = useAuthStore();
+  const {
+    monthlyLimit,
+    monthlyUsed,
+    monthlyRemaining,
+    resetDate,
+    isNewUser,
+    isExhausted,
+    fetchQuota,
+  } = useQuotaStore();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<Category>('All');
+  const [welcomeDismissed, setWelcomeDismissed] = useState(
+    () => !!localStorage.getItem(WELCOME_KEY),
+  );
+  const messages = sessions[activeSessionId]?.messages ?? [];
 
-  const visibleQuestions = activeCategory === 'All'
-    ? Object.entries(QUESTION_BANK).flatMap(([cat, qs]) =>
-        qs.slice(0, 1).map((q) => ({ q, cat: cat as Exclude<Category, 'All'> }))
-      )
-    : QUESTION_BANK[activeCategory].map((q) => ({ q, cat: activeCategory as Exclude<Category, 'All'> }))
+  const visibleQuestions =
+    activeCategory === 'All'
+      ? Object.entries(QUESTION_BANK).flatMap(([cat, qs]) =>
+          qs
+            .slice(0, 1)
+            .map((q) => ({ q, cat: cat as Exclude<Category, 'All'> })),
+        )
+      : QUESTION_BANK[activeCategory].map((q) => ({
+          q,
+          cat: activeCategory as Exclude<Category, 'All'>,
+        }));
 
-  const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<ChatInputHandle>(null)
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<ChatInputHandle>(null);
 
   useEffect(() => {
-    getMe().then((usage) => setUsage(usage.queries_used, usage.queries_remaining, usage.queries_limit))
-    fetchQuota()
-    isApiDisabled().then((disabled) => { if (disabled) setApiDisabled(true) })
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    getMe().then((usage) =>
+      setUsage(
+        usage.queries_used,
+        usage.queries_remaining,
+        usage.queries_limit,
+      ),
+    );
+    fetchQuota();
+    isApiDisabled().then((disabled) => {
+      if (disabled) setApiDisabled(true);
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-fetch quota after each message completes
   useEffect(() => {
-    if (!isStreaming && messages.length > 0) fetchQuota()
-  }, [isStreaming]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!isStreaming && messages.length > 0) fetchQuota();
+  }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Analytics: fire session_start on page load for fresh sessions
   useEffect(() => {
     if (messages.length === 0) {
-      trackSessionStart('page_load')
+      trackSessionStart('page_load');
     }
     // Register beforeunload to track session_end when the tab closes
     const handleUnload = () => {
-      const totalTurns = messages.filter((m) => m.role === 'user').length
-      trackSessionEnd(totalTurns)
-    }
-    window.addEventListener('beforeunload', handleUnload)
-    return () => window.removeEventListener('beforeunload', handleUnload)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+      const totalTurns = messages.filter((m) => m.role === 'user').length;
+      trackSessionEnd(totalTurns);
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
   useEffect(() => {
     if (!isStreaming && messages.length > 0) {
-      inputRef.current?.focus()
+      inputRef.current?.focus();
     }
-  }, [isStreaming, messages.length])
+  }, [isStreaming, messages.length]);
 
   const handleSelectPrompt = (text: string) => {
-    inputRef.current?.fill(text)
-  }
+    inputRef.current?.fill(text);
+  };
 
   if (accessDenied) {
     return (
@@ -134,9 +185,12 @@ export function ChatPage() {
             <Ban className="w-7 h-7 text-red-500" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-800 mb-1">Account Disabled</h2>
+            <h2 className="text-lg font-semibold text-slate-800 mb-1">
+              Account Disabled
+            </h2>
             <p className="text-sm text-slate-500">
-              Your access to Rovr has been disabled. If you believe this is an error, please contact the administrator.
+              Your access to Rovr has been disabled. If you believe this is an
+              error, please contact the administrator.
             </p>
           </div>
           <button
@@ -147,7 +201,7 @@ export function ChatPage() {
           </button>
         </div>
       </div>
-    )
+    );
   }
 
   if (rateLimited) {
@@ -158,19 +212,26 @@ export function ChatPage() {
             <Clock className="w-7 h-7 text-amber-500" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-800 mb-1">Daily Limit Reached</h2>
+            <h2 className="text-lg font-semibold text-slate-800 mb-1">
+              Daily Limit Reached
+            </h2>
             <p className="text-sm text-slate-500">
-              {rateLimitMessage || 'Your daily query limit has been reached. Resets at midnight UTC.'}
+              {rateLimitMessage ||
+                'Your daily query limit has been reached. Resets at midnight UTC.'}
             </p>
           </div>
         </div>
       </div>
-    )
+    );
   }
 
   return (
     <div className="flex w-full h-screen overflow-hidden">
-      <Sidebar onSelectPrompt={handleSelectPrompt} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        onSelectPrompt={handleSelectPrompt}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
         {/* Header */}
@@ -192,7 +253,8 @@ export function ChatPage() {
             <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
               <WifiOff className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
               <p className="text-sm">
-                Rovr is temporarily unavailable. The administrator has disabled the API. Please check back shortly.
+                Rovr is temporarily unavailable. The administrator has disabled
+                the API. Please check back shortly.
               </p>
             </div>
           )}
@@ -212,31 +274,46 @@ export function ChatPage() {
           )}
 
           {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center px-4 py-8">
-              <img src={`${import.meta.env.BASE_URL}rovrlogo.png`} alt="Rovr" className="h-12 w-auto mb-4" />
+            <div className="min-h-full flex flex-col items-center justify-center px-4 py-8 md:py-12">
+              <img
+                src={`${import.meta.env.BASE_URL}rovrlogo.png`}
+                alt="Rovr"
+                className="h-12 w-auto mb-4"
+              />
               <h2 className="text-lg font-semibold text-slate-700 mb-1 text-center">
                 Ask about Adobe Experience League docs
               </h2>
               <p className="text-sm text-slate-400 max-w-md text-center mb-5">
-                Analytics · CJA · Experience Platform · Target
+                Analytics · CJA · Experience Platform · Target · Adobe Journey
+                Optimizer
               </p>
 
               {/* First-time welcome card */}
-              {isNewUser && monthlyRemaining > 0 && !welcomeDismissed && monthlyLimit < 9999 && (
-                <div className="w-full max-w-md mb-5 px-5 py-4 rounded-xl bg-emerald-50 border border-emerald-200 text-left">
-                  <h3 className="text-sm font-semibold text-emerald-800 mb-1">Welcome to Rovr</h3>
-                  <p className="text-xs text-emerald-700 leading-relaxed">
-                    You have {monthlyLimit} free queries this month to explore Adobe Experience Cloud documentation.
-                    Your quota resets on the 1st of each month. An administrator can adjust your limit if you need more.
-                  </p>
-                  <button
-                    onClick={() => { localStorage.setItem(WELCOME_KEY, 'true'); setWelcomeDismissed(true) }}
-                    className="mt-3 px-3 py-1.5 rounded-lg bg-[#14532D] text-white text-xs font-medium hover:bg-[#10B981] transition-colors"
-                  >
-                    Got it
-                  </button>
-                </div>
-              )}
+              {isNewUser &&
+                monthlyRemaining > 0 &&
+                !welcomeDismissed &&
+                monthlyLimit < 9999 && (
+                  <div className="w-full max-w-md mb-5 px-5 py-4 rounded-xl bg-emerald-50 border border-emerald-200 text-left">
+                    <h3 className="text-sm font-semibold text-emerald-800 mb-1">
+                      Welcome to Rovr
+                    </h3>
+                    <p className="text-xs text-emerald-700 leading-relaxed">
+                      You have {monthlyLimit} free queries this month to explore
+                      Adobe Experience Cloud documentation. Your quota resets on
+                      the 1st of each month. An administrator can adjust your
+                      limit if you need more.
+                    </p>
+                    <button
+                      onClick={() => {
+                        localStorage.setItem(WELCOME_KEY, 'true');
+                        setWelcomeDismissed(true);
+                      }}
+                      className="mt-3 px-3 py-1.5 rounded-lg bg-[#14532D] text-white text-xs font-medium hover:bg-[#10B981] transition-colors"
+                    >
+                      Got it
+                    </button>
+                  </div>
+                )}
 
               {/* Category filter chips */}
               <div className="flex flex-wrap justify-center gap-1.5 mb-4 max-w-lg">
@@ -264,10 +341,14 @@ export function ChatPage() {
                     className="group text-left px-4 py-3 rounded-xl border border-slate-200 bg-white
                       hover:border-indigo-300 hover:shadow-sm transition-all"
                   >
-                    <span className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border mb-1.5 ${CATEGORY_COLORS[cat]}`}>
+                    <span
+                      className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border mb-1.5 ${CATEGORY_COLORS[cat]}`}
+                    >
                       {cat}
                     </span>
-                    <p className="text-sm text-slate-600 group-hover:text-[#14532D] leading-snug">{q}</p>
+                    <p className="text-sm text-slate-600 group-hover:text-[#14532D] leading-snug">
+                      {q}
+                    </p>
                   </button>
                 ))}
               </div>
@@ -275,12 +356,19 @@ export function ChatPage() {
           )}
 
           {(() => {
-            let userTurn = 0
+            let userTurn = 0;
             return messages.map((msg) => {
-              if (msg.role === 'user') userTurn++
-              const turn = userTurn
-              return <ChatMessage key={msg.id} message={msg} onFollowUpClick={handleSelectPrompt} turnNumber={turn} />
-            })
+              if (msg.role === 'user') userTurn++;
+              const turn = userTurn;
+              return (
+                <ChatMessage
+                  key={msg.id}
+                  message={msg}
+                  onFollowUpClick={handleSelectPrompt}
+                  turnNumber={turn}
+                />
+              );
+            });
           })()}
 
           {error && (
@@ -294,31 +382,47 @@ export function ChatPage() {
 
         {/* Input */}
         <div className="flex-shrink-0 px-4 py-3 bg-slate-50 border-t border-slate-200">
-          <ChatInput ref={inputRef} onSend={sendMessage} disabled={isStreaming || apiDisabled || isExhausted || monthlyExhausted} />
+          <ChatInput
+            ref={inputRef}
+            onSend={sendMessage}
+            disabled={
+              isStreaming || apiDisabled || isExhausted || monthlyExhausted
+            }
+          />
           <div className="mt-2 flex flex-col items-center gap-0.5">
             <p className="text-center text-xs text-slate-400">
               Answers are grounded in Adobe Experience League documentation
             </p>
             {monthlyLimit < 9999 ? (
               // Real monthly limit set — show monthly counter
-              <p className={cn(
-                'text-xs mt-0.5',
-                isExhausted || monthlyExhausted ? 'text-red-500 font-medium' :
-                monthlyRemaining <= 5 ? 'text-amber-500' :
-                'text-slate-400'
-              )}>
+              <p
+                className={cn(
+                  'text-xs mt-0.5',
+                  isExhausted || monthlyExhausted
+                    ? 'text-red-500 font-medium'
+                    : monthlyRemaining <= 5
+                      ? 'text-amber-500'
+                      : 'text-slate-400',
+                )}
+              >
                 {monthlyLimit} queries per month.{' '}
-                {isExhausted || monthlyExhausted ? monthlyLimit : monthlyUsed}/{monthlyLimit} used until now.{' '}
-                {isExhausted || monthlyExhausted ? 0 : monthlyRemaining} pending for the month.
+                {isExhausted || monthlyExhausted ? monthlyLimit : monthlyUsed}/
+                {monthlyLimit} used until now.{' '}
+                {isExhausted || monthlyExhausted ? 0 : monthlyRemaining} pending
+                for the month.
               </p>
             ) : queriesRemaining !== null ? (
               // No monthly limit — fall back to daily counter
-              <p className={cn(
-                'text-xs mt-0.5',
-                queriesRemaining === 0 ? 'text-red-500 font-medium' :
-                queriesRemaining <= queriesLimit * 0.25 ? 'text-amber-500' :
-                'text-slate-400'
-              )}>
+              <p
+                className={cn(
+                  'text-xs mt-0.5',
+                  queriesRemaining === 0
+                    ? 'text-red-500 font-medium'
+                    : queriesRemaining <= queriesLimit * 0.25
+                      ? 'text-amber-500'
+                      : 'text-slate-400',
+                )}
+              >
                 {queriesUsed} / {queriesLimit} queries used today
               </p>
             ) : null}
@@ -326,5 +430,5 @@ export function ChatPage() {
         </div>
       </main>
     </div>
-  )
+  );
 }
