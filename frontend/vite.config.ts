@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
 const isProd = process.env.NODE_ENV === 'production'
+const apiPort = process.env.ROVR_API_PORT ?? '8000'
 
 export default defineConfig({
   base: isProd ? '/tools/rovr/' : '/',
@@ -15,7 +16,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:8000',
+      '/api': `http://localhost:${apiPort}`,
     },
   },
 })

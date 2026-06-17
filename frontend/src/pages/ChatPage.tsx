@@ -401,6 +401,9 @@ export function ChatPage() {
             <p className="text-center text-xs text-slate-400">
               Answers are grounded in Adobe Experience League documentation
             </p>
+            <p className="text-center text-xs text-slate-400">
+              AI-generated — please validate answers before sharing or acting on them
+            </p>
             {monthlyLimit < 9999 ? (
               <p
                 className={cn(
