@@ -17,13 +17,22 @@ const VALUE_PROPS = [
   },
 ] as const
 
-const SLIDE_MS = 900
-const MIN_HOLD_MS = 3800
-const MAX_HOLD_MS = 6500
-const MS_PER_CHAR = 42
+const SLIDE_MS = 700
+const MIN_HOLD_MS = 2200
+const MAX_HOLD_MS = 4000
+const MS_PER_CHAR = 28
 
 function getHoldMs(text: string) {
   return Math.min(MAX_HOLD_MS, Math.max(MIN_HOLD_MS, text.length * MS_PER_CHAR))
+}
+
+function pickRandomIndex(exclude: number, length: number) {
+  if (length <= 1) return 0
+  let next = exclude
+  while (next === exclude) {
+    next = Math.floor(Math.random() * length)
+  }
+  return next
 }
 
 function RotatingPromptBox() {
@@ -32,6 +41,7 @@ function RotatingPromptBox() {
     [],
   )
   const [index, setIndex] = useState(0)
+  const [upcomingIndex, setUpcomingIndex] = useState(0)
   const [trackY, setTrackY] = useState(0)
   const [animated, setAnimated] = useState(false)
 
@@ -49,22 +59,30 @@ function RotatingPromptBox() {
       )
     }
 
-    const advance = (currentIndex: number) => {
+    const advance = (currentIndex: number, nextIndex: number) => {
       schedule(() => {
         setAnimated(true)
         setTrackY(-48)
 
         schedule(() => {
-          const nextIndex = (currentIndex + 1) % prompts.length
+          const followingIndex = pickRandomIndex(nextIndex, prompts.length)
           setAnimated(false)
           setTrackY(0)
           setIndex(nextIndex)
-          schedule(() => advance(nextIndex), getHoldMs(prompts[nextIndex]!))
+          setUpcomingIndex(followingIndex)
+          schedule(
+            () => advance(nextIndex, followingIndex),
+            getHoldMs(prompts[nextIndex]!),
+          )
         }, SLIDE_MS)
       }, getHoldMs(prompts[currentIndex]!))
     }
 
-    schedule(() => advance(0), getHoldMs(prompts[0]!))
+    const startIndex = Math.floor(Math.random() * prompts.length)
+    const firstUpcoming = pickRandomIndex(startIndex, prompts.length)
+    setIndex(startIndex)
+    setUpcomingIndex(firstUpcoming)
+    schedule(() => advance(startIndex, firstUpcoming), getHoldMs(prompts[startIndex]!))
 
     return () => {
       cancelled = true
@@ -73,8 +91,6 @@ function RotatingPromptBox() {
   }, [prompts])
 
   if (prompts.length === 0) return null
-
-  const nextIndex = (index + 1) % prompts.length
 
   return (
     <div className="mt-6 w-full text-left">
@@ -94,7 +110,7 @@ function RotatingPromptBox() {
               &ldquo;{prompts[index]}&rdquo;
             </p>
             <p className="h-12 flex items-center text-sm text-slate-700 leading-snug line-clamp-2">
-              &ldquo;{prompts[nextIndex]}&rdquo;
+              &ldquo;{prompts[upcomingIndex]}&rdquo;
             </p>
           </div>
         </div>
