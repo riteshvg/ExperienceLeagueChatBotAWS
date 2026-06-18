@@ -46,6 +46,42 @@ CJA_FOLDER_MAP = {
 _USING_PRODUCTS = ("journey-optimizer", "target")
 
 
+def repo_from_s3_key(s3_key: str) -> str | None:
+    for prefix, repo in S3_PREFIX_TO_REPO.items():
+        if s3_key.startswith(prefix):
+            return repo
+    return None
+
+
+def repo_path_from_s3_key(s3_key: str) -> str | None:
+    for prefix, _repo in S3_PREFIX_TO_REPO.items():
+        if s3_key.startswith(prefix):
+            return s3_key[len(prefix):]
+    return None
+
+
+def s3_key_from_repo_path(repo: str, repo_path: str) -> str | None:
+    path = repo_path.lstrip("/")
+    for prefix, mapped_repo in S3_PREFIX_TO_REPO.items():
+        if mapped_repo == repo:
+            return f"{prefix}{path}"
+    return None
+
+
+def get_canonical_exl_url(repo_path: str, repo: str) -> str | None:
+    """
+    Resolve canonical Experience League URL from a GitHub repo-relative path.
+
+    Example:
+        get_canonical_exl_url("help/using/campaigns/api-triggered-campaigns.md",
+                              "AdobeDocs/journey-optimizer.en")
+    """
+    s3_key = s3_key_from_repo_path(repo, repo_path)
+    if not s3_key:
+        return None
+    return derive_exl_url(s3_key)
+
+
 def _ensure_using_prefix(url: str, product: str) -> str:
     """Inject /using/ after product slug when the derived path omits it."""
     marker = f"/en/docs/{product}/"
@@ -137,25 +173,16 @@ def derive_exl_url(s3_key: str) -> str | None:
 
 def resolve_doc_url(meta: dict, content: str = "") -> str | None:
     """
-    Resolve the best citation URL from chunk metadata.
-    Prefer fresh derivation from s3_key; fall back to stored url via redirects.
+    Read the citation URL from chunk metadata only.
+
+    URLs must be attached at index time (validated exl_url / url fields).
+    This function never derives URLs from s3_key at answer time.
     """
-    from src.utils.exl_redirects import resolve_canonical_url
-
-    _ = content  # reserved; derivation uses metadata only
-
-    s3_key = meta.get("s3_key", "")
-    if s3_key:
-        derived = derive_exl_url(s3_key)
-        if is_specific_url(derived):
-            return derived
-
-    stored = meta.get("url", "")
-    if stored:
-        resolved = resolve_canonical_url(stored)
-        if is_specific_url(resolved):
-            return resolved
-
+    _ = content
+    for key in ("exl_url", "url"):
+        stored = (meta.get(key) or "").strip()
+        if is_specific_url(stored):
+            return stored
     return None
 
 

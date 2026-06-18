@@ -27,6 +27,7 @@ def _source_from_doc(doc: dict, cited: bool) -> dict[str, Any] | None:
         return None
     return {
         "url": url,
+        "repo_path": meta.get("repo_path", ""),
         "title": _clean_title(meta.get("title", "")) or "Documentation",
         "product": meta.get("product", ""),
         "score": round(float(doc.get("score", 0.0)), 3),

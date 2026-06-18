@@ -31,6 +31,7 @@ export interface RetrievalSource {
   url: string
   title: string
   product?: string
+  repo_path?: string
   score?: number
   cited?: boolean
 }
