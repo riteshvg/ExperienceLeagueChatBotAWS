@@ -41,9 +41,7 @@ export function MessageExtras({
   const hasEvidence = !!evidence && (evidenceSources.length > 0 || evidence.banner || evidence.failure_reason)
   const hasCitations = !evidence && citationSources.length > 0
   const hasSources = hasEvidence || hasCitations
-  const sourceCount = evidence
-    ? evidence.source_count || evidenceSources.length
-    : citationSources.length
+  const sourceCount = evidence ? evidenceSources.length : citationSources.length
   const hasFollowUps = (followUps?.length ?? 0) > 0
 
   if (!hasSources && !hasFollowUps) return null

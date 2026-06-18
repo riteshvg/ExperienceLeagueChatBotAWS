@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut, X, PanelLeftClose, PanelLeftOpen, House } from 'lucide-react'
+import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut, X, PanelLeftClose, PanelLeftOpen, House, GitBranch } from 'lucide-react'
 import { Link, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useChatStore, type ChatSession } from '@/store/chatStore'
@@ -48,6 +48,10 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
 
   const sorted = Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt)
   const groups = groupByDate(sorted)
+  const gitBranch = import.meta.env.VITE_GIT_BRANCH ?? ''
+  const showEnhancementsBadge = gitBranch === 'enhancements'
+  const enhancementsBranchUrl =
+    'https://github.com/riteshvg/ExperienceLeagueChatBotAWS/tree/enhancements'
 
   const toggleCategory = (cat: string) =>
     setOpenCategories((prev) => ({ ...prev, [cat]: !prev[cat] }))
@@ -193,6 +197,32 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
           )}
         </div>
       </div>
+
+      {/* Git branch — enhancements builds only (VITE_GIT_BRANCH from vite.config) */}
+      {showEnhancementsBadge && !collapsed && (
+        <a
+          href={enhancementsBranchUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mx-3 mb-2 flex items-center gap-2 rounded-lg border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100/90 no-underline hover:bg-amber-500/20 transition-colors"
+          title="Running enhancements branch — not production"
+        >
+          <GitBranch className="w-3.5 h-3.5 flex-shrink-0 text-amber-300" />
+          <span className="font-medium">enhancements</span>
+          <span className="text-amber-200/60">· dev preview</span>
+        </a>
+      )}
+      {showEnhancementsBadge && collapsed && (
+        <a
+          href={enhancementsBranchUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="enhancements branch (dev preview)"
+          className="mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-lg border border-amber-400/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+        >
+          <GitBranch className="w-4 h-4" />
+        </a>
+      )}
 
       {/* Disclaimer — hidden when collapsed */}
       {!collapsed && (

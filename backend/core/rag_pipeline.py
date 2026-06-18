@@ -245,10 +245,13 @@ class RAGPipeline:
         )
         sources = evidence.get("sources") or []
         if sources:
-            evidence = {
-                **evidence,
-                "sources": await filter_valid_citations(sources),
-            }
+            sources = await filter_valid_citations(sources)
+        evidence = {
+            **evidence,
+            "sources": sources,
+            "source_count": len(sources),
+            "citation_count": sum(1 for s in sources if s.get("cited")),
+        }
         return evidence
 
     def _retrieve_docs(self, search_query, user_query, settings, product_intent, where_filter):

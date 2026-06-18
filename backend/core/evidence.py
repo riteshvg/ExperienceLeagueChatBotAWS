@@ -108,7 +108,8 @@ def build_evidence(
             sources.append(src)
     sources = _dedupe_sources(sources)
 
-    source_count = len(raw_docs)
+    # Count sources shown in the panel (valid URL), not raw retrieval chunk count.
+    source_count = len(sources)
     top_score = max((float(d.get("score", 0.0)) for d in raw_docs), default=0.0)
     if source_count == 0 and docs_for_sources:
         top_score = max((float(d.get("score", 0.0)) for d in docs_for_sources), default=0.0)
