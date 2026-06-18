@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { Play, Copy, Check, ThumbsUp, ThumbsDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ModelBadge } from './ModelBadge'
-import { CitationCard } from './CitationCard'
+import { MessageExtras } from './MessageExtras'
 import { useChatStore } from '@/store/chatStore'
 import { type Message } from '@/lib/api'
 
@@ -174,16 +174,15 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
           )}
         </div>
 
-        {/* Citations */}
-        {!isUser && !message.streaming && message.citations && message.citations.length > 0 && (
-          <div className="w-full space-y-1.5">
-            <p className="text-xs text-slate-400 font-medium px-1">Sources</p>
-            <div className="flex flex-wrap gap-1.5">
-              {message.citations.map((c, i) => (
-                <CitationCard key={c.url} citation={c} index={i + 1} turnNumber={turnNumber} />
-              ))}
-            </div>
-          </div>
+        {/* Sources + follow-ups (compact expandable row) */}
+        {!isUser && !message.streaming && (
+          <MessageExtras
+            evidence={message.evidence}
+            citations={message.citations}
+            followUps={message.follow_ups}
+            onFollowUpClick={onFollowUpClick}
+            turnNumber={turnNumber}
+          />
         )}
 
         {/* Footer row: model badge + feedback + copy */}
@@ -259,26 +258,6 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
                 </div>
               </div>
             )}
-          </div>
-        )}
-
-        {/* Follow-up suggestions */}
-        {!isUser && message.follow_ups && message.follow_ups.length > 0 && !message.streaming && (
-          <div className="w-full space-y-1.5">
-            <p className="text-xs text-slate-400 font-medium px-1">Follow-up questions</p>
-            <div className="flex flex-col gap-1.5">
-              {message.follow_ups.map((q, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => onFollowUpClick(q)}
-                  className="text-left px-3 py-2 rounded-xl border border-slate-200 bg-white text-xs
-                    text-slate-600 hover:border-blue-300 hover:text-blue-700 hover:bg-blue-50
-                    transition-colors w-full"
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
           </div>
         )}
 

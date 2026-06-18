@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation } from '@/lib/api'
+import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation, type RetrievalEvidence } from '@/lib/api'
 import {
   trackQuerySent,
   trackFollowupQuery,
@@ -204,15 +204,31 @@ export const useChatStore = create<ChatState>()(
                     msgs.map((m) => (m.id === assistantId ? { ...m, citations: event.citations as Citation[] } : m))
                   ),
                 }))
+              } else if (event.type === 'evidence') {
+                const { type: _t, ...evidence } = event
+                set((s) => ({
+                  sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
+                    msgs.map((m) => (m.id === assistantId ? { ...m, evidence: evidence as RetrievalEvidence } : m))
+                  ),
+                }))
               } else if (event.type === 'done') {
                 const updatesFromDone: Partial<ChatState> = {}
                 if (event.queries_used !== undefined) updatesFromDone.queriesUsed = event.queries_used
                 if (event.queries_remaining !== undefined) updatesFromDone.queriesRemaining = event.queries_remaining
                 if (event.queries_limit !== undefined) updatesFromDone.queriesLimit = event.queries_limit
-                // Track no-answer when the pipeline returned nothing (model: 'none')
+
+                const currentMsg = get().sessions[get().activeSessionId]?.messages
+                  .find((m) => m.id === assistantId)
+                const failureReason = currentMsg?.evidence?.failure_reason
+
                 if (event.model === 'none') {
-                  trackNoAnswer(query, turnNumber, 'no_retrieval')
+                  if (failureReason === 'off_topic') {
+                    trackNoAnswer(query, turnNumber, 'low_confidence')
+                  } else {
+                    trackNoAnswer(query, turnNumber, 'no_retrieval')
+                  }
                 }
+
                 set((s) => ({
                   ...updatesFromDone,
                   sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>

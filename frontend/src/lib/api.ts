@@ -27,11 +27,35 @@ export interface Citation {
   image_urls?: string[]
 }
 
+export interface RetrievalSource {
+  url: string
+  title: string
+  product?: string
+  score?: number
+  cited?: boolean
+}
+
+export interface RetrievalEvidence {
+  source_count: number
+  citation_count: number
+  top_score: number
+  avg_score: number
+  product_filter?: string | null
+  evidence_level: 'none' | 'weak' | 'moderate' | 'strong'
+  grounding_level: 'documented' | 'partial' | 'inferred' | 'insufficient'
+  match_label: string
+  grounding_label: string
+  failure_reason?: 'no_retrieval' | 'off_topic' | null
+  banner?: string | null
+  sources: RetrievalSource[]
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   citations?: Citation[]
+  evidence?: RetrievalEvidence
   model?: string
   streaming?: boolean
   follow_ups?: string[]
@@ -41,6 +65,7 @@ export interface Message {
 export type SSEEvent =
   | { type: 'token'; content: string }
   | { type: 'citations'; citations: Citation[] }
+  | ({ type: 'evidence' } & RetrievalEvidence)
   | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number }
   | { type: 'error'; message: string }
 

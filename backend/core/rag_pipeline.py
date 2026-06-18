@@ -25,13 +25,19 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from backend.core.chroma_retriever import ChromaRetriever
+from backend.core.evidence import build_evidence
+from backend.core.retrieval_refiner import (
+    RefinementResult,
+    refinement_to_evidence_fields,
+    retrieve_with_refinement,
+)
 from backend.core.session_store import SessionStore
 from backend.core.smart_router import classify_query, detect_product_intent
 from backend.core.url_validator import filter_valid_citations
 from config.prompts import NO_CONTEXT_MESSAGE
 from config.settings import get_settings
 from backend.core.query_processor import QueryProcessor
-from src.utils.exl_url_mapper import is_specific_url
+from src.utils.exl_url_mapper import is_specific_url, resolve_doc_url
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +227,53 @@ class RAGPipeline:
             logger.exception("RAG pipeline error")
             yield {"type": "error", "message": str(exc)}
 
+    async def _emit_evidence(
+        self,
+        raw_docs,
+        product_intent,
+        failure_reason=None,
+        related_docs=None,
+        refinement: RefinementResult | None = None,
+    ):
+        ref_fields = refinement_to_evidence_fields(refinement)
+        evidence = build_evidence(
+            raw_docs,
+            product_intent,
+            failure_reason,
+            related_docs,
+            refinement=ref_fields or None,
+        )
+        sources = evidence.get("sources") or []
+        if sources:
+            evidence = {
+                **evidence,
+                "sources": await filter_valid_citations(sources),
+            }
+        return evidence
+
+    def _retrieve_docs(self, search_query, user_query, settings, product_intent, where_filter):
+        return retrieve_with_refinement(
+            self.retriever,
+            search_query,
+            user_query,
+            n_results=settings.max_retrieval_results,
+            similarity_threshold=settings.similarity_threshold,
+            product_filter=product_intent,
+            where_filter=where_filter,
+        )
+
+    async def _run_retrieval_path(self, query, search_query, settings, product_intent, where_filter):
+        """Shared retrieval + refinement. Returns (raw_docs, refinement, blocked_reason)."""
+        raw_docs, refinement = self._retrieve_docs(
+            search_query, query, settings, product_intent, where_filter
+        )
+        if not raw_docs:
+            related = self._fetch_related_docs(search_query, where_filter)
+            return raw_docs, refinement, related, "no_retrieval"
+        if self._is_off_topic(raw_docs):
+            return raw_docs, refinement, None, "off_topic"
+        return raw_docs, refinement, None, None
+
     # ── Haiku: single-pass LCEL chain ─────────────────────────────────────────
 
     async def _stream_chain(self, query, session_id, history, settings):
@@ -230,20 +283,19 @@ class RAGPipeline:
         product_intent = detect_product_intent(query)
         where_filter = {"product": {"$eq": product_intent}} if product_intent else None
 
-        raw_docs = self.retriever.retrieve(
-            search_query,
-            n_results=settings.max_retrieval_results,
-            similarity_threshold=settings.similarity_threshold,
-            where=where_filter,
+        raw_docs, refinement, related, blocked = await self._run_retrieval_path(
+            query, search_query, settings, product_intent, where_filter,
         )
-        if not raw_docs:
+        if blocked == "no_retrieval":
+            evidence = await self._emit_evidence([], product_intent, "no_retrieval", related, refinement)
+            yield {"type": "evidence", **evidence}
             yield {"type": "token", "content": NO_CONTEXT_MESSAGE}
             yield {"type": "done", "model": "none", "session_id": session_id}
             return
 
-        # Off-topic detection: if best match score < 0.25, skip LLM entirely
-        off_topic = self._is_off_topic(raw_docs)
-        if off_topic:
+        if blocked == "off_topic":
+            evidence = await self._emit_evidence(raw_docs, product_intent, "off_topic", refinement=refinement)
+            yield {"type": "evidence", **evidence}
             yield {"type": "token", "content": _OUT_OF_SCOPE_RESPONSE}
             self.session_store.append_turn(session_id, "user", query)
             self.session_store.append_turn(session_id, "assistant", _OUT_OF_SCOPE_RESPONSE)
@@ -252,13 +304,16 @@ class RAGPipeline:
                    "input_tokens": 0, "output_tokens": 0}
             return
 
+        evidence = await self._emit_evidence(raw_docs, product_intent, refinement=refinement)
+        yield {"type": "evidence", **evidence}
+
         # Number docs so the LLM can cite [1], [2], etc. inline
         context = "\n\n---\n\n".join(
             f"[{i+1}] {doc['content']}" for i, doc in enumerate(raw_docs)
         )
         context += _build_media_context(raw_docs)
 
-        raw_citations = [] if off_topic else self._extract_citations(raw_docs)
+        raw_citations = self._extract_citations(raw_docs)
         lc_history = _to_lc_history(history)
         chain = _build_haiku_chain(settings.anthropic_api_key)
 
@@ -291,19 +346,19 @@ class RAGPipeline:
         product_intent = detect_product_intent(query)
         where_filter = {"product": {"$eq": product_intent}} if product_intent else None
 
-        raw_docs = self.retriever.retrieve(
-            search_query,
-            n_results=settings.max_retrieval_results,
-            similarity_threshold=settings.similarity_threshold,
-            where=where_filter,
+        raw_docs, refinement, related, blocked = await self._run_retrieval_path(
+            query, search_query, settings, product_intent, where_filter,
         )
-        if not raw_docs:
+        if blocked == "no_retrieval":
+            evidence = await self._emit_evidence([], product_intent, "no_retrieval", related, refinement)
+            yield {"type": "evidence", **evidence}
             yield {"type": "token", "content": NO_CONTEXT_MESSAGE}
             yield {"type": "done", "model": "none", "session_id": session_id}
             return
 
-        off_topic = self._is_off_topic(raw_docs)
-        if off_topic:
+        if blocked == "off_topic":
+            evidence = await self._emit_evidence(raw_docs, product_intent, "off_topic", refinement=refinement)
+            yield {"type": "evidence", **evidence}
             yield {"type": "token", "content": _OUT_OF_SCOPE_RESPONSE}
             self.session_store.append_turn(session_id, "user", query)
             self.session_store.append_turn(session_id, "assistant", _OUT_OF_SCOPE_RESPONSE)
@@ -311,6 +366,9 @@ class RAGPipeline:
             yield {"type": "done", "model": "none", "session_id": session_id,
                    "input_tokens": 0, "output_tokens": 0}
             return
+
+        evidence = await self._emit_evidence(raw_docs, product_intent, refinement=refinement)
+        yield {"type": "evidence", **evidence}
 
         context = "\n\n---\n\n".join(
             f"[{i+1}] {doc['content']}" for i, doc in enumerate(raw_docs)
@@ -354,7 +412,7 @@ class RAGPipeline:
             if score < self._CITATION_SCORE_THRESHOLD:
                 continue
             meta = doc.get("metadata", {})
-            url = meta.get("url", "")
+            url = resolve_doc_url(meta, doc.get("content", "")) or meta.get("url", "")
             if not is_specific_url(url):
                 continue
             if url in seen_urls:
@@ -387,3 +445,12 @@ class RAGPipeline:
         if not raw_docs:
             return True
         return max(d.get("score", 0) for d in raw_docs) < threshold
+
+    def _fetch_related_docs(self, search_query: str, where_filter: dict | None) -> list:
+        """Lower-threshold retrieval for evidence display on blocked responses only."""
+        return self.retriever.retrieve(
+            search_query,
+            n_results=5,
+            similarity_threshold=0.0,
+            where=where_filter,
+        )
