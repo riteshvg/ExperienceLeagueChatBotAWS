@@ -17,9 +17,17 @@ REPO_TO_EXL_BASE = {
         "https://experienceleague.adobe.com/en/docs/journey-optimizer",
     "AdobeDocs/target.en":
         "https://experienceleague.adobe.com/en/docs/target",
-    "AdobeDocs/data-collection.en":
-        "https://experienceleague.adobe.com/en/docs/data-collection",
 }
+
+# Data Collection docs live inside experience-platform.en (help/collection,
+# help/datastreams, help/tags, help/web-sdk) but are ingested under
+# adobe-docs/data-collection/ in S3. EXL publishes under /experience-platform/.
+DATA_COLLECTION_HELP_FOLDERS = (
+    "collection",
+    "datastreams",
+    "tags",
+    "web-sdk",
+)
 
 S3_PREFIX_TO_REPO = {
     "adobe-docs/adobe-analytics/":
@@ -33,7 +41,7 @@ S3_PREFIX_TO_REPO = {
     "adobe-docs/adobe-target/":
         "AdobeDocs/target.en",
     "adobe-docs/data-collection/":
-        "AdobeDocs/data-collection.en",
+        "AdobeDocs/experience-platform.en",
 }
 
 # CJA product guide: repo folder names differ from EXL publish paths.
@@ -41,6 +49,17 @@ CJA_FOLDER_MAP = {
     "connections": "cja-connections",
     "data-views": "cja-dataviews",
     "analysis-workspace": "cja-workspace",
+}
+
+# Analytics: GitHub guide folder names differ from EXL publish slugs.
+ANALYTICS_GUIDE_MAP = {
+    "implement": "implementation",
+    "integrate": "integration",
+}
+
+# AJO: journey docs publish under orchestrate-journeys on EXL.
+AJO_FOLDER_MAP = {
+    "building-journeys": "orchestrate-journeys",
 }
 
 _USING_PRODUCTS = ("journey-optimizer", "target")
@@ -101,6 +120,23 @@ def _apply_cja_folder_map(repo_relative: str) -> str:
     return repo_relative
 
 
+def _apply_analytics_guide_map(repo_relative: str) -> str:
+    parts = repo_relative.split("/")
+    if parts and parts[0] in ANALYTICS_GUIDE_MAP:
+        parts[0] = ANALYTICS_GUIDE_MAP[parts[0]]
+        return "/".join(parts)
+    return repo_relative
+
+
+def _apply_ajo_folder_map(repo_relative: str) -> str:
+    parts = repo_relative.split("/")
+    for i, part in enumerate(parts):
+        if part in AJO_FOLDER_MAP:
+            parts[i] = AJO_FOLDER_MAP[part]
+            break
+    return "/".join(parts)
+
+
 def _fix_target_url(url: str) -> str:
     """
     Target repo uses help/main/ and c-/r-/t- folder prefixes.
@@ -153,6 +189,12 @@ def derive_exl_url(s3_key: str) -> str | None:
 
         if repo == "AdobeDocs/analytics-platform.en":
             repo_relative = _apply_cja_folder_map(repo_relative)
+
+        if repo == "AdobeDocs/analytics.en":
+            repo_relative = _apply_analytics_guide_map(repo_relative)
+
+        if repo == "AdobeDocs/journey-optimizer.en":
+            repo_relative = _apply_ajo_folder_map(repo_relative)
 
         raw_url = f"{base_url}/{repo_relative}"
 

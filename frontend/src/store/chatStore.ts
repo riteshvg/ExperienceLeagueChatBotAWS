@@ -222,7 +222,7 @@ export const useChatStore = create<ChatState>()(
                 const failureReason = currentMsg?.evidence?.failure_reason
 
                 if (event.model === 'none') {
-                  if (failureReason === 'off_topic') {
+                  if (failureReason === 'off_topic' || failureReason === 'no_direct_match') {
                     trackNoAnswer(query, turnNumber, 'low_confidence')
                   } else {
                     trackNoAnswer(query, turnNumber, 'no_retrieval')

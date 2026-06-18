@@ -46,3 +46,8 @@ blog posts
 
 - post on how based on query we pick Haiku or Sonnet. Tie it with cost optimization in cavalli's blog
 - post on showing how langsmith traces queries which are simple and complex
+
+** Running github **
+gh workflow run refresh-docs.yml
+gh run list --workflow=refresh-docs.yml
+gh run watch

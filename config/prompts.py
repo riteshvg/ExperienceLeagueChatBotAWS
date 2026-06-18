@@ -170,6 +170,15 @@ Recent conversation (use for follow-up context — do not repeat unless directly
 # Fallback messages (pre-formatted — no runtime .format() needed)
 # ---------------------------------------------------------------------------
 
+NO_DIRECT_MATCH_MESSAGE = (
+    "I couldn't find Adobe documentation that directly matches your question in our "
+    "indexed docs.\n\n"
+    "The retrieved pages don't cover this specific topic — for example, a question about "
+    "ingestion guardrails needs docs from that section to be indexed.\n\n"
+    "Try rephrasing with more specific product terms, or ask about a related feature "
+    "that may be in our knowledge base."
+)
+
 NO_CONTEXT_MESSAGE = (
     "I can only answer questions about Adobe Analytics, Customer Journey Analytics (CJA), "
     "Adobe Experience Platform (AEP), Adobe Target, and Adobe Data Collection "

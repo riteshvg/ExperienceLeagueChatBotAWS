@@ -33,27 +33,45 @@ _NON_ENGLISH_MSG = (
     "Please rephrase your question in English and I'll be happy to help!"
 )
 
-# Common non-English words that are unambiguously not English
+# Words removed from this list because they are also common English words:
+# was (German: what), hat (German: has), come (Italian: how), comment (French: how),
+# con (Spanish: with), como/come (Spanish/Portuguese/Italian: how),
+# quando/qual (Portuguese/Italian: when/which),
+# pour (French: for) — English verb,
+# par (French: by/through) — English noun (golf, "on par"),
+# les (French: the) — English name/abbreviation,
+# sur (French: on) — English prefix,
+# nous (French: we) — English philosophical noun,
+# para (Spanish: for) — English informal noun (paratrooper),
+# hasta (Spanish: until) — in English dictionaries,
+# ist (German: is) — in English dictionaries,
+# sind (German: are) — in English dictionaries,
+# nach (German: after) — in English dictionaries,
+# quale (Italian: which) — English philosophical term (qualia).
+# Rule for adding new words to this blocklist:
+# 1. The word must NOT appear in an English dictionary
+# 2. The word must NOT be a common English proper noun or prefix
+# 3. When in doubt, leave it out — false positives are worse than false negatives
+# 4. Split compound forms on hyphens before checking (puis-je → puis, je)
 _NON_ENGLISH_WORDS = {
-    # French
-    "quelles", "quelle", "sont", "les", "des", "est", "comment", "pourquoi",
-    "quand", "avec", "dans", "pour", "sur", "par", "qui", "que", "une", "votre",
-    "vous", "nous", "ils", "elles", "mais", "donc", "puis", "aussi", "comme",
+    # French — unambiguous, no English meaning
+    "quelles", "quelle", "sont", "des", "pourquoi",
+    "quand", "avec", "dans", "qui", "que", "une", "votre",
+    "vous", "ils", "elles", "mais", "donc", "puis", "aussi", "comme",
     "dernières", "derniers", "fonctionnalités", "fonctionnalité",
-    # Spanish
+    # Spanish — unambiguous or have accents (caught by non-ASCII check anyway)
     "cómo", "cuál", "cuáles", "qué", "cuándo", "dónde", "quién", "quiénes",
     "configurar", "configuración", "últimas", "últimos", "características",
-    "para", "con", "como", "desde", "hasta", "tiene", "puede", "están",
-    # German
-    "wie", "was", "wann", "warum", "welche", "welcher", "welches", "können",
-    "ist", "sind", "hat", "haben", "mit", "von", "für", "nach", "über",
+    "desde", "tiene", "puede", "están",
+    # German — unambiguous, no English meaning
+    "wie", "wann", "warum", "welche", "welcher", "welches", "können",
+    "haben", "mit", "von", "für", "über",
     "einrichten", "konfigurieren", "neuesten", "funktionen",
-    # Italian
-    "come", "cosa", "quando", "perché", "quale", "quali", "configurare",
+    # Italian — unambiguous
+    "cosa", "perché", "quali", "configurare",
     "ultime", "funzionalità",
-    # Portuguese
-    "como", "qual", "quais", "quando", "porque", "configurar",
-    "últimas", "últimos", "funcionalidades",
+    # Portuguese — unambiguous
+    "porque", "funcionalidades",
 }
 
 
@@ -66,7 +84,12 @@ def _is_non_english(text: str) -> bool:
         return True
 
     # 2. Check for unambiguous non-English words
-    words = {w.lower().strip("?!.,;:'\"") for w in text.split()}
+    # Split on whitespace then hyphens so "puis-je" → {"puis", "je"}
+    words = {
+        part.lower().strip("?!.,;:'\"")
+        for token in text.split()
+        for part in token.split("-")
+    }
     hit = words & _NON_ENGLISH_WORDS
     if hit:
         logger.info(f"[lang] non-English words={hit}, blocking: {text[:60]!r}")
@@ -128,6 +151,21 @@ async def chat(
 
     # Language gate — before any LLM call
     if _is_non_english(body.query):
+        if uid:
+            try:
+                google_db.log_query(
+                    user_id=uid,
+                    email=user.get("email", ""),
+                    query_text=body.query,
+                    llm_model="blocked:language",
+                    input_tokens=0,
+                    output_tokens=0,
+                    message_id=body.message_id or "",
+                )
+                google_db.touch_last_seen(uid)
+            except Exception as e:
+                logger.warning(f"Language-blocked query logging failed (non-fatal): {e}")
+
         async def _non_english_gen():
             yield {"data": json.dumps({"type": "token", "content": _NON_ENGLISH_MSG})}
             yield {"data": json.dumps({"type": "citations", "citations": []})}

@@ -137,6 +137,12 @@ def main():
     parser = argparse.ArgumentParser(description="Ingest docs into ChromaDB")
     parser.add_argument("--limit", type=int, default=0, help="Max documents to process (0 = all)")
     parser.add_argument("--product", type=str, default="", help="Filter by product name substring")
+    parser.add_argument(
+        "--prefix",
+        action="append",
+        default=[],
+        help="S3 key substring filter — repeat for multiple folders (e.g. --prefix help/ingestion/)",
+    )
     parser.add_argument("--reset", action="store_true", help="Drop and re-create ChromaDB collection")
     parser.add_argument(
         "--changed-only", action="store_true",
@@ -179,6 +185,15 @@ def main():
             if args.product.lower() in v.get("product", "").lower()
         ]
         logger.info(f"Filtered to {len(entries)} entries matching product='{args.product}'")
+
+    if args.prefix:
+        entries = [
+            (k, v) for k, v in entries
+            if any(p in k for p in args.prefix)
+        ]
+        logger.info(
+            f"Filtered to {len(entries)} entries matching prefix(es): {args.prefix}"
+        )
 
     if args.limit > 0:
         entries = entries[: args.limit]

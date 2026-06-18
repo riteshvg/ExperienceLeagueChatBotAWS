@@ -15,7 +15,20 @@ reconstructs URLs from `s3_key`.
 | Adobe Experience Platform | `AdobeDocs/experience-platform.en` | `adobe-docs/experience-platform/` | `redirects-aep.csv` |
 | Adobe Journey Optimizer | `AdobeDocs/journey-optimizer.en` | `adobe-docs/adobe-journey-optimizer/` | `redirects-ajo.csv` |
 | Adobe Target | `AdobeDocs/target.en` | `adobe-docs/adobe-target/` | — |
-| Adobe Data Collection | `AdobeDocs/data-collection.en` | `adobe-docs/data-collection/` | — |
+| Adobe Data Collection | `AdobeDocs/experience-platform.en` *(subset)* | `adobe-docs/data-collection/` | `redirects-aep.csv` |
+
+**Data Collection source paths** (same GitHub repo as AEP, separate S3 product prefix):
+
+| GitHub folder | TOC | EXL path |
+|---------------|-----|----------|
+| `help/collection/` | `help/collection/TOC.md` | `/en/docs/experience-platform/collection/` |
+| `help/datastreams/` | `help/datastreams/TOC.md` | `/en/docs/experience-platform/datastreams/` |
+| `help/tags/` | `help/tags/TOC.md` | `/en/docs/experience-platform/tags/` |
+| `help/web-sdk/` | *(no root TOC)* | `/en/docs/experience-platform/web-sdk/` |
+
+There is no standalone `AdobeDocs/data-collection.en` repo. Ingest is configured in
+`scripts/sync_docs_to_s3.py` (`data-collection-tags`, `data-collection-web-sdk`, etc.).
+See `reports/data_collection_toc_exl_mapping.csv` for sample TOC → EXL mappings.
 
 ## Index-time metadata
 

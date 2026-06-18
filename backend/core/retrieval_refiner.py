@@ -318,14 +318,21 @@ def retrieve_with_refinement(
         product_filter=product_filter,
     )
     terms = _extract_terms(user_query)
-    ranked_neighbors = _rank_neighbors_for_refinement(user_query, terms, unfiltered_neighbors)
+
+    # When product intent is set, anchor refinement to that product's neighbors only.
+    if product_filter and where_filter:
+        neighbor_pool = _merge_docs([filtered_neighbors, initial])
+        ranked_neighbors = _rank_neighbors_for_refinement(
+            user_query, terms, filtered_neighbors or unfiltered_neighbors,
+        )
+    else:
+        neighbor_pool = _merge_docs([unfiltered_neighbors, filtered_neighbors, initial])
+        ranked_neighbors = _rank_neighbors_for_refinement(user_query, terms, unfiltered_neighbors)
     meta.neighbor_titles = [
         _clean_title((d.get("metadata") or {}).get("title", ""))
         for d in ranked_neighbors[:5]
         if _clean_title((d.get("metadata") or {}).get("title", ""))
     ]
-
-    neighbor_pool = _merge_docs([unfiltered_neighbors, filtered_neighbors, initial])
     refined_queries = _build_refined_queries(user_query, search_query, neighbor_pool, terms)
     meta.refined_searches = refined_queries
 
@@ -341,7 +348,7 @@ def retrieve_with_refinement(
             rq,
             n_results=n_results,
             similarity_threshold=_REFINEMENT_MIN_SCORE,
-            where=None,
+            where=where_filter,
         )
         if not docs:
             continue

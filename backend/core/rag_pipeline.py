@@ -31,10 +31,11 @@ from backend.core.retrieval_refiner import (
     refinement_to_evidence_fields,
     retrieve_with_refinement,
 )
+from backend.core.topical_relevance import assess_retrieval
 from backend.core.session_store import SessionStore
 from backend.core.smart_router import classify_query, detect_product_intent
 from backend.core.url_validator import filter_valid_citations
-from config.prompts import NO_CONTEXT_MESSAGE
+from config.prompts import NO_CONTEXT_MESSAGE, NO_DIRECT_MATCH_MESSAGE
 from config.settings import get_settings
 from backend.core.query_processor import QueryProcessor
 from src.utils.exl_url_mapper import is_specific_url, resolve_doc_url
@@ -234,6 +235,7 @@ class RAGPipeline:
         failure_reason=None,
         related_docs=None,
         refinement: RefinementResult | None = None,
+        topical_scores: dict | None = None,
     ):
         ref_fields = refinement_to_evidence_fields(refinement)
         evidence = build_evidence(
@@ -242,6 +244,7 @@ class RAGPipeline:
             failure_reason,
             related_docs,
             refinement=ref_fields or None,
+            topical_scores=topical_scores,
         )
         sources = evidence.get("sources") or []
         if sources:
@@ -266,16 +269,35 @@ class RAGPipeline:
         )
 
     async def _run_retrieval_path(self, query, search_query, settings, product_intent, where_filter):
-        """Shared retrieval + refinement. Returns (raw_docs, refinement, blocked_reason)."""
+        """Shared retrieval + refinement + topical gate."""
         raw_docs, refinement = self._retrieve_docs(
             search_query, query, settings, product_intent, where_filter
         )
+        assessment = assess_retrieval(query, raw_docs, product_intent)
+        relevant_docs = assessment["relevant_docs"]
+        product_docs = assessment["product_docs"]
+        topical_scores = assessment["topical_scores"]
+
         if not raw_docs:
             related = self._fetch_related_docs(search_query, where_filter)
-            return raw_docs, refinement, related, "no_retrieval"
-        if self._is_off_topic(raw_docs):
-            return raw_docs, refinement, None, "off_topic"
-        return raw_docs, refinement, None, None
+            return [], refinement, related, topical_scores, "no_retrieval"
+
+        if not relevant_docs:
+            related = product_docs or self._fetch_related_docs(search_query, where_filter)
+            related = sorted(related, key=lambda d: float(d.get("score", 0.0)), reverse=True)[:3]
+            related_scores = {
+                (d.get("metadata") or {}).get("s3_key")
+                or (d.get("metadata") or {}).get("url")
+                or d.get("content", "")[:80]: 0.0
+                for d in related
+            }
+            topical_scores = {**topical_scores, **related_scores}
+            return [], refinement, related, topical_scores, "no_direct_match"
+
+        if self._is_off_topic(relevant_docs):
+            return relevant_docs, refinement, None, topical_scores, "off_topic"
+
+        return relevant_docs, refinement, None, topical_scores, None
 
     # ── Haiku: single-pass LCEL chain ─────────────────────────────────────────
 
@@ -286,18 +308,31 @@ class RAGPipeline:
         product_intent = detect_product_intent(query)
         where_filter = {"product": {"$eq": product_intent}} if product_intent else None
 
-        raw_docs, refinement, related, blocked = await self._run_retrieval_path(
+        raw_docs, refinement, related, topical_scores, blocked = await self._run_retrieval_path(
             query, search_query, settings, product_intent, where_filter,
         )
         if blocked == "no_retrieval":
-            evidence = await self._emit_evidence([], product_intent, "no_retrieval", related, refinement)
+            evidence = await self._emit_evidence(
+                [], product_intent, "no_retrieval", related, refinement, topical_scores,
+            )
             yield {"type": "evidence", **evidence}
             yield {"type": "token", "content": NO_CONTEXT_MESSAGE}
             yield {"type": "done", "model": "none", "session_id": session_id}
             return
 
+        if blocked == "no_direct_match":
+            evidence = await self._emit_evidence(
+                [], product_intent, "no_direct_match", related, refinement, topical_scores,
+            )
+            yield {"type": "evidence", **evidence}
+            yield {"type": "token", "content": NO_DIRECT_MATCH_MESSAGE}
+            yield {"type": "done", "model": "none", "session_id": session_id}
+            return
+
         if blocked == "off_topic":
-            evidence = await self._emit_evidence(raw_docs, product_intent, "off_topic", refinement=refinement)
+            evidence = await self._emit_evidence(
+                raw_docs, product_intent, "off_topic", refinement=refinement, topical_scores=topical_scores,
+            )
             yield {"type": "evidence", **evidence}
             yield {"type": "token", "content": _OUT_OF_SCOPE_RESPONSE}
             self.session_store.append_turn(session_id, "user", query)
@@ -307,7 +342,9 @@ class RAGPipeline:
                    "input_tokens": 0, "output_tokens": 0}
             return
 
-        evidence = await self._emit_evidence(raw_docs, product_intent, refinement=refinement)
+        evidence = await self._emit_evidence(
+            raw_docs, product_intent, refinement=refinement, topical_scores=topical_scores,
+        )
         yield {"type": "evidence", **evidence}
 
         # Number docs so the LLM can cite [1], [2], etc. inline
@@ -349,18 +386,31 @@ class RAGPipeline:
         product_intent = detect_product_intent(query)
         where_filter = {"product": {"$eq": product_intent}} if product_intent else None
 
-        raw_docs, refinement, related, blocked = await self._run_retrieval_path(
+        raw_docs, refinement, related, topical_scores, blocked = await self._run_retrieval_path(
             query, search_query, settings, product_intent, where_filter,
         )
         if blocked == "no_retrieval":
-            evidence = await self._emit_evidence([], product_intent, "no_retrieval", related, refinement)
+            evidence = await self._emit_evidence(
+                [], product_intent, "no_retrieval", related, refinement, topical_scores,
+            )
             yield {"type": "evidence", **evidence}
             yield {"type": "token", "content": NO_CONTEXT_MESSAGE}
             yield {"type": "done", "model": "none", "session_id": session_id}
             return
 
+        if blocked == "no_direct_match":
+            evidence = await self._emit_evidence(
+                [], product_intent, "no_direct_match", related, refinement, topical_scores,
+            )
+            yield {"type": "evidence", **evidence}
+            yield {"type": "token", "content": NO_DIRECT_MATCH_MESSAGE}
+            yield {"type": "done", "model": "none", "session_id": session_id}
+            return
+
         if blocked == "off_topic":
-            evidence = await self._emit_evidence(raw_docs, product_intent, "off_topic", refinement=refinement)
+            evidence = await self._emit_evidence(
+                raw_docs, product_intent, "off_topic", refinement=refinement, topical_scores=topical_scores,
+            )
             yield {"type": "evidence", **evidence}
             yield {"type": "token", "content": _OUT_OF_SCOPE_RESPONSE}
             self.session_store.append_turn(session_id, "user", query)
@@ -370,7 +420,9 @@ class RAGPipeline:
                    "input_tokens": 0, "output_tokens": 0}
             return
 
-        evidence = await self._emit_evidence(raw_docs, product_intent, refinement=refinement)
+        evidence = await self._emit_evidence(
+            raw_docs, product_intent, refinement=refinement, topical_scores=topical_scores,
+        )
         yield {"type": "evidence", **evidence}
 
         context = "\n\n---\n\n".join(

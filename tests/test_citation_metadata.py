@@ -67,9 +67,29 @@ SAMPLES = [
         "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-workspace/templates/use-templates",
     ),
     (
-        "AdobeDocs/data-collection.en",
-        "adobe-docs/data-collection/help/tags/release-notes/current.md",
-        "https://experienceleague.adobe.com/en/docs/data-collection/tags/release-notes/current",
+        "AdobeDocs/experience-platform.en",
+        "adobe-docs/data-collection/help/tags/home.md",
+        "https://experienceleague.adobe.com/en/docs/experience-platform/tags/home",
+    ),
+    (
+        "AdobeDocs/experience-platform.en",
+        "adobe-docs/data-collection/help/datastreams/configure.md",
+        "https://experienceleague.adobe.com/en/docs/experience-platform/datastreams/configure",
+    ),
+    (
+        "AdobeDocs/analytics.en",
+        "adobe-docs/adobe-analytics/help/implement/home.md",
+        "https://experienceleague.adobe.com/en/docs/analytics/implementation/home",
+    ),
+    (
+        "AdobeDocs/analytics.en",
+        "adobe-docs/adobe-analytics/help/integrate/home.md",
+        "https://experienceleague.adobe.com/en/docs/analytics/integration/home",
+    ),
+    (
+        "AdobeDocs/journey-optimizer.en",
+        "adobe-docs/adobe-journey-optimizer/help/using/building-journeys/journey.md",
+        "https://experienceleague.adobe.com/en/docs/journey-optimizer/using/orchestrate-journeys/journey",
     ),
 ]
 

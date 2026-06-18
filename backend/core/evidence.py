@@ -20,12 +20,12 @@ def _clean_title(raw: str) -> str:
     return re.sub(r"\s*\{#[^}]+\}", "", raw or "").strip()
 
 
-def _source_from_doc(doc: dict, cited: bool) -> dict[str, Any] | None:
+def _source_from_doc(doc: dict, cited: bool, topical_score: float | None = None) -> dict[str, Any] | None:
     meta = doc.get("metadata", {})
     url = resolve_doc_url(meta, doc.get("content", "")) or meta.get("url", "")
     if not is_specific_url(url):
         return None
-    return {
+    src: dict[str, Any] = {
         "url": url,
         "repo_path": meta.get("repo_path", ""),
         "title": _clean_title(meta.get("title", "")) or "Documentation",
@@ -33,6 +33,9 @@ def _source_from_doc(doc: dict, cited: bool) -> dict[str, Any] | None:
         "score": round(float(doc.get("score", 0.0)), 3),
         "cited": cited,
     }
+    if topical_score is not None:
+        src["topical_score"] = round(topical_score, 3)
+    return src
 
 
 def _dedupe_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -91,12 +94,14 @@ def build_evidence(
     failure_reason: str | None = None,
     related_docs: list[dict] | None = None,
     refinement: dict[str, Any] | None = None,
+    topical_scores: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """
     Build evidence payload from retrieved docs.
 
-    raw_docs: docs that passed the pipeline retrieval threshold
-    related_docs: optional lower-threshold docs for blocked responses
+    raw_docs: docs that passed topical relevance (used for LLM context)
+    related_docs: optional lower-relevance docs for blocked responses
+    topical_scores: optional doc-key → topical match score map
     """
     docs_for_sources = raw_docs if raw_docs else (related_docs or [])
 
@@ -104,31 +109,59 @@ def build_evidence(
     for doc in docs_for_sources:
         score = float(doc.get("score", 0.0))
         cited = score >= CITED_SCORE_THRESHOLD
-        src = _source_from_doc(doc, cited=cited)
+        meta = doc.get("metadata") or {}
+        doc_key = meta.get("s3_key") or meta.get("url") or doc.get("content", "")[:80]
+        topical = (topical_scores or {}).get(doc_key)
+        src = _source_from_doc(doc, cited=cited, topical_score=topical)
         if src:
+            if failure_reason in ("no_direct_match", "no_retrieval", "off_topic") and topical is not None:
+                src["score"] = round(topical, 3)
             sources.append(src)
     sources = _dedupe_sources(sources)
 
-    # Count sources shown in the panel (valid URL), not raw retrieval chunk count.
-    source_count = len(sources)
-    top_score = max((float(d.get("score", 0.0)) for d in raw_docs), default=0.0)
-    if source_count == 0 and docs_for_sources:
-        top_score = max((float(d.get("score", 0.0)) for d in docs_for_sources), default=0.0)
+    # Blocked responses may include related docs for transparency — never treat as cited.
+    if failure_reason in ("no_retrieval", "no_direct_match", "off_topic"):
+        for src in sources:
+            src["cited"] = False
 
-    scores = [float(d.get("score", 0.0)) for d in raw_docs] or [
-        float(d.get("score", 0.0)) for d in docs_for_sources
-    ]
+    # Score evidence from displayable sources when available — avoids inflating
+    # confidence with high-similarity chunks that have no valid URL.
+    source_count = len(sources)
+    if sources:
+        top_score = max(float(s.get("score", 0.0)) for s in sources)
+        scores = [float(s.get("score", 0.0)) for s in sources]
+    else:
+        top_score = max((float(d.get("score", 0.0)) for d in docs_for_sources), default=0.0)
+        scores = [float(d.get("score", 0.0)) for d in docs_for_sources]
+
     avg_score = round(sum(scores) / len(scores), 3) if scores else 0.0
     top_score = round(top_score, 3)
 
     citation_count = sum(1 for s in sources if s.get("cited"))
-    level = _evidence_level(top_score, len(docs_for_sources))
+    level = _evidence_level(top_score, source_count)
     grounding = _grounding_level(level, citation_count)
+
+    if failure_reason == "no_retrieval":
+        level, grounding = "none", "insufficient"
+        citation_count = 0
+    elif failure_reason == "no_direct_match":
+        level = "weak" if sources else "none"
+        grounding = "insufficient"
+        citation_count = 0
+    elif failure_reason == "off_topic":
+        level = "weak" if source_count else "none"
+        grounding = "inferred"
+        citation_count = 0
 
     banner: str | None = None
     if failure_reason == "no_retrieval":
         banner = (
             "Not enough evidence — no documentation matched strongly enough to answer confidently."
+        )
+    elif failure_reason == "no_direct_match":
+        banner = (
+            "No directly matching documentation found — retrieved pages do not cover "
+            "this specific topic in our indexed docs."
         )
     elif failure_reason == "off_topic":
         banner = "Low relevance — retrieved documentation is a weak match for this question."
@@ -137,7 +170,7 @@ def build_evidence(
     elif grounding == "inferred":
         banner = "Limited documentation — parts of this answer may be inferred from related material."
 
-    if refinement and refinement.get("refinement_applied"):
+    if failure_reason != "no_direct_match" and refinement and refinement.get("refinement_applied"):
         neighbor_hint = ""
         neighbors = refinement.get("refinement_neighbors") or []
         if neighbors:

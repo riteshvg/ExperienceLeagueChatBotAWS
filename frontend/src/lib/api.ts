@@ -46,7 +46,7 @@ export interface RetrievalEvidence {
   grounding_level: 'documented' | 'partial' | 'inferred' | 'insufficient'
   match_label: string
   grounding_label: string
-  failure_reason?: 'no_retrieval' | 'off_topic' | null
+  failure_reason?: 'no_retrieval' | 'no_direct_match' | 'off_topic' | null
   banner?: string | null
   sources: RetrievalSource[]
 }
