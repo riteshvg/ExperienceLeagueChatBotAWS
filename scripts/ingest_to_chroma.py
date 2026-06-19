@@ -17,6 +17,7 @@ import argparse
 import json
 import logging
 import os
+import random
 import re
 import sys
 import time
@@ -25,6 +26,7 @@ from typing import Optional
 
 import boto3
 import chromadb
+from botocore.exceptions import ClientError
 from chromadb.config import Settings as ChromaSettings
 
 # ── project root ─────────────────────────────────────────────────────────────
@@ -48,6 +50,18 @@ TITAN_MODEL_ID = "amazon.titan-embed-text-v2:0"
 CHUNK_SIZE = 500        # approximate token ceiling per chunk
 CHUNK_OVERLAP = 50      # tokens of overlap between consecutive chunks
 BATCH_SIZE = 64         # ChromaDB upsert batch size
+EMBED_MAX_ATTEMPTS = 8
+EMBED_RETRY_BASE_S = 2
+EMBED_RETRY_MAX_S = 60
+RETRIABLE_BEDROCK_ERRORS = frozenset({
+    "ModelErrorException",
+    "ThrottlingException",
+    "ServiceUnavailableException",
+    "ServiceUnavailable",
+    "ModelTimeoutException",
+    "InternalServerException",
+    "TooManyRequestsException",
+})
 
 
 # ── Chunking ─────────────────────────────────────────────────────────────────
@@ -131,6 +145,53 @@ def download_s3_object(s3_client, bucket: str, key: str) -> Optional[str]:
         return None
 
 
+def _load_existing_ids(collection) -> set[str]:
+    """Paginate Chroma get() to collect all chunk IDs."""
+    existing: set[str] = set()
+    offset = 0
+    page_size = 1000
+    while True:
+        data = collection.get(limit=page_size, offset=offset, include=[])
+        ids = data.get("ids") or []
+        if not ids:
+            break
+        existing.update(ids)
+        offset += len(ids)
+        if len(ids) < page_size:
+            break
+    return existing
+
+
+def _embed_with_retry(bedrock, text: str) -> list[float]:
+    body = json.dumps({"inputText": text[:8000], "dimensions": 1024, "normalize": True})
+    for attempt in range(1, EMBED_MAX_ATTEMPTS + 1):
+        try:
+            resp = bedrock.invoke_model(
+                modelId=TITAN_MODEL_ID,
+                body=body,
+                contentType="application/json",
+                accept="application/json",
+            )
+            return json.loads(resp["body"].read())["embedding"]
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in RETRIABLE_BEDROCK_ERRORS and attempt < EMBED_MAX_ATTEMPTS:
+                delay = min(
+                    EMBED_RETRY_MAX_S,
+                    EMBED_RETRY_BASE_S ** attempt + random.uniform(0, 1),
+                )
+                logger.warning(
+                    "Bedrock embed failed (%s) — retry %d/%d in %.1fs",
+                    code,
+                    attempt,
+                    EMBED_MAX_ATTEMPTS,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+            raise
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -148,6 +209,17 @@ def main():
         "--changed-only", action="store_true",
         help=f"Only ingest keys listed in {CHANGED_KEYS_PATH} (written by sync_docs_to_s3.py). "
              "Falls back to full ingest if the file is missing or empty.",
+    )
+    parser.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="Skip chunks whose IDs already exist in ChromaDB (resume / avoid re-embedding).",
+    )
+    parser.add_argument(
+        "--start-at",
+        type=int,
+        default=0,
+        help="Skip the first N registry entries (resume after an interrupted ingest).",
     )
     args = parser.parse_args()
 
@@ -199,6 +271,13 @@ def main():
         entries = entries[: args.limit]
         logger.info(f"Limiting to {len(entries)} entries")
 
+    if args.start_at > 0:
+        if args.start_at >= len(entries):
+            logger.info("--start-at %d >= entry count — nothing to ingest", args.start_at)
+            return
+        logger.info("Resuming ingest at registry index %d (skipping %d entries)", args.start_at, args.start_at)
+        entries = entries[args.start_at:]
+
     # ── AWS S3 client ──────────────────────────────────────────────────────
     bucket = os.getenv("AWS_S3_BUCKET", "")
     if not bucket:
@@ -232,6 +311,12 @@ def main():
     )
     logger.info(f"Collection '{COLLECTION_NAME}' has {collection.count()} existing chunks")
 
+    existing_ids: set[str] = set()
+    if args.skip_existing:
+        logger.info("Loading existing chunk IDs for --skip-existing…")
+        existing_ids = _load_existing_ids(collection)
+        logger.info("Found %d existing chunks — will skip re-embedding those", len(existing_ids))
+
     # ── Bedrock client for Titan embeddings ───────────────────────────────
     logger.info(f"Using Titan Embed v2 via Bedrock for embeddings…")
     bedrock = boto3.client(
@@ -241,14 +326,7 @@ def main():
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
     )
 
-    def embed(text: str) -> list:
-        import json as _json
-        body = _json.dumps({"inputText": text[:8000], "dimensions": 1024, "normalize": True})
-        resp = bedrock.invoke_model(
-            modelId=TITAN_MODEL_ID, body=body,
-            contentType="application/json", accept="application/json"
-        )
-        return _json.loads(resp["body"].read())["embedding"]
+    embed = lambda text: _embed_with_retry(bedrock, text)
 
     # ── Ingest loop ────────────────────────────────────────────────────────
     ids_batch: list[str] = []
@@ -258,6 +336,7 @@ def main():
 
     total_chunks = 0
     skipped = 0
+    skipped_existing = 0
     t0 = time.time()
 
     for doc_idx, (s3_key, meta) in enumerate(entries):
@@ -281,6 +360,10 @@ def main():
 
         for chunk_idx, chunk in enumerate(chunks):
             chunk_id = f"{s3_key}#{chunk_idx}"
+            if chunk_id in existing_ids:
+                skipped_existing += 1
+                continue
+
             embedding = embed(chunk)
 
             citation = build_index_metadata(s3_key)
@@ -324,7 +407,7 @@ def main():
     elapsed = time.time() - t0
     logger.info(
         f"Done — {total_chunks} chunks from {len(entries) - skipped} documents "
-        f"({skipped} skipped) in {elapsed:.1f}s"
+        f"({skipped} skipped, {skipped_existing} existing) in {elapsed:.1f}s"
     )
     logger.info(f"Collection now has {collection.count()} total chunks")
 

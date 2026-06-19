@@ -21,6 +21,12 @@ on:
           Example: Customer Journey Analytics
         required: false
         default: ''
+      ingest_start_at:
+        description: >-
+          Resume full ingest at registry index N (use after a failed force=true run).
+          Example: 1800
+        required: false
+        default: '0'
 
 jobs:
   refresh:
@@ -139,7 +145,11 @@ jobs:
             fi
           elif [ "${{ github.event.inputs.force }}" = "true" ]; then
             echo "Full ingest (force=true)"
-            python scripts/ingest_to_chroma.py
+            ARGS="--skip-existing"
+            if [ "${{ github.event.inputs.ingest_start_at }}" != "0" ] && [ -n "${{ github.event.inputs.ingest_start_at }}" ]; then
+              ARGS="$ARGS --start-at ${{ github.event.inputs.ingest_start_at }}"
+            fi
+            python scripts/ingest_to_chroma.py $ARGS
           else
             echo "Incremental ingest (--changed-only)"
             python scripts/ingest_to_chroma.py --changed-only
@@ -190,7 +200,7 @@ jobs:
         run: python scripts/ingest_with_media.py
 
       - name: Upload ChromaDB → S3
-        if: always()
+        if: success()
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
