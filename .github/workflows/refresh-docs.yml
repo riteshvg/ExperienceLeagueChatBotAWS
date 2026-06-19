@@ -24,7 +24,7 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: pip install boto3 requests python-dotenv chromadb
+        run: pip install boto3 requests python-dotenv chromadb httpx
 
       # ── Restore state from S3 ─────────────────────────────────────────────
       # Download the sync manifest so SHA-based skipping works across runs.
@@ -58,10 +58,7 @@ jobs:
       #   AdobeDocs/experience-platform.en → adobe-docs/experience-platform/
       #   AdobeDocs/target.en             → adobe-docs/adobe-target/
       #   AdobeDocs/journey-optimizer.en  → adobe-docs/adobe-journey-optimizer/  [AJO]
-      #   AdobeDocs/experience-platform.en (help/tags/)       → adobe-docs/data-collection/
-      #   AdobeDocs/experience-platform.en (help/web-sdk/)    → adobe-docs/data-collection/
-      #   AdobeDocs/experience-platform.en (help/datastreams/) → adobe-docs/data-collection/
-      #   AdobeDocs/experience-platform.en (help/collection/) → adobe-docs/data-collection/
+      #   AdobeDocs/experience-platform.en (help/tags/, help/collection/, help/datastreams/) → adobe-docs/data-collection/
       #   AdobeDocs/platform-learn.en     → adobe-docs/platform-learn/
       # Writes data/changed_s3_keys.txt with the S3 keys of files that changed.
       - name: Sync GitHub → S3
@@ -107,6 +104,19 @@ jobs:
             ARGS=""
           fi
           python scripts/ingest_to_chroma.py $ARGS
+
+      # HTTP-validate derived EXL URLs and write url/url_source on changed chunks.
+      - name: Enrich citation metadata
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          if [ "${{ github.event.inputs.force }}" = "true" ] || [ -s data/changed_s3_keys.txt ]; then
+            python scripts/enrich_citation_metadata.py
+          else
+            echo "No doc changes — skipping citation enrichment"
+          fi
 
       - name: Media enrichment
         env:
