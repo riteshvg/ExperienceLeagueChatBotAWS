@@ -35834,7 +35834,7 @@
     "level": "intermediate",
     "product": "Adobe Experience Platform",
     "s3_key": "adobe-docs/experience-platform/help/destinations/catalog/advertising/google-ad-manager-360-connection.md",
-    "title": "(Beta) [!DNL Google Ad Manager 360] connection",
+    "title": "Google Ad Manager 360 connection",
     "url": "https://experienceleague.adobe.com/en/docs/experience-platform/destinations/catalog/advertising/google-ad-manager-360-connection"
   },
   "adobe-docs/experience-platform/help/destinations/catalog/advertising/google-ad-manager.md": {
@@ -36236,6 +36236,14 @@
     "s3_key": "adobe-docs/experience-platform/help/destinations/catalog/cloud-storage/azure-event-hubs.md",
     "title": "Azure Event Hubs connection",
     "url": "https://experienceleague.adobe.com/en/docs/experience-platform/destinations/catalog/cloud-storage/azure-event-hubs"
+  },
+  "adobe-docs/experience-platform/help/destinations/catalog/cloud-storage/azure-private-link.md": {
+    "doc_type": "guide",
+    "level": "intermediate",
+    "product": "Adobe Experience Platform",
+    "s3_key": "adobe-docs/experience-platform/help/destinations/catalog/cloud-storage/azure-private-link.md",
+    "title": "Private Link for [!DNL Azure] Destinations",
+    "url": "https://experienceleague.adobe.com/en/docs/experience-platform/destinations/catalog/cloud-storage/azure-private-link"
   },
   "adobe-docs/experience-platform/help/destinations/catalog/cloud-storage/data-landing-zone.md": {
     "doc_type": "guide",
@@ -41189,6 +41197,14 @@
     "title": "Adobe Experience Platform Release Notes January 2026",
     "url": "https://experienceleague.adobe.com/en/docs/experience-platform/release-notes/2026/january-2026"
   },
+  "adobe-docs/experience-platform/help/release-notes/2026/june-2026.md": {
+    "doc_type": "guide",
+    "level": "intermediate",
+    "product": "Adobe Experience Platform",
+    "s3_key": "adobe-docs/experience-platform/help/release-notes/2026/june-2026.md",
+    "title": "Adobe Experience Platform Release Notes June 2026",
+    "url": "https://experienceleague.adobe.com/en/docs/experience-platform/release-notes/2026/june-2026"
+  },
   "adobe-docs/experience-platform/help/release-notes/2026/march-2026.md": {
     "doc_type": "guide",
     "level": "intermediate",
@@ -41218,7 +41234,7 @@
     "level": "intermediate",
     "product": "Adobe Experience Platform",
     "s3_key": "adobe-docs/experience-platform/help/release-notes/latest/latest.md",
-    "title": "Adobe Experience Platform Release Notes May 2026",
+    "title": "Adobe Experience Platform Release Notes June 2026",
     "url": "https://experienceleague.adobe.com/en/docs/experience-platform/release-notes/latest/latest"
   },
   "adobe-docs/experience-platform/help/release-notes/pre-release-notes.md": {

@@ -62,6 +62,11 @@ AJO_FOLDER_MAP = {
     "building-journeys": "orchestrate-journeys",
 }
 
+# AEP: GitHub folder names that differ from EXL publish paths.
+AEP_FOLDER_MAP = {
+    "query-service": "query",
+}
+
 _USING_PRODUCTS = ("journey-optimizer", "target")
 
 
@@ -137,6 +142,14 @@ def _apply_ajo_folder_map(repo_relative: str) -> str:
     return "/".join(parts)
 
 
+def _apply_aep_folder_map(repo_relative: str) -> str:
+    parts = repo_relative.split("/")
+    if parts and parts[0] in AEP_FOLDER_MAP:
+        parts[0] = AEP_FOLDER_MAP[parts[0]]
+        return "/".join(parts)
+    return repo_relative
+
+
 def _fix_target_url(url: str) -> str:
     """
     Target repo uses help/main/ and c-/r-/t- folder prefixes.
@@ -195,6 +208,9 @@ def derive_exl_url(s3_key: str) -> str | None:
 
         if repo == "AdobeDocs/journey-optimizer.en":
             repo_relative = _apply_ajo_folder_map(repo_relative)
+
+        if repo == "AdobeDocs/experience-platform.en":
+            repo_relative = _apply_aep_folder_map(repo_relative)
 
         raw_url = f"{base_url}/{repo_relative}"
 

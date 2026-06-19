@@ -91,6 +91,16 @@ SAMPLES = [
         "adobe-docs/adobe-journey-optimizer/help/using/building-journeys/journey.md",
         "https://experienceleague.adobe.com/en/docs/journey-optimizer/using/orchestrate-journeys/journey",
     ),
+    (
+        "AdobeDocs/experience-platform.en",
+        "adobe-docs/experience-platform/help/query-service/ui/overview.md",
+        "https://experienceleague.adobe.com/en/docs/experience-platform/query/ui/overview",
+    ),
+    (
+        "AdobeDocs/experience-platform.en",
+        "adobe-docs/experience-platform/help/query-service/home.md",
+        "https://experienceleague.adobe.com/en/docs/experience-platform/query/home",
+    ),
 ]
 
 
