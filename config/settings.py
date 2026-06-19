@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     aws_secret_access_key: Optional[str] = Field(None, env="AWS_SECRET_ACCESS_KEY")
     aws_default_region: str = Field(default="us-east-1", env="AWS_DEFAULT_REGION")
     aws_s3_bucket: Optional[str] = Field(None, env="AWS_S3_BUCKET")
+    chroma_s3_key: str = Field(default="chroma_db/chroma_db.tar.gz", env="CHROMA_S3_KEY")
+    force_chroma_restore: bool = Field(default=False, env="FORCE_CHROMA_RESTORE")
     
     # Adobe Analytics API Configuration (OAuth Server-to-Server)
     adobe_client_id: Optional[str] = Field(None, env="ADOBE_CLIENT_ID")

@@ -37,29 +37,57 @@ from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 from config.settings import get_settings
 
-_CHROMA_S3_KEY = "chroma_db/chroma_db.tar.gz"
+_CHROMA_S3_KEY = os.getenv("CHROMA_S3_KEY", "chroma_db/chroma_db.tar.gz")
 _CHROMA_DIR = Path(__file__).parent.parent / "chroma_db"
+_COLLECTION = "experience_league"
 
 
-def _restore_chroma_from_s3() -> bool:
-    """Download and extract chroma_db.tar.gz from S3 if local DB is empty."""
-    import tarfile, tempfile
-    import boto3
+def _env_truthy(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes")
 
-    # Check if already populated
+
+def _chroma_chunk_count() -> int:
     try:
         import chromadb
         from chromadb.config import Settings as ChromaSettings
+
         client = chromadb.PersistentClient(
             path=str(_CHROMA_DIR),
             settings=ChromaSettings(anonymized_telemetry=False),
         )
-        col = client.get_or_create_collection("experience_league")
-        if col.count() > 0:
-            logger.info(f"ChromaDB already populated ({col.count()} chunks) — skipping S3 restore")
-            return True
+        col = client.get_or_create_collection(_COLLECTION)
+        return col.count()
     except Exception:
-        pass
+        return 0
+
+
+def _clear_chroma_dir() -> None:
+    import shutil
+
+    if _CHROMA_DIR.exists():
+        shutil.rmtree(_CHROMA_DIR)
+        logger.info(f"Cleared local ChromaDB at {_CHROMA_DIR}")
+
+
+def _restore_chroma_from_s3() -> bool:
+    """Download and extract chroma_db.tar.gz from S3 when empty or forced."""
+    import tarfile
+    import tempfile
+
+    import boto3
+
+    force = _env_truthy("FORCE_CHROMA_RESTORE")
+    count = _chroma_chunk_count()
+
+    if force:
+        logger.warning(
+            "FORCE_CHROMA_RESTORE is set — wiping local ChromaDB and restoring from S3"
+        )
+        _clear_chroma_dir()
+        count = 0
+    elif count > 0:
+        logger.info(f"ChromaDB already populated ({count} chunks) — skipping S3 restore")
+        return True
 
     bucket = os.getenv("AWS_S3_BUCKET", "")
     if not bucket:
@@ -78,7 +106,14 @@ def _restore_chroma_from_s3() -> bool:
         with tarfile.open(tmp_path, "r:gz") as tar:
             tar.extractall(_CHROMA_DIR.parent)
         Path(tmp_path).unlink()
-        logger.info("ChromaDB restored from S3 ✓")
+
+        restored = _chroma_chunk_count()
+        logger.info(f"ChromaDB restored from S3 ✓ ({restored} chunks)")
+        if force:
+            logger.warning(
+                "Unset FORCE_CHROMA_RESTORE on Railway after verifying /api/health "
+                "so future deploys do not re-download on every restart"
+            )
         return True
     except Exception as e:
         logger.warning(f"S3 restore failed: {e} — continuing with empty DB")

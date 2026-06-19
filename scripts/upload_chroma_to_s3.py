@@ -6,6 +6,7 @@ Run once locally whenever you want to refresh the production database:
     python scripts/upload_chroma_to_s3.py
 
 Railway downloads this archive on first startup if chroma_db/ is empty.
+Set FORCE_CHROMA_RESTORE=true on Railway to wipe the volume and re-download.
 """
 
 import os
