@@ -1,0 +1,114 @@
+---
+description: Rovr production deploy, Chroma index refresh, Railway FORCE restore, and maintenance mode
+alwaysApply: true
+---
+
+# Rovr — Deployment, Chroma, and Production Ops
+
+## Architecture (code vs index)
+
+- **Git push / Railway redeploy** updates application code only — does **not** change chunk count.
+- **Chroma index** lives on Railway persistent volume (`/app/chroma_db`) and S3 backup (`s3://experienceleaguechatbot/chroma_db/chroma_db.tar.gz`).
+- **GHA** (`refresh-docs.yml`) updates S3 Chroma incrementally; Railway does **not** auto-sync from S3 unless volume is empty or `FORCE_CHROMA_RESTORE=true`.
+- **Never upload local Chroma to S3** without verifying chunk count matches or exceeds production.
+
+## URLs
+
+| Component | URL |
+|-----------|-----|
+| Backend health | `https://experienceleaguechatbotaws-production.up.railway.app/api/health` |
+| Frontend | `https://thelearningproject.in/tools/rovr` |
+| Railway project | `experienceleaguechatbot` / service `ExperienceLeagueChatBotAWS` |
+
+## Standard production refresh (recommended)
+
+```bash
+# 1. Incremental index update (safe — production keeps serving during GHA)
+gh workflow run refresh-docs.yml --ref main
+# or: gh workflow run refresh-docs.yml --ref main -f force=false
+
+# 2. Verify GHA logs: ingest Done, Collection now has ~33k+ chunks, S3 upload ~300MB
+
+# 3. Controlled Railway reload (maintenance window ~2–4 min)
+STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+railway variables \
+  --set "KNOWLEDGE_BANK_UPDATING=true" \
+  --set "KNOWLEDGE_BANK_UPDATE_STARTED_AT=$STARTED" \
+  --set "FORCE_CHROMA_RESTORE=true" \
+  --set "CHROMA_RESTORE_ETA_MINUTES=4"
+railway redeploy -y
+
+# 4. Poll until document_count matches GHA (e.g. 33538)
+curl -s https://experienceleaguechatbotaws-production.up.railway.app/api/health
+
+# 5. IMMEDIATELY unset flags (never leave FORCE=true overnight)
+railway variables \
+  --set "FORCE_CHROMA_RESTORE=false" \
+  --set "KNOWLEDGE_BANK_UPDATING=false"
+railway redeploy -y
+```
+
+## Railway CLI (linked from repo root)
+
+```bash
+railway status
+railway variables -k
+railway variables --set "KEY=value"   # no spaces around =
+railway redeploy -y
+railway logs --lines 50 --filter "Chroma OR restore OR ERROR"
+```
+
+## Frontend deploy (separate from Railway)
+
+```bash
+./deploy.sh --frontend-only   # builds → Hugo tlp repo → Cloudflare Pages
+```
+
+Backend code deploys via Railway git integration on push to `main`.
+
+## Maintenance mode (user-facing)
+
+When `KNOWLEDGE_BANK_UPDATING=true`, Chroma empty, or `/api/health` returns `status: "updating"`:
+- Backend returns `503 KNOWLEDGE_BANK_UPDATING` on chat routes
+- `/api/health` includes `maintenance.message` and `check_back_at`
+- Frontend shows violet banner **above input** and disables query box
+
+Env vars: `KNOWLEDGE_BANK_UPDATING`, `KNOWLEDGE_BANK_UPDATE_STARTED_AT`, `CHROMA_RESTORE_ETA_MINUTES` (default 4).
+
+## FORCE restore pitfalls (learned 2026-06-19)
+
+1. **Never leave `FORCE_CHROMA_RESTORE=true`** — every restart wipes volume and re-downloads S3.
+2. **Readonly SQLite on Railway volume** — tar extract can leave chroma files read-only → `attempt to write a readonly database`. Fixed in `backend/main.py` via `_fix_chroma_permissions()` after extract.
+3. **Use `get_collection` not `get_or_create_collection`** for post-restore count/open — avoid creating empty collection over valid restore (`ChromaRetriever` + `_chroma_chunk_count`).
+4. **If FORCE restore fails (0 chunks)** — unset FORCE, redeploy; non-force path re-downloads without wipe (recovery worked in prod).
+5. **`get_or_create` on empty count masked failures** — restore must validate count > 0 before claiming success.
+
+## Doc sync repos (key S3 prefixes)
+
+| GitHub repo | S3 prefix | Product |
+|-------------|-----------|---------|
+| `AdobeDocs/analytics-platform.en` | `adobe-docs/customer-journey-analytics/` | CJA main guides |
+| `AdobeDocs/customer-journey-analytics-learn.en` | `adobe-docs/customer-journey-analytics-learn/` | CJA tutorials |
+| `AdobeDocs/experience-platform.en` | `adobe-docs/experience-platform/` | AEP |
+| `AdobeDocs/platform-learn.en` | `adobe-docs/platform-learn/` | AEP tutorials |
+
+## CJA index status (as of 2026-06-19)
+
+- **Done:** CJA learn repo wired (`529a649`), 161 tutorials ingested (+210 chunks via GHA).
+- **Pending:** Main `analytics-platform.en` CJA guides (~450 docs) — calc metrics, derived fields, etc. Still needed for queries like "calculated metrics vs derived fields in CJA".
+- **Production:** ~33,538 chunks after GHA + FORCE cycle.
+
+## Local ingest pipeline
+
+```bash
+python scripts/sync_docs_to_s3.py --repo adobe-docs/customer-journey-analytics
+python scripts/ingest_to_chroma.py --changed-only --product "Customer Journey Analytics"
+python scripts/enrich_citation_metadata.py --changed-only --product "Customer Journey Analytics"
+python scripts/upload_chroma_to_s3.py   # only when explicitly requested for prod
+```
+
+## Do NOT without explicit user request
+
+- Upload Chroma to S3 or run Railway FORCE restore
+- Commit `data/metadata_registry.json` without `git add -f`
+- Use GHA `force=true` unless full rebuild is intentional (hours)
