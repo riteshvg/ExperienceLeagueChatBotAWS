@@ -47,20 +47,25 @@ def _env_truthy(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in ("1", "true", "yes")
 
 
-def _chroma_chunk_count() -> int:
+def _chroma_chunk_count_at(chroma_path: Path | None = None) -> int:
+    path = chroma_path or _CHROMA_DIR
     try:
         import chromadb
         from chromadb.config import Settings as ChromaSettings
 
         client = chromadb.PersistentClient(
-            path=str(_CHROMA_DIR),
+            path=str(path),
             settings=ChromaSettings(anonymized_telemetry=False),
         )
         col = client.get_collection(_COLLECTION)
         return col.count()
     except Exception as exc:
-        logger.warning("Could not read Chroma collection count: %s", exc)
+        logger.warning("Could not read Chroma collection count at %s: %s", path, exc)
         return 0
+
+
+def _chroma_chunk_count() -> int:
+    return _chroma_chunk_count_at(_CHROMA_DIR)
 
 
 def _clear_chroma_dir() -> None:
@@ -71,25 +76,27 @@ def _clear_chroma_dir() -> None:
         logger.info(f"Cleared local ChromaDB at {_CHROMA_DIR}")
 
 
-def _fix_chroma_permissions() -> None:
-    """Ensure extracted Chroma files are writable on Railway volumes."""
+def _fix_chroma_permissions(chroma_path: Path | None = None) -> None:
+    """Ensure Chroma files are writable on Railway volumes."""
     import stat
 
-    if not _CHROMA_DIR.exists():
+    target = chroma_path or _CHROMA_DIR
+    if not target.exists():
         return
     dir_mode = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
     file_mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH
-    for root, dirs, files in os.walk(_CHROMA_DIR):
+    for root, dirs, files in os.walk(target):
         os.chmod(root, dir_mode)
         for name in dirs:
             os.chmod(os.path.join(root, name), dir_mode)
         for name in files:
             os.chmod(os.path.join(root, name), file_mode)
-    logger.info("ChromaDB file permissions updated for volume restore")
+    logger.info("ChromaDB file permissions updated at %s", target)
 
 
 def _restore_chroma_from_s3() -> bool:
     """Download and extract chroma_db.tar.gz from S3 when empty or forced."""
+    import shutil
     import tarfile
     import tempfile
 
@@ -114,28 +121,38 @@ def _restore_chroma_from_s3() -> bool:
         return False
 
     logger.info(f"ChromaDB empty — downloading from s3://{bucket}/{_CHROMA_S3_KEY} ...")
+    restore_parent = Path(tempfile.mkdtemp(prefix="chroma_restore_"))
+    tmp_archive: str | None = None
     try:
         s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-            tmp_path = tmp.name
-        s3.download_file(bucket, _CHROMA_S3_KEY, tmp_path)
-        size_mb = Path(tmp_path).stat().st_size / 1024 / 1024
-        logger.info(f"Downloaded {size_mb:.1f} MB — extracting ...")
-        _CHROMA_DIR.parent.mkdir(parents=True, exist_ok=True)
-        with tarfile.open(tmp_path, "r:gz") as tar:
-            tar.extractall(_CHROMA_DIR.parent)
+            tmp_archive = tmp.name
+        s3.download_file(bucket, _CHROMA_S3_KEY, tmp_archive)
+        size_mb = Path(tmp_archive).stat().st_size / 1024 / 1024
+        logger.info(f"Downloaded {size_mb:.1f} MB — extracting to staging dir ...")
+        with tarfile.open(tmp_archive, "r:gz") as tar:
+            tar.extractall(restore_parent)
 
-        Path(tmp_path).unlink()
-        _fix_chroma_permissions()
+        staged_dir = restore_parent / "chroma_db"
+        if not staged_dir.exists():
+            logger.error("Archive missing chroma_db/ directory after extract")
+            return False
 
-        restored = _chroma_chunk_count()
+        _fix_chroma_permissions(staged_dir)
+        restored = _chroma_chunk_count_at(staged_dir)
         if restored == 0:
-            listing = list(_CHROMA_DIR.rglob("*"))[:10] if _CHROMA_DIR.exists() else []
+            listing = list(staged_dir.rglob("*"))[:10]
             logger.error(
-                "ChromaDB restore extracted but collection is empty — "
-                f"files at {_CHROMA_DIR}: {[str(p.relative_to(_CHROMA_DIR)) for p in listing]}"
+                "ChromaDB archive invalid — collection empty after staging extract; "
+                f"sample files: {[str(p.relative_to(staged_dir)) for p in listing]}"
             )
             return False
+
+        _CHROMA_DIR.parent.mkdir(parents=True, exist_ok=True)
+        if _CHROMA_DIR.exists():
+            shutil.rmtree(_CHROMA_DIR)
+        shutil.copytree(staged_dir, _CHROMA_DIR)
+        _fix_chroma_permissions(_CHROMA_DIR)
 
         logger.info(f"ChromaDB restored from S3 ✓ ({restored} chunks)")
         if force:
@@ -147,6 +164,10 @@ def _restore_chroma_from_s3() -> bool:
     except Exception as e:
         logger.warning(f"S3 restore failed: {e} — continuing with empty DB")
         return False
+    finally:
+        if tmp_archive:
+            Path(tmp_archive).unlink(missing_ok=True)
+        shutil.rmtree(restore_parent, ignore_errors=True)
 
 
 def _configure_langsmith() -> None:
