@@ -113,7 +113,11 @@ jobs:
           AWS_DEFAULT_REGION: us-east-1
         run: |
           if [ "${{ github.event.inputs.force }}" = "true" ] || [ -s data/changed_s3_keys.txt ]; then
-            python scripts/enrich_citation_metadata.py
+            ARGS=""
+            if [ "${{ github.event.inputs.force }}" != "true" ] && [ -s data/changed_s3_keys.txt ]; then
+              ARGS="--changed-only"
+            fi
+            python scripts/enrich_citation_metadata.py $ARGS
           else
             echo "No doc changes — skipping citation enrichment"
           fi

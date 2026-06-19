@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from pathlib import Path
+from typing import Iterator
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -23,7 +24,29 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CHROMA_PATH = Path(__file__).parent.parent.parent / "chroma_db"
 COLLECTION = "experience_league"
-BATCH_SIZE = 500
+GET_BATCH = 500
+UPDATE_BATCH = 500
+
+
+def _iter_chunks(col, product_filter: str | None = None) -> Iterator[tuple[str, dict]]:
+    """Paginate Chroma get() to stay under SQLite variable limits."""
+    offset = 0
+    while True:
+        data = col.get(include=["metadatas"], limit=GET_BATCH, offset=offset)
+        batch_ids = data["ids"]
+        if not batch_ids:
+            break
+        for doc_id, meta in zip(batch_ids, data["metadatas"]):
+            if product_filter and meta.get("product") != product_filter:
+                continue
+            yield doc_id, meta
+        offset += len(batch_ids)
+        if len(batch_ids) < GET_BATCH:
+            break
+
+
+def _count_chunks(col) -> int:
+    return col.count()
 
 
 async def enrich_chroma_collection(
@@ -32,24 +55,31 @@ async def enrich_chroma_collection(
     dry_run: bool = False,
     product_filter: str | None = None,
     skip_validate: bool = False,
+    changed_s3_keys: set[str] | None = None,
 ) -> None:
     col = chromadb.PersistentClient(
         path=str(chroma_path),
         settings=ChromaSettings(anonymized_telemetry=False),
     ).get_collection(COLLECTION)
 
-    data = col.get(include=["metadatas"])
-    ids: list[str] = data["ids"]
-    metas: list[dict] = data["metadatas"]
-    logger.info("Loaded %d chunks", len(ids))
+    total = _count_chunks(col)
+    logger.info("Loaded collection — %d chunks total", total)
 
     s3_keys: set[str] = set()
-    for meta in metas:
-        if product_filter and meta.get("product") != product_filter:
-            continue
+    for _doc_id, meta in _iter_chunks(col, product_filter):
         sk = meta.get("s3_key", "")
-        if sk:
-            s3_keys.add(sk)
+        if not sk:
+            continue
+        if changed_s3_keys is not None and sk not in changed_s3_keys:
+            continue
+        s3_keys.add(sk)
+
+    if changed_s3_keys is not None:
+        logger.info(
+            "Changed-only mode — %d s3 keys to enrich (from %d changed files)",
+            len(s3_keys),
+            len(changed_s3_keys),
+        )
 
     derive_by_key = {sk: derive_exl_url(sk) for sk in s3_keys}
     validate_targets = [u for u in derive_by_key.values() if is_specific_url(u)]
@@ -66,12 +96,22 @@ async def enrich_chroma_collection(
     stats: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
     ids_to_update: list[str] = []
     metas_to_update: list[dict] = []
+    updated_total = 0
 
-    for doc_id, meta in zip(ids, metas):
-        if product_filter and meta.get("product") != product_filter:
-            continue
+    def flush_updates() -> None:
+        nonlocal ids_to_update, metas_to_update, updated_total
+        if dry_run or not ids_to_update:
+            ids_to_update, metas_to_update = [], []
+            return
+        col.update(ids=ids_to_update, metadatas=metas_to_update)
+        updated_total += len(ids_to_update)
+        ids_to_update, metas_to_update = [], []
+
+    for doc_id, meta in _iter_chunks(col, product_filter):
         sk = meta.get("s3_key", "")
         if not sk:
+            continue
+        if changed_s3_keys is not None and sk not in changed_s3_keys:
             continue
 
         citation = enriched_by_key.get(sk)
@@ -95,6 +135,11 @@ async def enrich_chroma_collection(
         ids_to_update.append(doc_id)
         metas_to_update.append(updated)
 
+        if len(ids_to_update) >= UPDATE_BATCH:
+            flush_updates()
+
+    flush_updates()
+
     logger.info("Citation metadata by product:")
     for product in sorted(stats):
         s = stats[product]
@@ -106,13 +151,13 @@ async def enrich_chroma_collection(
             s.get(URL_SOURCE_UNMAPPED, 0),
         )
 
-    logger.info("Chunks to update: %d / %d", len(ids_to_update), len(ids))
+    chunks_seen = sum(sum(s.values()) for s in stats.values())
+    logger.info(
+        "Enrichment complete — %d chunks in collection, %d evaluated, %d metadata updates",
+        total,
+        chunks_seen,
+        updated_total,
+    )
 
     if dry_run:
         return
-
-    for start in range(0, len(ids_to_update), BATCH_SIZE):
-        batch_ids = ids_to_update[start : start + BATCH_SIZE]
-        batch_metas = metas_to_update[start : start + BATCH_SIZE]
-        col.update(ids=batch_ids, metadatas=batch_metas)
-        logger.info("  Updated %d/%d", min(start + BATCH_SIZE, len(ids_to_update)), len(ids_to_update))
