@@ -125,7 +125,7 @@ REPOS = {
         "s3_prefix": "adobe-docs/platform-learn/",
         "path_filter": "",
         "experience_league_base": "https://experienceleague.adobe.com/en/docs/platform-learn",
-        "url_path_strip": "",
+        "url_path_strip": "help/",
         "product": "Adobe Data Collection",
         "doc_type": "tutorial",
         "level": "beginner",
