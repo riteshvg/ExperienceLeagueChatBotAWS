@@ -6,9 +6,21 @@ on:
   workflow_dispatch: # Also allow manual trigger from GitHub Actions UI
     inputs:
       force:
-        description: 'Force full re-sync (ignore manifest)'
+        description: 'Force full re-sync and full ingest (ignore manifest / changed-only)'
         required: false
         default: 'false'
+      ingest_prefix:
+        description: >-
+          Targeted ingest: S3 key substring (skips --changed-only).
+          Example: adobe-docs/customer-journey-analytics/help/cja-main
+        required: false
+        default: ''
+      ingest_product:
+        description: >-
+          Optional product filter for targeted ingest (use with ingest_prefix).
+          Example: Customer Journey Analytics
+        required: false
+        default: ''
 
 jobs:
   refresh:
@@ -39,6 +51,16 @@ jobs:
           aws s3 cp s3://experienceleaguechatbot/state/sync_manifest.json data/sync_manifest.json \
             && echo "Manifest restored" \
             || echo "No manifest found — will do full sync"
+
+      - name: Restore metadata registry from S3
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          aws s3 cp s3://experienceleaguechatbot/state/metadata_registry.json data/metadata_registry.json \
+            && echo "Registry restored" \
+            || echo "No registry in S3 — sync step will rebuild it"
 
       - name: Restore ChromaDB from S3
         env:
@@ -90,10 +112,15 @@ jobs:
             aws s3 cp data/sync_manifest.json s3://experienceleaguechatbot/state/sync_manifest.json
             echo "Manifest saved"
           fi
+          if [ -f data/metadata_registry.json ]; then
+            aws s3 cp data/metadata_registry.json s3://experienceleaguechatbot/state/metadata_registry.json
+            echo "Registry saved"
+          fi
 
       # ── Ingest into ChromaDB ──────────────────────────────────────────────
-      # Uses --changed-only so only docs updated in the sync step get re-embedded.
-      # Falls back to full ingest automatically if changed_s3_keys.txt is missing.
+      # Default: --changed-only (docs updated in sync step only).
+      # ingest_prefix: targeted batch ingest (e.g. first-time cja-main backfill).
+      # force=true: full ingest of entire registry.
       - name: Ingest into ChromaDB
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -102,11 +129,33 @@ jobs:
           AWS_S3_BUCKET: experienceleaguechatbot
           BEDROCK_REGION: us-east-1
         run: |
-          ARGS="--changed-only"
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
-            ARGS=""
+          if [ -n "${{ github.event.inputs.ingest_prefix }}" ]; then
+            echo "Targeted ingest prefix=${{ github.event.inputs.ingest_prefix }}"
+            if [ -n "${{ github.event.inputs.ingest_product }}" ]; then
+              python scripts/ingest_to_chroma.py \
+                --prefix "${{ github.event.inputs.ingest_prefix }}" \
+                --product "${{ github.event.inputs.ingest_product }}"
+            else
+              python scripts/ingest_to_chroma.py \
+                --prefix "${{ github.event.inputs.ingest_prefix }}"
+            fi
+          elif [ "${{ github.event.inputs.force }}" = "true" ]; then
+            echo "Full ingest (force=true)"
+            python scripts/ingest_to_chroma.py
+          else
+            echo "Incremental ingest (--changed-only)"
+            python scripts/ingest_to_chroma.py --changed-only
           fi
-          python scripts/ingest_to_chroma.py $ARGS
+
+      - name: Enrich citation metadata
+        if: github.event_name == 'workflow_dispatch' && (github.event.inputs.ingest_prefix != '' || github.event.inputs.ingest_product != '')
+        run: |
+          if [ -n "${{ github.event.inputs.ingest_product }}" ]; then
+            python scripts/enrich_citation_metadata.py \
+              --product "${{ github.event.inputs.ingest_product }}"
+          else
+            python scripts/enrich_citation_metadata.py
+          fi
 
       - name: Media enrichment
         env:
