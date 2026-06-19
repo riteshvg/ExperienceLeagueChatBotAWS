@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     aws_s3_bucket: Optional[str] = Field(None, env="AWS_S3_BUCKET")
     chroma_s3_key: str = Field(default="chroma_db/chroma_db.tar.gz", env="CHROMA_S3_KEY")
     force_chroma_restore: bool = Field(default=False, env="FORCE_CHROMA_RESTORE")
+    chroma_restore_eta_minutes: int = Field(default=4, env="CHROMA_RESTORE_ETA_MINUTES")
+    knowledge_bank_updating: bool = Field(default=False, env="KNOWLEDGE_BANK_UPDATING")
+    knowledge_bank_update_started_at: Optional[str] = Field(
+        None, env="KNOWLEDGE_BANK_UPDATE_STARTED_AT"
+    )
     
     # Adobe Analytics API Configuration (OAuth Server-to-Server)
     adobe_client_id: Optional[str] = Field(None, env="ADOBE_CLIENT_ID")

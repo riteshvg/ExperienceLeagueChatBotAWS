@@ -7,6 +7,12 @@ Run once locally whenever you want to refresh the production database:
 
 Railway downloads this archive on first startup if chroma_db/ is empty.
 Set FORCE_CHROMA_RESTORE=true on Railway to wipe the volume and re-download.
+
+Before a FORCE redeploy, set on Railway (optional but recommended for user messaging):
+  KNOWLEDGE_BANK_UPDATING=true
+  KNOWLEDGE_BANK_UPDATE_STARTED_AT=<ISO-8601 UTC, e.g. 2026-06-19T10:00:00Z>
+  CHROMA_RESTORE_ETA_MINUTES=4   (default — shown in the "check back at" message)
+After /api/health shows expected chunk count, unset KNOWLEDGE_BANK_UPDATING and FORCE.
 """
 
 import os

@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -146,6 +147,10 @@ async def lifespan(app: FastAPI):
     _configure_langsmith()
     logger.info("Starting up — loading ChromaDB and models…")
 
+    if _env_truthy("KNOWLEDGE_BANK_UPDATING") or _env_truthy("FORCE_CHROMA_RESTORE"):
+        app.state.maintenance_started_at = datetime.now(timezone.utc)
+        logger.info("Knowledge bank maintenance window started")
+
     # Initialise SQLite user DB (kept for demo counter + legacy compat)
     user_db.init_db()
     logger.info("SQLite user DB ready")
@@ -205,6 +210,19 @@ async def kill_switch_middleware(request: Request, call_next):
                 return JSONResponse(
                     status_code=503,
                     content={"detail": "API_DISABLED"},
+                )
+        except Exception:
+            pass
+
+        try:
+            from backend.core.knowledge_bank_status import (
+                build_maintenance_payload,
+                is_knowledge_bank_updating,
+            )
+            if is_knowledge_bank_updating(request.app):
+                return JSONResponse(
+                    status_code=503,
+                    content=build_maintenance_payload(request.app),
                 )
         except Exception:
             pass

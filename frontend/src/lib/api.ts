@@ -70,6 +70,35 @@ export type SSEEvent =
   | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number }
   | { type: 'error'; message: string }
 
+export interface KnowledgeBankMaintenance {
+  active: boolean
+  message: string
+  check_back_at: string
+  started_at?: string
+  eta_minutes?: number
+}
+
+export interface HealthResponse {
+  status: 'ok' | 'updating'
+  chromadb: { document_count: number }
+  maintenance?: KnowledgeBankMaintenance
+}
+
+function formatFallbackCheckBack(minutes: number): { message: string; checkBackAt: string } {
+  const checkBack = new Date(Date.now() + minutes * 60_000)
+  const formatted = checkBack.toLocaleString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+  return {
+    message: `The application knowledge bank is being updated. Please check back around ${formatted}.`,
+    checkBackAt: checkBack.toISOString(),
+  }
+}
+
 // ── Chat ─────────────────────────────────────────────────────────────────────
 
 export async function* streamChat(
@@ -87,7 +116,18 @@ export async function* streamChat(
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
     if (res.status === 503) {
-      const err = new Error(body.detail === 'API_DISABLED' ? 'API_DISABLED' : `Service unavailable: ${res.status}`)
+      if (body.detail === 'API_DISABLED') {
+        const err = new Error('API_DISABLED')
+        ;(err as any).status = 503
+        throw err
+      }
+      if (body.detail === 'KNOWLEDGE_BANK_UPDATING') {
+        const err = new Error('KNOWLEDGE_BANK_UPDATING')
+        ;(err as any).status = 503
+        ;(err as any).maintenance = body.maintenance
+        throw err
+      }
+      const err = new Error(`Service unavailable: ${res.status}`)
       ;(err as any).status = 503
       throw err
     }
@@ -397,5 +437,27 @@ export async function isApiDisabled(): Promise<boolean> {
     return false
   } catch {
     return false
+  }
+}
+
+/** Poll backend health — used for knowledge bank maintenance banner. */
+export async function getHealth(): Promise<HealthResponse | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/health`)
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+/** Fallback maintenance message when health is unreachable during redeploy. */
+export function getFallbackMaintenanceMessage(etaMinutes = 4): KnowledgeBankMaintenance {
+  const { message, checkBackAt } = formatFallbackCheckBack(etaMinutes)
+  return {
+    active: true,
+    message,
+    check_back_at: checkBackAt,
+    eta_minutes: etaMinutes,
   }
 }

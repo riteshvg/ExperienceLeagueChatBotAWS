@@ -38,6 +38,9 @@ interface ChatState {
   rateLimited: boolean
   rateLimitMessage: string
   apiDisabled: boolean
+  knowledgeBankUpdating: boolean
+  knowledgeBankMessage: string | null
+  knowledgeBankCheckBackAt: string | null
   monthlyExhausted: boolean
   queriesUsed: number
   queriesRemaining: number | null
@@ -52,6 +55,11 @@ interface ChatState {
   deleteSession: (id: string) => void
   clearError: () => void
   setApiDisabled: (disabled: boolean) => void
+  setKnowledgeBankMaintenance: (
+    updating: boolean,
+    message?: string | null,
+    checkBackAt?: string | null,
+  ) => void
   setUsage: (used: number, remaining: number, limit: number) => void
 }
 
@@ -87,6 +95,9 @@ export const useChatStore = create<ChatState>()(
         rateLimited: false,
         rateLimitMessage: '',
         apiDisabled: false,
+        knowledgeBankUpdating: false,
+        knowledgeBankMessage: null,
+        knowledgeBankCheckBackAt: null,
         monthlyExhausted: false,
         queriesUsed: 0,
         queriesRemaining: null,
@@ -97,6 +108,13 @@ export const useChatStore = create<ChatState>()(
         dismissFeedbackToast: () => set({ feedbackToast: false }),
 
         setApiDisabled: (disabled) => set({ apiDisabled: disabled }),
+
+        setKnowledgeBankMaintenance: (updating, message = null, checkBackAt = null) =>
+          set({
+            knowledgeBankUpdating: updating,
+            knowledgeBankMessage: message,
+            knowledgeBankCheckBackAt: checkBackAt,
+          }),
 
         setUsage: (used, remaining, limit) => set({ queriesUsed: used, queriesRemaining: remaining, queriesLimit: limit }),
 
@@ -252,16 +270,28 @@ export const useChatStore = create<ChatState>()(
             const errStatus = (err as any)?.status
             const isDisabled = errStatus === 403
             const isApiDisabled = errStatus === 503 && msg === 'API_DISABLED'
+            const isKnowledgeBankUpdating = errStatus === 503 && msg === 'KNOWLEDGE_BANK_UPDATING'
+            const maintenance = (err as any)?.maintenance as
+              | { message?: string; check_back_at?: string }
+              | undefined
             const isMonthlyExhausted = errStatus === 429 && msg === 'MONTHLY_QUOTA_EXCEEDED'
             const isRateLimited = errStatus === 429 && !isMonthlyExhausted
             const rateLimitMsg = isRateLimited ? ((err as any)?.detail?.message ?? msg) : ''
-            const suppressContent = isDisabled || isApiDisabled || isRateLimited || isMonthlyExhausted
+            const suppressContent =
+              isDisabled || isApiDisabled || isKnowledgeBankUpdating || isRateLimited || isMonthlyExhausted
             set((s) => ({
               error: suppressContent ? null : msg,
               accessDenied: isDisabled || s.accessDenied,
               rateLimited: isRateLimited || s.rateLimited,
               rateLimitMessage: isRateLimited ? rateLimitMsg : s.rateLimitMessage,
               apiDisabled: isApiDisabled || s.apiDisabled,
+              knowledgeBankUpdating: isKnowledgeBankUpdating || s.knowledgeBankUpdating,
+              knowledgeBankMessage: isKnowledgeBankUpdating
+                ? (maintenance?.message ?? s.knowledgeBankMessage)
+                : s.knowledgeBankMessage,
+              knowledgeBankCheckBackAt: isKnowledgeBankUpdating
+                ? (maintenance?.check_back_at ?? s.knowledgeBankCheckBackAt)
+                : s.knowledgeBankCheckBackAt,
               monthlyExhausted: isMonthlyExhausted || s.monthlyExhausted,
               sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                 msgs.map((m) =>

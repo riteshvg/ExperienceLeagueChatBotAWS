@@ -2,15 +2,11 @@
 
 from fastapi import APIRouter, Request
 
+from backend.core.knowledge_bank_status import build_health_payload
+
 router = APIRouter()
 
 
 @router.get("/health")
 async def health(request: Request):
-    retriever = getattr(request.app.state, "retriever", None)
-    return {
-        "status": "ok",
-        "chromadb": {
-            "document_count": retriever.document_count() if retriever else 0,
-        },
-    }
+    return build_health_payload(request.app)
