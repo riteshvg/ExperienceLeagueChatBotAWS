@@ -56,7 +56,7 @@ def _chroma_chunk_count() -> int:
             path=str(_CHROMA_DIR),
             settings=ChromaSettings(anonymized_telemetry=False),
         )
-        col = client.get_or_create_collection(_COLLECTION)
+        col = client.get_collection(_COLLECTION)
         return col.count()
     except Exception:
         return 0
@@ -106,9 +106,18 @@ def _restore_chroma_from_s3() -> bool:
         _CHROMA_DIR.parent.mkdir(parents=True, exist_ok=True)
         with tarfile.open(tmp_path, "r:gz") as tar:
             tar.extractall(_CHROMA_DIR.parent)
+
         Path(tmp_path).unlink()
 
         restored = _chroma_chunk_count()
+        if restored == 0:
+            listing = list(_CHROMA_DIR.rglob("*"))[:10] if _CHROMA_DIR.exists() else []
+            logger.error(
+                "ChromaDB restore extracted but collection is empty — "
+                f"files at {_CHROMA_DIR}: {[str(p.relative_to(_CHROMA_DIR)) for p in listing]}"
+            )
+            return False
+
         logger.info(f"ChromaDB restored from S3 ✓ ({restored} chunks)")
         if force:
             logger.warning(

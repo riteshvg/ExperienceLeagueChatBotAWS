@@ -24,7 +24,7 @@ jobs:
           cache: 'pip'
 
       - name: Install dependencies
-        run: pip install boto3 requests python-dotenv chromadb httpx
+        run: pip install boto3 requests python-dotenv "chromadb==1.2.2" httpx
 
       # ── Restore state from S3 ─────────────────────────────────────────────
       # Download the sync manifest so SHA-based skipping works across runs.
