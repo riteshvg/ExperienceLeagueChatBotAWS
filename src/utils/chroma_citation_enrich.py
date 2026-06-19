@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Iterator
 
 import chromadb
 from chromadb.config import Settings as ChromaSettings
@@ -24,29 +23,23 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CHROMA_PATH = Path(__file__).parent.parent.parent / "chroma_db"
 COLLECTION = "experience_league"
-GET_BATCH = 500
+GET_PAGE_SIZE = 500
 UPDATE_BATCH = 500
 
 
-def _iter_chunks(col, product_filter: str | None = None) -> Iterator[tuple[str, dict]]:
-    """Paginate Chroma get() to stay under SQLite variable limits."""
+def _iter_chunks(col, *, page_size: int = GET_PAGE_SIZE):
+    """Yield (id, metadata) without loading the full collection in one SQL query."""
     offset = 0
     while True:
-        data = col.get(include=["metadatas"], limit=GET_BATCH, offset=offset)
-        batch_ids = data["ids"]
-        if not batch_ids:
+        page = col.get(include=["metadatas"], limit=page_size, offset=offset)
+        ids = page.get("ids") or []
+        metas = page.get("metadatas") or []
+        if not ids:
             break
-        for doc_id, meta in zip(batch_ids, data["metadatas"]):
-            if product_filter and meta.get("product") != product_filter:
-                continue
-            yield doc_id, meta
-        offset += len(batch_ids)
-        if len(batch_ids) < GET_BATCH:
+        yield from zip(ids, metas)
+        offset += len(ids)
+        if len(ids) < page_size:
             break
-
-
-def _count_chunks(col) -> int:
-    return col.count()
 
 
 async def enrich_chroma_collection(
@@ -54,6 +47,7 @@ async def enrich_chroma_collection(
     chroma_path: Path = DEFAULT_CHROMA_PATH,
     dry_run: bool = False,
     product_filter: str | None = None,
+    prefix_filter: str | None = None,
     skip_validate: bool = False,
     changed_s3_keys: set[str] | None = None,
 ) -> None:
@@ -62,17 +56,26 @@ async def enrich_chroma_collection(
         settings=ChromaSettings(anonymized_telemetry=False),
     ).get_collection(COLLECTION)
 
-    total = _count_chunks(col)
-    logger.info("Loaded collection — %d chunks total", total)
+    total = col.count()
+    logger.info("Collection has %d chunks", total)
+
+    def _matches(meta: dict) -> bool:
+        if product_filter and meta.get("product") != product_filter:
+            return False
+        sk = meta.get("s3_key", "")
+        if prefix_filter and prefix_filter not in sk:
+            return False
+        if changed_s3_keys is not None and sk not in changed_s3_keys:
+            return False
+        return bool(sk)
 
     s3_keys: set[str] = set()
-    for _doc_id, meta in _iter_chunks(col, product_filter):
-        sk = meta.get("s3_key", "")
-        if not sk:
+    matched = 0
+    for _doc_id, meta in _iter_chunks(col):
+        if not _matches(meta):
             continue
-        if changed_s3_keys is not None and sk not in changed_s3_keys:
-            continue
-        s3_keys.add(sk)
+        matched += 1
+        s3_keys.add(meta["s3_key"])
 
     if changed_s3_keys is not None:
         logger.info(
@@ -80,6 +83,13 @@ async def enrich_chroma_collection(
             len(s3_keys),
             len(changed_s3_keys),
         )
+    logger.info(
+        "Enriching %d chunks (%d unique docs)%s%s",
+        matched,
+        len(s3_keys),
+        f" product={product_filter!r}" if product_filter else "",
+        f" prefix={prefix_filter!r}" if prefix_filter else "",
+    )
 
     derive_by_key = {sk: derive_exl_url(sk) for sk in s3_keys}
     validate_targets = [u for u in derive_by_key.values() if is_specific_url(u)]
@@ -107,11 +117,11 @@ async def enrich_chroma_collection(
         updated_total += len(ids_to_update)
         ids_to_update, metas_to_update = [], []
 
-    for doc_id, meta in _iter_chunks(col, product_filter):
+    for doc_id, meta in _iter_chunks(col):
+        if not _matches(meta):
+            continue
         sk = meta.get("s3_key", "")
         if not sk:
-            continue
-        if changed_s3_keys is not None and sk not in changed_s3_keys:
             continue
 
         citation = enriched_by_key.get(sk)

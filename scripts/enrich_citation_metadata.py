@@ -23,6 +23,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Enrich Chroma citation metadata for all Adobe solutions")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--product", help="Limit to one product")
+    parser.add_argument(
+        "--prefix",
+        help="Limit to s3_key substring (e.g. adobe-docs/customer-journey-analytics/help/cja-main)",
+    )
     parser.add_argument("--skip-validate", action="store_true")
     parser.add_argument(
         "--changed-only",
@@ -44,6 +48,7 @@ def main() -> None:
         enrich_chroma_collection(
             dry_run=args.dry_run,
             product_filter=args.product,
+            prefix_filter=args.prefix,
             skip_validate=args.skip_validate,
             changed_s3_keys=changed_keys,
         )

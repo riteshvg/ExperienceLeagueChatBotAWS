@@ -72,12 +72,21 @@ def _load_redirects() -> dict[str, str]:
     return redirects
 
 
-def resolve_canonical_url(exl_url: str) -> str:
+def resolve_canonical_url(exl_url: str, *, max_hops: int = 8) -> str:
     """
     Given an Experience League URL, return the canonical current URL.
-    If the URL appears as a source in any redirects CSV, return the destination.
-    Otherwise return the URL unchanged.
+    Follows redirect chains (e.g. cja-connections/cca → cca → stitching).
     """
     redirects = _load_redirects()
-    path = _normalise(exl_url)
-    return redirects.get(path, exl_url)
+    url = exl_url
+    seen: set[str] = set()
+    for _ in range(max_hops):
+        path = _normalise(url)
+        if path in seen:
+            break
+        seen.add(path)
+        next_url = redirects.get(path)
+        if not next_url or next_url == url:
+            break
+        url = next_url
+    return url

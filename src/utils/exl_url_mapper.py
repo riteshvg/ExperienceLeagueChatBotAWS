@@ -4,7 +4,10 @@ File path within the repo maps directly to the URL path after stripping
 repo-specific prefixes and applying folder renames.
 """
 
+import json
 import re
+from functools import lru_cache
+from pathlib import Path
 
 REPO_TO_EXL_BASE = {
     "AdobeDocs/analytics.en":
@@ -52,12 +55,49 @@ S3_PREFIX_TO_REPO = {
         "AdobeDocs/customer-journey-analytics-learn.en",
 }
 
-# CJA product guide: repo folder names differ from EXL publish paths.
+# CJA product guide: GitHub help/cja-main/ folder names differ from EXL publish paths.
 CJA_FOLDER_MAP = {
     "connections": "cja-connections",
     "data-views": "cja-dataviews",
     "analysis-workspace": "cja-workspace",
+    "components": "cja-components",
+    "use-cases": "cja-usecases",
+    "permissions": "cja-admin",
+    "cja-basics": "compare-aa-cja",
+    "reporting-activity-manager": "cja-admin",
 }
+
+# Repo-relative paths that are not published on Experience League (skip citations).
+CJA_UNPUBLISHED_REPO_PATHS = frozenset({
+    "code-of-conduct.md",
+    "contributing.md",
+    "license.md",
+    "help/cja-main/TOC.md",
+    "help/video-clips",
+})
+
+# Filename slug overrides after folder mapping (repo stem → EXL slug).
+CJA_FILE_SLUG_MAP = {
+    "guided-analysis-in-workspace": "overview",
+    "object-arrays-in-cja": "object-arrays",
+}
+
+# Prefix rewrites applied after CJA folder mapping (old → new).
+CJA_PATH_REWRITES = (
+    ("cja-workspace/curate-and-share/", "cja-workspace/export/"),
+    ("cja-workspace/curate-share/", "cja-workspace/export/"),
+    (
+        "cja-workspace/virtual-analyst/anomaly-detection/",
+        "cja-workspace/anomaly-detection/",
+    ),
+    (
+        "cja-workspace/panels/media-playback-timespent/",
+        "cja-workspace/panels/media-playback-time-spent/",
+    ),
+    ("cja-dataviews/context-aware-sessions", "cja-dataviews/session-settings"),
+    ("cja-main/overview", "cja-workspace/home"),
+    ("overview", "cja-workspace/home"),
+)
 
 # Analytics: GitHub guide folder names differ from EXL publish slugs.
 ANALYTICS_GUIDE_MAP = {
@@ -76,6 +116,16 @@ AEP_FOLDER_MAP = {
 }
 
 _USING_PRODUCTS = ("journey-optimizer", "target")
+
+_OVERRIDES_PATH = Path(__file__).parent.parent.parent / "config" / "cja_toc_exl_overrides.json"
+
+
+@lru_cache(maxsize=1)
+def _load_cja_toc_overrides() -> dict[str, str]:
+    """Repo-relative path → validated EXL URL (from build_cja_toc_exl_mapping.py)."""
+    if not _OVERRIDES_PATH.exists():
+        return {}
+    return json.loads(_OVERRIDES_PATH.read_text(encoding="utf-8"))
 
 
 def repo_from_s3_key(s3_key: str) -> str | None:
@@ -125,12 +175,46 @@ def _ensure_using_prefix(url: str, product: str) -> str:
     return f"https://experienceleague.adobe.com/en/docs/{product}/using/{suffix}"
 
 
+def _normalize_cja_file_slug(slug: str) -> str:
+    if slug in CJA_FILE_SLUG_MAP:
+        return CJA_FILE_SLUG_MAP[slug]
+    for suffix in ("-in-customer-journey-analytics", "-in-cja"):
+        if slug.endswith(suffix):
+            return slug[: -len(suffix)]
+    return slug
+
+
+def _collapse_duplicate_path_segment(path: str) -> str:
+    parts = path.split("/")
+    if len(parts) >= 2 and parts[-1] == parts[-2]:
+        return "/".join(parts[:-1])
+    return path
+
+
+def _apply_cja_path_rewrites(path: str) -> str:
+    for old, new in CJA_PATH_REWRITES:
+        if path == old or path.startswith(old):
+            return new + path[len(old):]
+    return path
+
+
 def _apply_cja_folder_map(repo_relative: str) -> str:
     parts = repo_relative.split("/")
     if parts and parts[0] in CJA_FOLDER_MAP:
         parts = CJA_FOLDER_MAP[parts[0]].split("/") + parts[1:]
-        return "/".join(parts)
-    return repo_relative
+        repo_relative = "/".join(parts)
+    if parts:
+        parts[-1] = _normalize_cja_file_slug(parts[-1])
+        repo_relative = "/".join(parts)
+    repo_relative = _collapse_duplicate_path_segment(repo_relative)
+    return _apply_cja_path_rewrites(repo_relative)
+
+
+def _is_cja_unpublished_repo_path(repo_relative: str) -> bool:
+    clean = repo_relative.lstrip("/")
+    if clean in CJA_UNPUBLISHED_REPO_PATHS:
+        return True
+    return any(clean.startswith(p) for p in CJA_UNPUBLISHED_REPO_PATHS if p.endswith("/") or "/" in p)
 
 
 def _apply_analytics_guide_map(repo_relative: str) -> str:
@@ -183,6 +267,14 @@ def derive_exl_url(s3_key: str) -> str | None:
             return None
 
         repo_relative = s3_key[len(s3_prefix):]
+
+        if repo == "AdobeDocs/analytics-platform.en":
+            override = _load_cja_toc_overrides().get(repo_relative)
+            if override:
+                return resolve_canonical_url(override)
+
+        if repo == "AdobeDocs/analytics-platform.en" and _is_cja_unpublished_repo_path(repo_relative):
+            return None
 
         # Analytics API docs live under src/pages/, published at developer.adobe.com
         if repo == "AdobeDocs/analytics.en" and repo_relative.startswith("src/pages/"):
