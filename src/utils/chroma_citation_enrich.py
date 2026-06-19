@@ -24,6 +24,22 @@ logger = logging.getLogger(__name__)
 DEFAULT_CHROMA_PATH = Path(__file__).parent.parent.parent / "chroma_db"
 COLLECTION = "experience_league"
 BATCH_SIZE = 500
+GET_PAGE_SIZE = 500
+
+
+def _iter_chunks(col, *, page_size: int = GET_PAGE_SIZE):
+    """Yield (id, metadata) without loading the full collection in one SQL query."""
+    offset = 0
+    while True:
+        page = col.get(include=["metadatas"], limit=page_size, offset=offset)
+        ids = page.get("ids") or []
+        metas = page.get("metadatas") or []
+        if not ids:
+            break
+        yield from zip(ids, metas)
+        offset += len(ids)
+        if len(ids) < page_size:
+            break
 
 
 async def enrich_chroma_collection(
@@ -31,6 +47,7 @@ async def enrich_chroma_collection(
     chroma_path: Path = DEFAULT_CHROMA_PATH,
     dry_run: bool = False,
     product_filter: str | None = None,
+    prefix_filter: str | None = None,
     skip_validate: bool = False,
 ) -> None:
     col = chromadb.PersistentClient(
@@ -38,18 +55,32 @@ async def enrich_chroma_collection(
         settings=ChromaSettings(anonymized_telemetry=False),
     ).get_collection(COLLECTION)
 
-    data = col.get(include=["metadatas"])
-    ids: list[str] = data["ids"]
-    metas: list[dict] = data["metadatas"]
-    logger.info("Loaded %d chunks", len(ids))
+    total = col.count()
+    logger.info("Collection has %d chunks", total)
+
+    def _matches(meta: dict) -> bool:
+        if product_filter and meta.get("product") != product_filter:
+            return False
+        sk = meta.get("s3_key", "")
+        if prefix_filter and prefix_filter not in sk:
+            return False
+        return bool(sk)
 
     s3_keys: set[str] = set()
-    for meta in metas:
-        if product_filter and meta.get("product") != product_filter:
+    matched = 0
+    for _doc_id, meta in _iter_chunks(col):
+        if not _matches(meta):
             continue
-        sk = meta.get("s3_key", "")
-        if sk:
-            s3_keys.add(sk)
+        matched += 1
+        s3_keys.add(meta["s3_key"])
+
+    logger.info(
+        "Enriching %d chunks (%d unique docs)%s%s",
+        matched,
+        len(s3_keys),
+        f" product={product_filter!r}" if product_filter else "",
+        f" prefix={prefix_filter!r}" if prefix_filter else "",
+    )
 
     derive_by_key = {sk: derive_exl_url(sk) for sk in s3_keys}
     validate_targets = [u for u in derive_by_key.values() if is_specific_url(u)]
@@ -67,8 +98,8 @@ async def enrich_chroma_collection(
     ids_to_update: list[str] = []
     metas_to_update: list[dict] = []
 
-    for doc_id, meta in zip(ids, metas):
-        if product_filter and meta.get("product") != product_filter:
+    for doc_id, meta in _iter_chunks(col):
+        if not _matches(meta):
             continue
         sk = meta.get("s3_key", "")
         if not sk:
@@ -106,7 +137,7 @@ async def enrich_chroma_collection(
             s.get(URL_SOURCE_UNMAPPED, 0),
         )
 
-    logger.info("Chunks to update: %d / %d", len(ids_to_update), len(ids))
+    logger.info("Chunks to update: %d / %d", len(ids_to_update), matched)
 
     if dry_run:
         return

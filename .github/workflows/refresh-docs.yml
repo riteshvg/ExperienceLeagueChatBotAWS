@@ -150,7 +150,14 @@ jobs:
       - name: Enrich citation metadata
         if: github.event_name == 'workflow_dispatch' && (github.event.inputs.ingest_prefix != '' || github.event.inputs.ingest_product != '')
         run: |
-          if [ -n "${{ github.event.inputs.ingest_product }}" ]; then
+          if [ -n "${{ github.event.inputs.ingest_prefix }}" ] && [ -n "${{ github.event.inputs.ingest_product }}" ]; then
+            python scripts/enrich_citation_metadata.py \
+              --prefix "${{ github.event.inputs.ingest_prefix }}" \
+              --product "${{ github.event.inputs.ingest_product }}"
+          elif [ -n "${{ github.event.inputs.ingest_prefix }}" ]; then
+            python scripts/enrich_citation_metadata.py \
+              --prefix "${{ github.event.inputs.ingest_prefix }}"
+          elif [ -n "${{ github.event.inputs.ingest_product }}" ]; then
             python scripts/enrich_citation_metadata.py \
               --product "${{ github.event.inputs.ingest_product }}"
           else
