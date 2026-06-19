@@ -451,6 +451,50 @@ export async function getHealth(): Promise<HealthResponse | null> {
   }
 }
 
+export interface MaintenanceStatus {
+  updating: boolean
+  message: string | null
+  checkBackAt: string | null
+}
+
+/** Detect knowledge-bank maintenance from /api/health or /api/ping 503 payload. */
+export async function fetchMaintenanceStatus(): Promise<MaintenanceStatus> {
+  const health = await getHealth()
+  if (health?.status === 'updating' && health.maintenance) {
+    return {
+      updating: true,
+      message: health.maintenance.message,
+      checkBackAt: health.maintenance.check_back_at,
+    }
+  }
+  if (health?.status === 'ok') {
+    return { updating: false, message: null, checkBackAt: null }
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/api/ping`)
+    if (res.status === 503) {
+      const body = await res.json().catch(() => ({}))
+      if (body.detail === 'KNOWLEDGE_BANK_UPDATING' && body.maintenance) {
+        return {
+          updating: true,
+          message: body.maintenance.message,
+          checkBackAt: body.maintenance.check_back_at,
+        }
+      }
+    }
+  } catch {
+    // Backend unreachable during redeploy — treat as maintenance.
+  }
+
+  const fallback = getFallbackMaintenanceMessage()
+  return {
+    updating: true,
+    message: fallback.message,
+    checkBackAt: fallback.check_back_at,
+  }
+}
+
 /** Fallback maintenance message when health is unreachable during redeploy. */
 export function getFallbackMaintenanceMessage(etaMinutes = 4): KnowledgeBankMaintenance {
   const { message, checkBackAt } = formatFallbackCheckBack(etaMinutes)

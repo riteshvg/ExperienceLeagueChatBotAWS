@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 interface Props {
   onSend: (query: string) => void
   disabled?: boolean
+  placeholder?: string
 }
 
 export interface ChatInputHandle {
@@ -12,7 +13,10 @@ export interface ChatInputHandle {
   focus: () => void
 }
 
-export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({ onSend, disabled }, ref) {
+export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
+  { onSend, disabled, placeholder = 'Ask about Adobe Analytics, CJA, AEP, Target, or Journey Optimizer…' },
+  ref,
+) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -64,7 +68,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
         onKeyDown={handleKeyDown}
         onInput={handleInput}
         disabled={disabled}
-        placeholder="Ask about Adobe Analytics, CJA, AEP, Target, or Journey Optimizer…"
+        placeholder={placeholder}
         className={cn(
           'flex-1 resize-none bg-transparent text-sm text-slate-800 placeholder:text-slate-400',
           'focus:outline-none leading-relaxed py-0.5',

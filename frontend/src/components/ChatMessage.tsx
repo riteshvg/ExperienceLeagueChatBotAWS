@@ -107,13 +107,14 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
           isUser
             ? 'bg-[#14532D] text-white rounded-br-sm'
             : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm',
-          !isUser && !message.streaming && 'pr-10',
+          !isUser && !message.streaming && message.content.trim() && 'pr-10',
         )}>
-          {!isUser && !message.streaming && (
-            <div className="absolute right-2 top-2 bottom-2 flex flex-col justify-between items-center">
-              <CopyAnswerButton copied={copied} onCopy={handleCopy} />
-              <CopyAnswerButton copied={copied} onCopy={handleCopy} />
-            </div>
+          {!isUser && !message.streaming && message.content.trim() && (
+            <CopyAnswerButton
+              copied={copied}
+              onCopy={handleCopy}
+              className="absolute right-2 top-2"
+            />
           )}
           {isUser ? (
             <p>{message.content}</p>
@@ -180,7 +181,7 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
         </div>
 
         {/* Sources + follow-ups (compact expandable row) */}
-        {!isUser && !message.streaming && (
+        {!isUser && !message.streaming && message.content.trim() && (
           <MessageExtras
             evidence={message.evidence}
             citations={message.citations}

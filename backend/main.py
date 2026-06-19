@@ -70,6 +70,20 @@ def _clear_chroma_dir() -> None:
         logger.info(f"Cleared local ChromaDB at {_CHROMA_DIR}")
 
 
+def _fix_chroma_permissions() -> None:
+    """Ensure extracted Chroma files are writable on Railway volumes."""
+    import stat
+
+    if not _CHROMA_DIR.exists():
+        return
+    for root, dirs, files in os.walk(_CHROMA_DIR):
+        os.chmod(root, stat.S_IRWXU)
+        for name in dirs:
+            os.chmod(os.path.join(root, name), stat.S_IRWXU)
+        for name in files:
+            os.chmod(os.path.join(root, name), stat.S_IRUSR | stat.S_IWUSR)
+
+
 def _restore_chroma_from_s3() -> bool:
     """Download and extract chroma_db.tar.gz from S3 when empty or forced."""
     import tarfile
@@ -108,6 +122,7 @@ def _restore_chroma_from_s3() -> bool:
             tar.extractall(_CHROMA_DIR.parent)
 
         Path(tmp_path).unlink()
+        _fix_chroma_permissions()
 
         restored = _chroma_chunk_count()
         if restored == 0:

@@ -47,10 +47,13 @@ class ChromaRetriever:
         self.bedrock = boto3.client("bedrock-runtime", region_name=region)
         logger.info(f"Using Titan Embed v2 for embeddings (region: {region})")
 
-        self.collection = self.client.get_or_create_collection(
-            name=COLLECTION_NAME,
-            metadata={"hnsw:space": "cosine"},
-        )
+        try:
+            self.collection = self.client.get_collection(name=COLLECTION_NAME)
+        except Exception:
+            self.collection = self.client.get_or_create_collection(
+                name=COLLECTION_NAME,
+                metadata={"hnsw:space": "cosine"},
+            )
         count = self.collection.count()
         logger.info(f"ChromaDB ready — {count} document chunks indexed")
 

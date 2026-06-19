@@ -6,7 +6,7 @@ import { useQuotaStore } from '@/store/quotaStore';
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput';
 import { ChatMessage } from '@/components/ChatMessage';
 import { Sidebar } from '@/components/Sidebar';
-import { getMe, getHealth, getFallbackMaintenanceMessage, isApiDisabled } from '@/lib/api';
+import { getMe, fetchMaintenanceStatus, isApiDisabled } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { trackSessionStart, trackSessionEnd } from '@/analytics';
 
@@ -155,25 +155,16 @@ export function ChatPage() {
     });
 
     const pollHealth = async () => {
-      const health = await getHealth();
-      if (health?.status === 'updating' && health.maintenance) {
-        setKnowledgeBankMaintenance(
-          true,
-          health.maintenance.message,
-          health.maintenance.check_back_at,
-        );
-        return;
-      }
-      if (health?.status === 'ok') {
-        setKnowledgeBankMaintenance(false, null, null);
-        return;
-      }
-      const fallback = getFallbackMaintenanceMessage();
-      setKnowledgeBankMaintenance(true, fallback.message, fallback.check_back_at);
+      const status = await fetchMaintenanceStatus();
+      setKnowledgeBankMaintenance(
+        status.updating,
+        status.message,
+        status.checkBackAt,
+      );
     };
 
     pollHealth();
-    const interval = setInterval(pollHealth, 30_000);
+    const interval = setInterval(pollHealth, 10_000);
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -281,17 +272,6 @@ export function ChatPage() {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-          {/* Knowledge bank maintenance banner */}
-          {knowledgeBankUpdating && !apiDisabled && (
-            <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-violet-50 border border-violet-200 text-violet-900">
-              <Clock className="w-4 h-4 flex-shrink-0 mt-0.5 text-violet-600" />
-              <p className="text-sm">
-                {knowledgeBankMessage ??
-                  'The application knowledge bank is being updated. Please check back shortly.'}
-              </p>
-            </div>
-          )}
-
           {/* Kill switch banner */}
           {apiDisabled && (
             <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
@@ -426,6 +406,18 @@ export function ChatPage() {
 
         {/* Input */}
         <div className="flex-shrink-0 px-4 py-3 bg-slate-50 border-t border-slate-200">
+          {knowledgeBankUpdating && !apiDisabled && (
+            <div
+              role="status"
+              className="flex items-start gap-3 px-4 py-3 mb-3 rounded-xl bg-violet-50 border border-violet-200 text-violet-900"
+            >
+              <Clock className="w-4 h-4 shrink-0 mt-0.5 text-violet-600" />
+              <p className="text-sm leading-relaxed">
+                {knowledgeBankMessage ??
+                  'The application knowledge bank is being updated. Please check back shortly.'}
+              </p>
+            </div>
+          )}
           <ChatInput
             ref={inputRef}
             onSend={sendMessage}
@@ -435,6 +427,11 @@ export function ChatPage() {
               knowledgeBankUpdating ||
               isExhausted ||
               monthlyExhausted
+            }
+            placeholder={
+              knowledgeBankUpdating
+                ? 'Knowledge bank is updating — please check back shortly…'
+                : undefined
             }
           />
           <div className="mt-2 flex flex-col items-center gap-0.5">
