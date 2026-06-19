@@ -38,7 +38,8 @@ def _get_titan_embedding(text: str, bedrock_client) -> list[float]:
 
 
 class ChromaRetriever:
-    def __init__(self, persist_dir: str = _DEFAULT_PERSIST_DIR):
+    def __init__(self, persist_dir: str | None = None):
+        persist_dir = persist_dir or str(chroma_persist_dir())
         logger.info(f"Initialising ChromaDB at {persist_dir}")
         self.client = chromadb.PersistentClient(
             path=persist_dir,
@@ -51,7 +52,8 @@ class ChromaRetriever:
 
         try:
             self.collection = self.client.get_collection(name=COLLECTION_NAME)
-        except Exception:
+        except Exception as exc:
+            logger.warning("get_collection failed (%s) — trying get_or_create", exc)
             self.collection = self.client.get_or_create_collection(
                 name=COLLECTION_NAME,
                 metadata={"hnsw:space": "cosine"},

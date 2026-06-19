@@ -104,17 +104,17 @@ def _restore_chroma_from_s3() -> bool:
     import boto3
 
     force = _env_truthy("FORCE_CHROMA_RESTORE")
-    count = _chroma_chunk_count()
 
     if force:
         logger.warning(
             "FORCE_CHROMA_RESTORE is set — wiping local ChromaDB and restoring from S3"
         )
         _clear_chroma_dir()
-        count = 0
-    elif count > 0:
-        logger.info(f"ChromaDB already populated ({count} chunks) — skipping S3 restore")
-        return True
+    else:
+        count = _chroma_chunk_count()
+        if count > 0:
+            logger.info(f"ChromaDB already populated ({count} chunks) — skipping S3 restore")
+            return True
 
     bucket = os.getenv("AWS_S3_BUCKET", "")
     if not bucket:
@@ -135,27 +135,20 @@ def _restore_chroma_from_s3() -> bool:
             tar.extractall(restore_parent)
 
         staged_dir = restore_parent / "chroma_db"
-        if not staged_dir.exists():
-            logger.error("Archive missing chroma_db/ directory after extract")
+        if not staged_dir.exists() or not (staged_dir / "chroma.sqlite3").is_file():
+            logger.error("Archive missing chroma_db/chroma.sqlite3 after extract")
             return False
 
-        _fix_chroma_permissions(staged_dir)
-        restored = _chroma_chunk_count_at(staged_dir)
-        if restored == 0:
-            listing = list(staged_dir.rglob("*"))[:10]
-            logger.error(
-                "ChromaDB archive invalid — collection empty after staging extract; "
-                f"sample files: {[str(p.relative_to(staged_dir)) for p in listing]}"
-            )
-            return False
+        sqlite_mb = (staged_dir / "chroma.sqlite3").stat().st_size / 1024 / 1024
+        logger.info("Staged ChromaDB archive OK (chroma.sqlite3 %.1f MB)", sqlite_mb)
 
         _CHROMA_DIR.parent.mkdir(parents=True, exist_ok=True)
         if _CHROMA_DIR.exists():
             shutil.rmtree(_CHROMA_DIR)
-        shutil.copytree(staged_dir, _CHROMA_DIR)
+        shutil.move(str(staged_dir), str(_CHROMA_DIR))
         _fix_chroma_permissions(_CHROMA_DIR)
 
-        logger.info(f"ChromaDB restored from S3 ✓ ({restored} chunks)")
+        logger.info("ChromaDB restored from S3 ✓ (moved to %s)", _CHROMA_DIR)
         if force:
             logger.warning(
                 "Unset FORCE_CHROMA_RESTORE on Railway after verifying /api/health "
@@ -216,7 +209,9 @@ async def lifespan(app: FastAPI):
         )
 
     _restore_chroma_from_s3()
-    _fix_chroma_permissions()
+    _fix_chroma_permissions(_CHROMA_DIR)
+    import gc
+    gc.collect()
     try:
         retriever = ChromaRetriever()
     except Exception as e:
