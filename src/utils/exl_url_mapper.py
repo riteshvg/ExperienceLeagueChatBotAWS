@@ -17,6 +17,8 @@ REPO_TO_EXL_BASE = {
         "https://experienceleague.adobe.com/en/docs/journey-optimizer",
     "AdobeDocs/target.en":
         "https://experienceleague.adobe.com/en/docs/target",
+    "AdobeDocs/platform-learn.en":
+        "https://experienceleague.adobe.com/en/docs/platform-learn",
 }
 
 # Data Collection docs live inside experience-platform.en (help/collection,
@@ -42,6 +44,8 @@ S3_PREFIX_TO_REPO = {
         "AdobeDocs/target.en",
     "adobe-docs/data-collection/":
         "AdobeDocs/experience-platform.en",
+    "adobe-docs/platform-learn/":
+        "AdobeDocs/platform-learn.en",
 }
 
 # CJA product guide: repo folder names differ from EXL publish paths.

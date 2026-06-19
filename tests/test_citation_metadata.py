@@ -101,6 +101,11 @@ SAMPLES = [
         "adobe-docs/experience-platform/help/query-service/home.md",
         "https://experienceleague.adobe.com/en/docs/experience-platform/query/home",
     ),
+    (
+        "AdobeDocs/platform-learn.en",
+        "adobe-docs/platform-learn/help/data-collection/debugger/overview.md",
+        "https://experienceleague.adobe.com/en/docs/platform-learn/data-collection/debugger/overview",
+    ),
 ]
 
 
