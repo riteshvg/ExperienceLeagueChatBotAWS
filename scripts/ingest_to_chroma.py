@@ -271,12 +271,19 @@ def main():
         entries = entries[: args.limit]
         logger.info(f"Limiting to {len(entries)} entries")
 
-    if args.start_at > 0:
-        if args.start_at >= len(entries):
-            logger.info("--start-at %d >= entry count — nothing to ingest", args.start_at)
+    total_entries = len(entries)
+    start_offset = max(args.start_at, 0)
+    if start_offset > 0:
+        if start_offset >= total_entries:
+            logger.info("--start-at %d >= entry count — nothing to ingest", start_offset)
             return
-        logger.info("Resuming ingest at registry index %d (skipping %d entries)", args.start_at, args.start_at)
-        entries = entries[args.start_at:]
+        logger.info(
+            "Resuming ingest at registry index %d/%d (skipping first %d entries)",
+            start_offset,
+            total_entries,
+            start_offset,
+        )
+        entries = entries[start_offset:]
 
     # ── AWS S3 client ──────────────────────────────────────────────────────
     bucket = os.getenv("AWS_S3_BUCKET", "")
@@ -340,11 +347,13 @@ def main():
     t0 = time.time()
 
     for doc_idx, (s3_key, meta) in enumerate(entries):
+        abs_idx = start_offset + doc_idx
         if doc_idx % 50 == 0:
             elapsed = time.time() - t0
             logger.info(
-                f"[{doc_idx}/{len(entries)}] "
+                f"[{abs_idx}/{total_entries}] "
                 f"chunks={total_chunks}  skipped={skipped}  "
+                f"skipped_existing={skipped_existing}  "
                 f"elapsed={elapsed:.0f}s"
             )
 

@@ -32,9 +32,22 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     timeout-minutes: 300
+    env:
+      FORCE: ${{ github.event.inputs.force || 'false' }}
+      INGEST_START_AT: ${{ github.event.inputs.ingest_start_at || '0' }}
+      INGEST_PREFIX: ${{ github.event.inputs.ingest_prefix || '' }}
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Workflow inputs
+        run: |
+          echo "force=${FORCE}"
+          echo "ingest_start_at=${INGEST_START_AT}"
+          echo "ingest_prefix=${INGEST_PREFIX}"
+          if [ "${INGEST_START_AT}" != "0" ]; then
+            echo "Resume mode — will skip GitHub→S3 sync and start ingest at index ${INGEST_START_AT}"
+          fi
 
       - uses: actions/setup-python@v5
         with:
@@ -91,6 +104,7 @@ jobs:
       #   AdobeDocs/platform-learn.en     → adobe-docs/platform-learn/
       # Writes data/changed_s3_keys.txt with the S3 keys of files that changed.
       - name: Sync GitHub → S3
+        if: env.INGEST_START_AT == '0'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -99,10 +113,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ARGS=""
-          if [ "${{ github.event.inputs.force }}" = "true" ]; then
+          if [ "${FORCE}" = "true" ]; then
             ARGS="--force"
           fi
           python scripts/sync_docs_to_s3.py $ARGS
+
+      - name: Skip sync (ingest resume)
+        if: env.INGEST_START_AT != '0'
+        run: echo "Skipping GitHub→S3 sync — resuming ingest at registry index ${INGEST_START_AT}"
 
       # Save the updated manifest immediately so it's preserved even if later steps fail.
       - name: Save sync manifest to S3
@@ -133,22 +151,23 @@ jobs:
           AWS_S3_BUCKET: experienceleaguechatbot
           BEDROCK_REGION: us-east-1
         run: |
-          if [ -n "${{ github.event.inputs.ingest_prefix }}" ]; then
-            echo "Targeted ingest prefix=${{ github.event.inputs.ingest_prefix }}"
+          if [ -n "${INGEST_PREFIX}" ]; then
+            echo "Targeted ingest prefix=${INGEST_PREFIX}"
             if [ -n "${{ github.event.inputs.ingest_product }}" ]; then
               python scripts/ingest_to_chroma.py \
-                --prefix "${{ github.event.inputs.ingest_prefix }}" \
+                --prefix "${INGEST_PREFIX}" \
                 --product "${{ github.event.inputs.ingest_product }}"
             else
               python scripts/ingest_to_chroma.py \
-                --prefix "${{ github.event.inputs.ingest_prefix }}"
+                --prefix "${INGEST_PREFIX}"
             fi
-          elif [ "${{ github.event.inputs.force }}" = "true" ]; then
+          elif [ "${FORCE}" = "true" ]; then
             echo "Full ingest (force=true)"
             ARGS="--skip-existing"
-            if [ "${{ github.event.inputs.ingest_start_at }}" != "0" ] && [ -n "${{ github.event.inputs.ingest_start_at }}" ]; then
-              ARGS="$ARGS --start-at ${{ github.event.inputs.ingest_start_at }}"
+            if [ "${INGEST_START_AT}" != "0" ]; then
+              ARGS="$ARGS --start-at ${INGEST_START_AT}"
             fi
+            echo "Running: python scripts/ingest_to_chroma.py ${ARGS}"
             python scripts/ingest_to_chroma.py $ARGS
           else
             echo "Incremental ingest (--changed-only)"
@@ -181,9 +200,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
         run: |
-          if [ "${{ github.event.inputs.force }}" = "true" ] || [ -s data/changed_s3_keys.txt ]; then
+          if [ "${FORCE}" = "true" ] || [ -s data/changed_s3_keys.txt ]; then
             ARGS=""
-            if [ "${{ github.event.inputs.force }}" != "true" ] && [ -s data/changed_s3_keys.txt ]; then
+            if [ "${FORCE}" != "true" ] && [ -s data/changed_s3_keys.txt ]; then
               ARGS="--changed-only"
             fi
             python scripts/enrich_citation_metadata.py $ARGS
