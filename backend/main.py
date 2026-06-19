@@ -58,7 +58,8 @@ def _chroma_chunk_count() -> int:
         )
         col = client.get_collection(_COLLECTION)
         return col.count()
-    except Exception:
+    except Exception as exc:
+        logger.warning("Could not read Chroma collection count: %s", exc)
         return 0
 
 
@@ -76,12 +77,15 @@ def _fix_chroma_permissions() -> None:
 
     if not _CHROMA_DIR.exists():
         return
+    dir_mode = stat.S_IRWXU | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH
+    file_mode = stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH
     for root, dirs, files in os.walk(_CHROMA_DIR):
-        os.chmod(root, stat.S_IRWXU)
+        os.chmod(root, dir_mode)
         for name in dirs:
-            os.chmod(os.path.join(root, name), stat.S_IRWXU)
+            os.chmod(os.path.join(root, name), dir_mode)
         for name in files:
-            os.chmod(os.path.join(root, name), stat.S_IRUSR | stat.S_IWUSR)
+            os.chmod(os.path.join(root, name), file_mode)
+    logger.info("ChromaDB file permissions updated for volume restore")
 
 
 def _restore_chroma_from_s3() -> bool:
@@ -189,6 +193,7 @@ async def lifespan(app: FastAPI):
         )
 
     _restore_chroma_from_s3()
+    _fix_chroma_permissions()
     try:
         retriever = ChromaRetriever()
     except Exception as e:
