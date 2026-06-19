@@ -1,6 +1,8 @@
 /**
  * Typed API client for the FastAPI backend.
  */
+import type { DomainScores, Exam, ReadinessReport } from '@/types/educator'
+
 // In production, VITE_API_URL points to the Railway backend.
 // In development, empty string → Vite proxy handles /api/* → localhost:8000
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
@@ -437,6 +439,129 @@ export async function isApiDisabled(): Promise<boolean> {
     return false
   } catch {
     return false
+  }
+}
+
+// ── Educator Mode (admin beta) ────────────────────────────────────────────────
+
+export type EducatorSSEEvent =
+  | { type: 'token'; content: string }
+  | { type: 'done'; model: string; session_id: string; next_domain?: string; next_domain_name?: string }
+  | { type: 'error'; message: string }
+
+export async function getEducatorStatus(): Promise<{
+  enabled: boolean
+  is_admin: boolean
+  email: string
+} | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/educator/status`, { headers: authHeaders() })
+    if (res.status === 404 || res.status === 403) return null
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
+export async function fetchEducatorExams(): Promise<Exam[]> {
+  const res = await fetch(`${API_BASE}/api/educator/exams`, { headers: authHeaders() })
+  if (!res.ok) throw new Error('Failed to load exams')
+  const data = await res.json()
+  return data.exams as Exam[]
+}
+
+export async function fetchEducatorScore(
+  examId: string,
+  domainScores: DomainScores,
+  totalCorrect?: number,
+  totalAsked?: number,
+): Promise<ReadinessReport> {
+  const res = await fetch(`${API_BASE}/api/educator/score`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      exam_id: examId,
+      domain_scores: domainScores,
+      total_correct: totalCorrect,
+      total_asked: totalAsked,
+    }),
+  })
+  if (!res.ok) throw new Error('Failed to generate score report')
+  return res.json()
+}
+
+export async function logEducatorSession(payload: {
+  examId: string
+  domainScores: DomainScores
+  questionsAsked: number
+  sessionStarted: number
+  durationSecs: number
+}): Promise<void> {
+  await fetch(`${API_BASE}/api/educator/log`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      exam_id: payload.examId,
+      domain_scores: payload.domainScores,
+      questions_asked: payload.questionsAsked,
+      session_started: payload.sessionStarted,
+      duration_secs: payload.durationSecs,
+    }),
+  }).catch(() => {})
+}
+
+export async function* streamEducatorChat(
+  messages: { role: string; content: string }[],
+  examId: string,
+  sessionId: string,
+  domainScores: DomainScores,
+  questionNumber: number,
+): AsyncGenerator<EducatorSSEEvent> {
+  const res = await fetch(`${API_BASE}/api/educator/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({
+      messages,
+      exam_id: examId,
+      session_id: sessionId,
+      domain_scores: domainScores,
+      question_number: questionNumber,
+    }),
+  })
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    if (res.status === 403) {
+      throw new Error(body.detail ?? 'Educator mode requires admin access')
+    }
+    throw new Error(body.detail ?? `Educator chat failed: ${res.status}`)
+  }
+
+  const reader = res.body!.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const raw = line.slice(6).trim()
+        if (raw && raw !== '[DONE]') {
+          try {
+            yield JSON.parse(raw) as EducatorSSEEvent
+          } catch {
+            // skip malformed chunk
+          }
+        }
+      }
+    }
   }
 }
 

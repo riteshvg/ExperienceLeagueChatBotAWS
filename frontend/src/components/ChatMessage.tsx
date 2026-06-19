@@ -4,12 +4,19 @@ import remarkGfm from 'remark-gfm'
 import { Play, Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MessageExtras } from './MessageExtras'
+import { QuestionCard } from './QuestionCard'
+import { parseQuestionFromMessage } from '@/lib/educator-parse'
 import { type Message } from '@/lib/api'
 
 interface Props {
   message: Message
   onFollowUpClick: (text: string) => void
   turnNumber?: number
+  educatorActive?: boolean
+  educatorAnswered?: boolean
+  onEducatorAnswer?: (answer: string) => void
+  onEducatorSkip?: () => void
+  educatorDisabled?: boolean
 }
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
@@ -85,11 +92,24 @@ function CopyAnswerButton({
   )
 }
 
-export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props) {
+export function ChatMessage({
+  message,
+  onFollowUpClick,
+  turnNumber = 0,
+  educatorActive = false,
+  educatorAnswered = false,
+  onEducatorAnswer,
+  onEducatorSkip,
+  educatorDisabled = false,
+}: Props) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
   const displayedContent = useTypewriter(message.content || '', !!message.streaming, 12)
   const processedContent = stripMdLinks(stripCitationMarkers(sanitizeAdobeMarkup(displayedContent || ' ')))
+  const parsedQuestion =
+    educatorActive && !isUser && !message.streaming
+      ? parseQuestionFromMessage(message.content)
+      : null
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -177,6 +197,15 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
                 {processedContent}
               </ReactMarkdown>
             </div>
+          )}
+          {parsedQuestion && onEducatorAnswer && onEducatorSkip && (
+            <QuestionCard
+              question={parsedQuestion}
+              disabled={educatorDisabled}
+              answered={educatorAnswered}
+              onSubmit={onEducatorAnswer}
+              onSkip={onEducatorSkip}
+            />
           )}
         </div>
 

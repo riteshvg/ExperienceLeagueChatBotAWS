@@ -61,6 +61,9 @@ class Settings(BaseSettings):
     # If set, only this email can log into the admin panel
     admin_email: Optional[str] = Field(None, env="ADMIN_EMAIL")
 
+    # Educator Mode (beta) — admin-gated exam prep
+    educator_mode_enabled: bool = Field(default=False, env="EDUCATOR_MODE_ENABLED")
+
     # Per-user daily query rate limiting (fallback default; authoritative value is in system_config)
     daily_query_limit: int = Field(default=20, env="DAILY_QUERY_LIMIT")
 

@@ -1,13 +1,18 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Menu, Ban, Clock, WifiOff, CalendarX } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { useQuotaStore } from '@/store/quotaStore';
+import { useEducatorStore } from '@/store/educatorStore';
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput';
 import { ChatMessage } from '@/components/ChatMessage';
 import { Sidebar } from '@/components/Sidebar';
+import { EducatorModeChip } from '@/components/EducatorModeChip';
+import { ExamSelectorModal } from '@/components/ExamSelectorModal';
+import { ScoreReport } from '@/components/ScoreReport';
 import { getMe, fetchMaintenanceStatus, isApiDisabled } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { parseQuestionFromMessage } from '@/lib/educator-parse';
 import { trackSessionStart, trackSessionEnd } from '@/analytics';
 
 const WELCOME_KEY = 'rovr_welcome_dismissed';
@@ -85,7 +90,7 @@ export function ChatPage() {
     sessions,
     activeSessionId,
     isStreaming,
-    sendMessage,
+    sendMessage: sendStandardMessage,
     error,
     accessDenied,
     rateLimited,
@@ -103,7 +108,7 @@ export function ChatPage() {
     setApiDisabled,
     setKnowledgeBankMaintenance,
   } = useChatStore();
-  const { logout } = useAuthStore();
+  const { logout, session: authSession } = useAuthStore();
   const {
     monthlyLimit,
     monthlyUsed,
@@ -113,12 +118,103 @@ export function ChatPage() {
     isExhausted,
     fetchQuota,
   } = useQuotaStore();
+  const {
+    mode: rovrMode,
+    featureAvailable,
+    exams,
+    exam,
+    init: initEducator,
+    startExam,
+    exitEducatorMode,
+    sendMessage: sendEducatorMessage,
+    submitAnswer,
+    isStreaming: educatorStreaming,
+    scoreReport,
+    showScorePanel,
+    dismissScorePanel,
+    getStartupMessage,
+  } = useEducatorStore();
+
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [examModalOpen, setExamModalOpen] = useState(false);
+  const [answeredQuestionIds, setAnsweredQuestionIds] = useState<Set<string>>(new Set());
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [welcomeDismissed, setWelcomeDismissed] = useState(
     () => !!localStorage.getItem(WELCOME_KEY),
   );
   const messages = sessions[activeSessionId]?.messages ?? [];
+  const streaming = isStreaming || educatorStreaming;
+  const showEducatorChip = featureAvailable && authSession?.is_admin;
+
+  const patchMessages = useCallback(
+    (updater: (msgs: typeof messages) => typeof messages) => {
+      useChatStore.setState((s) => {
+        const session = s.sessions[s.activeSessionId];
+        if (!session) return s;
+        const updated = updater(session.messages);
+        const title =
+          updated.find((m) => m.role === 'user')?.content.slice(0, 45) ?? 'New chat';
+        return {
+          ...s,
+          sessions: {
+            ...s.sessions,
+            [s.activeSessionId]: {
+              ...session,
+              messages: updated,
+              title: title + (title.length >= 45 ? '…' : ''),
+            },
+          },
+        };
+      });
+    },
+    [],
+  );
+
+  const getMessages = useCallback(
+    () => useChatStore.getState().sessions[activeSessionId]?.messages ?? [],
+    [activeSessionId],
+  );
+
+  const handleSend = useCallback(
+    async (query: string) => {
+      if (rovrMode === 'educator') {
+        await sendEducatorMessage(query, activeSessionId, patchMessages, getMessages);
+      } else {
+        await sendStandardMessage(query);
+      }
+    },
+    [rovrMode, sendEducatorMessage, sendStandardMessage, activeSessionId, patchMessages, getMessages],
+  );
+
+  const handleEducatorAnswer = useCallback(
+    async (answer: string, questionMsgId: string) => {
+      setAnsweredQuestionIds((prev) => new Set(prev).add(questionMsgId));
+      await submitAnswer(answer, activeSessionId, patchMessages, getMessages);
+    },
+    [submitAnswer, activeSessionId, patchMessages, getMessages],
+  );
+
+  const handleModeChange = useCallback(
+    (mode: 'standard' | 'educator') => {
+      if (mode === 'standard') {
+        exitEducatorMode();
+        return;
+      }
+      setExamModalOpen(true);
+    },
+    [exitEducatorMode],
+  );
+
+  const handleExamSelected = useCallback(
+    async (examId: string) => {
+      setExamModalOpen(false);
+      setAnsweredQuestionIds(new Set());
+      await startExam(examId);
+      const startup = getStartupMessage();
+      await submitAnswer(startup, activeSessionId, patchMessages, getMessages);
+    },
+    [startExam, getStartupMessage, submitAnswer, activeSessionId, patchMessages, getMessages],
+  );
 
   const visibleQuestions =
     activeCategory === 'All'
@@ -165,13 +261,22 @@ export function ChatPage() {
 
     pollHealth();
     const interval = setInterval(pollHealth, 10_000);
+
+    initEducator().then(() => {
+      const params = new URLSearchParams(window.location.search);
+      const examParam = params.get('exam');
+      if (params.get('mode') === 'educator' && examParam) {
+        handleExamSelected(examParam);
+      }
+    });
+
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-fetch quota after each message completes
   useEffect(() => {
-    if (!isStreaming && messages.length > 0) fetchQuota();
-  }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!streaming && messages.length > 0) fetchQuota();
+  }, [streaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Analytics: fire session_start on page load for fresh sessions
   useEffect(() => {
@@ -192,10 +297,10 @@ export function ChatPage() {
   }, [messages]);
 
   useEffect(() => {
-    if (!isStreaming && messages.length > 0) {
+    if (!streaming && messages.length > 0) {
       inputRef.current?.focus();
     }
-  }, [isStreaming, messages.length]);
+  }, [streaming, messages.length]);
 
   const handleSelectPrompt = (text: string) => {
     inputRef.current?.fill(text);
@@ -267,7 +372,17 @@ export function ChatPage() {
           >
             <Menu className="w-4 h-4" />
           </button>
-          <h1 className="text-sm font-semibold text-slate-700">Rovr</h1>
+          <div className="flex items-center gap-3 min-w-0">
+            <h1 className="text-sm font-semibold text-slate-700">Rovr</h1>
+            {rovrMode === 'educator' && exam && (
+              <span className="hidden sm:inline text-xs text-violet-600 truncate">
+                Educator · {exam.id}
+              </span>
+            )}
+          </div>
+          {showEducatorChip && (
+            <EducatorModeChip mode={rovrMode} onModeChange={handleModeChange} />
+          )}
         </header>
 
         {/* Messages */}
@@ -297,7 +412,7 @@ export function ChatPage() {
             </div>
           )}
 
-          {messages.length === 0 && (
+          {messages.length === 0 && rovrMode === 'standard' && (
             <div className="min-h-full flex flex-col items-center justify-center px-4 py-8 md:py-12">
               <img
                 src={`${import.meta.env.BASE_URL}rovrlogo.png`}
@@ -361,7 +476,7 @@ export function ChatPage() {
                 {visibleQuestions.map(({ q, cat }) => (
                   <button
                     key={q}
-                    onClick={() => sendMessage(q)}
+                    onClick={() => handleSend(q)}
                     className="group text-left px-4 py-3 rounded-xl border border-slate-200 bg-white
                       hover:border-indigo-300 hover:shadow-sm transition-all"
                   >
@@ -379,17 +494,47 @@ export function ChatPage() {
             </div>
           )}
 
+          {messages.length === 0 && rovrMode === 'educator' && exam && (
+            <div className="min-h-full flex flex-col items-center justify-center px-4 py-8 text-center">
+              <p className="text-sm text-violet-700 font-medium mb-1">
+                Educator mode · {exam.name}
+              </p>
+              <p className="text-xs text-slate-500 max-w-md">
+                Practice questions are generated from Experience League docs. Type /score for
+                progress or /quit to exit.
+              </p>
+            </div>
+          )}
+
           {(() => {
             let userTurn = 0;
             return messages.map((msg) => {
               if (msg.role === 'user') userTurn++;
               const turn = userTurn;
+              const hasQuestion =
+                rovrMode === 'educator' &&
+                msg.role === 'assistant' &&
+                !msg.streaming &&
+                !!parseQuestionFromMessage(msg.content);
               return (
                 <ChatMessage
                   key={msg.id}
                   message={msg}
                   onFollowUpClick={handleSelectPrompt}
                   turnNumber={turn}
+                  educatorActive={rovrMode === 'educator'}
+                  educatorAnswered={answeredQuestionIds.has(msg.id)}
+                  educatorDisabled={streaming}
+                  onEducatorAnswer={
+                    hasQuestion
+                      ? (ans) => handleEducatorAnswer(ans, msg.id)
+                      : undefined
+                  }
+                  onEducatorSkip={
+                    hasQuestion
+                      ? () => handleEducatorAnswer('skip', msg.id)
+                      : undefined
+                  }
                 />
               );
             });
@@ -420,18 +565,20 @@ export function ChatPage() {
           )}
           <ChatInput
             ref={inputRef}
-            onSend={sendMessage}
+            onSend={handleSend}
             disabled={
-              isStreaming ||
+              streaming ||
               apiDisabled ||
               knowledgeBankUpdating ||
               isExhausted ||
               monthlyExhausted
             }
             placeholder={
-              knowledgeBankUpdating
-                ? 'Knowledge bank is updating — please check back shortly…'
-                : undefined
+              rovrMode === 'educator'
+                ? 'Answer A/B/C/D, explain reasoning, or type /score · /quit'
+                : knowledgeBankUpdating
+                  ? 'Knowledge bank is updating — please check back shortly…'
+                  : undefined
             }
           />
           <div className="mt-2 flex flex-col items-center gap-0.5">
@@ -487,6 +634,21 @@ export function ChatPage() {
         <span className="text-base leading-none">👍</span>
         Thank you for your feedback
       </div>
+
+      <ExamSelectorModal
+        exams={exams}
+        open={examModalOpen}
+        onClose={() => setExamModalOpen(false)}
+        onSelect={handleExamSelected}
+      />
+
+      {showScorePanel && scoreReport && (
+        <ScoreReport
+          report={scoreReport}
+          examName={exam?.name}
+          onClose={dismissScorePanel}
+        />
+      )}
     </div>
   );
 }

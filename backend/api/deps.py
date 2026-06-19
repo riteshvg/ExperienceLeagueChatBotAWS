@@ -89,7 +89,28 @@ def get_site_user(
         "uid": session["user_id"],
         "email": session["email"],
         "name": session.get("name", ""),
+        "is_admin": bool(session.get("is_admin", False)),
     }
+
+
+def get_educator_user(
+    user: Annotated[dict, Depends(get_site_user)],
+) -> dict:
+    """Gate Educator Mode behind feature flag + admin check."""
+    from config.settings import get_settings
+
+    settings = get_settings()
+    if not settings.educator_mode_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not found",
+        )
+    if not user.get("is_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Educator mode is in beta and only available to admins.",
+        )
+    return user
 
 
 def get_admin_user(
