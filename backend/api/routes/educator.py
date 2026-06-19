@@ -44,11 +44,14 @@ class EducatorChatRequest(BaseModel):
     session_id: Optional[str] = None
     domain_scores: dict[str, dict[str, int]] = Field(default_factory=dict)
     question_number: int = 1
+    current_question: Optional[dict] = None
+    active_domain_id: Optional[str] = None
 
 
 class ScoreRequest(BaseModel):
     exam_id: str
     domain_scores: dict[str, dict[str, int]] = Field(default_factory=dict)
+    questions: list[dict] = Field(default_factory=list)
     total_correct: Optional[int] = None
     total_asked: Optional[int] = None
 
@@ -84,8 +87,9 @@ async def score_report(body: ScoreRequest, _: Annotated[dict, Depends(get_educat
     report = generate_readiness_report(
         exam,
         body.domain_scores,
-        body.total_correct,
-        body.total_asked,
+        questions=body.questions,
+        total_correct=body.total_correct,
+        total_asked=body.total_asked,
     )
     return readiness_report_to_dict(report)
 
@@ -140,6 +144,8 @@ async def educator_chat(
             domain_scores=body.domain_scores,
             session_id=session_id,
             question_number=body.question_number,
+            current_question=body.current_question,
+            active_domain_id=body.active_domain_id,
         ):
             yield {"data": json.dumps(event)}
 

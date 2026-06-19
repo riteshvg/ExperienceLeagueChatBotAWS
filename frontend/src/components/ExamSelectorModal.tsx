@@ -38,7 +38,7 @@ export function ExamSelectorModal({ exams, open, onClose, onSelect }: Props) {
           <div>
             <h2 className="text-base font-semibold text-slate-800">Choose a certification exam</h2>
             <p className="text-xs text-slate-500">
-              Educator mode generates practice questions weighted to each exam blueprint.
+              Educator mode won't just test you — it'll teach you. Wrong answers open up, not close down.
             </p>
           </div>
         </div>

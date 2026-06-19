@@ -1,4 +1,4 @@
-import { X, TrendingUp, AlertTriangle } from 'lucide-react'
+import { X, TrendingUp, AlertTriangle, RotateCcw } from 'lucide-react'
 import type { ReadinessReport } from '@/types/educator'
 import { cn } from '@/lib/utils'
 
@@ -6,15 +6,16 @@ interface Props {
   report: ReadinessReport
   examName?: string
   onClose: () => void
+  onRevisit?: (questionText: string) => void
 }
 
 const VERDICT_STYLE: Record<string, string> = {
-  Ready: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-  'Almost ready': 'bg-amber-50 text-amber-800 border-amber-200',
-  'Needs more prep': 'bg-red-50 text-red-800 border-red-200',
+  'Ready to attempt': 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  'Almost there': 'bg-amber-50 text-amber-800 border-amber-200',
+  'Keep going': 'bg-red-50 text-red-800 border-red-200',
 }
 
-export function ScoreReport({ report, examName, onClose }: Props) {
+export function ScoreReport({ report, examName, onClose, onRevisit }: Props) {
   const weakDomains = report.domainReports.filter((d) => d.weak)
 
   return (
@@ -37,13 +38,16 @@ export function ScoreReport({ report, examName, onClose }: Props) {
       <div className="flex-1 overflow-y-auto p-4 space-y-5">
         <div className="rounded-xl border border-slate-200 p-4">
           <p className="text-2xl font-bold text-slate-800">
-            {report.totalCorrect}/{report.totalAsked}
+            {report.totalCorrect}/{report.totalResolved}
             <span className="text-base font-normal text-slate-500 ml-2">
-              ({report.overallPct}%)
+              ({report.overallPct}% overall)
             </span>
           </p>
+          <p className="text-sm text-violet-700 font-medium mt-1">
+            First-try accuracy: {report.firstTryPct}%
+          </p>
           <p className="text-xs text-slate-500 mt-1">
-            Passing benchmark: {report.passingPct}% ({report.passingPct}% of exam questions)
+            Passing benchmark: {report.passingPct}% · {report.totalSkipped} skipped (deferred)
           </p>
           <div
             className={cn(
@@ -66,7 +70,8 @@ export function ScoreReport({ report, examName, onClose }: Props) {
                 <div className="flex justify-between text-xs mb-1">
                   <span className="text-slate-700 font-medium truncate pr-2">{d.domain}</span>
                   <span className="text-slate-500 shrink-0">
-                    {d.correct}/{d.total} · {d.pct}%
+                    {d.correct}/{d.total}
+                    {d.skipped > 0 && ` · ${d.skipped} skipped`} · {d.pct}%
                   </span>
                 </div>
                 <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
@@ -83,6 +88,32 @@ export function ScoreReport({ report, examName, onClose }: Props) {
           </div>
         </section>
 
+        {report.skippedQuestions.length > 0 && (
+          <section>
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3 flex items-center gap-1">
+              <RotateCcw className="h-3.5 w-3.5" />
+              Revisit queue
+            </h3>
+            <div className="space-y-2">
+              {report.skippedQuestions.map((q) => (
+                <div key={q.questionId} className="rounded-lg border border-slate-200 p-3 text-xs">
+                  <p className="font-medium text-slate-700">{q.domain}</p>
+                  <p className="text-slate-600 mt-1 line-clamp-2">{q.questionText}</p>
+                  {onRevisit && (
+                    <button
+                      type="button"
+                      onClick={() => onRevisit(`Let's revisit this skipped question: ${q.questionText}`)}
+                      className="mt-2 text-violet-700 font-medium hover:underline"
+                    >
+                      Pick up here
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         {weakDomains.length > 0 && (
           <section>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3 flex items-center gap-1">
@@ -97,7 +128,7 @@ export function ScoreReport({ report, examName, onClose }: Props) {
                 >
                   <p className="font-semibold text-amber-900">{d.domain}</p>
                   <p className="text-amber-800/80 mt-1">
-                    Review Experience League docs on: {d.docSearchHint.split(' ').slice(0, 6).join(', ')}…
+                    Review: {d.docSearchHint.split(' ').slice(0, 8).join(', ')}…
                   </p>
                 </div>
               ))}

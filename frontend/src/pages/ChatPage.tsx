@@ -108,7 +108,7 @@ export function ChatPage() {
     setApiDisabled,
     setKnowledgeBankMaintenance,
   } = useChatStore();
-  const { logout, session: authSession } = useAuthStore();
+  const { logout } = useAuthStore();
   const {
     monthlyLimit,
     monthlyUsed,
@@ -128,6 +128,11 @@ export function ChatPage() {
     exitEducatorMode,
     sendMessage: sendEducatorMessage,
     submitAnswer,
+    requestHint,
+    requestDoc,
+    skipQuestion,
+    deepen,
+    getQuestionForMessage,
     isStreaming: educatorStreaming,
     scoreReport,
     showScorePanel,
@@ -137,14 +142,13 @@ export function ChatPage() {
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [examModalOpen, setExamModalOpen] = useState(false);
-  const [answeredQuestionIds, setAnsweredQuestionIds] = useState<Set<string>>(new Set());
   const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [welcomeDismissed, setWelcomeDismissed] = useState(
     () => !!localStorage.getItem(WELCOME_KEY),
   );
   const messages = sessions[activeSessionId]?.messages ?? [];
   const streaming = isStreaming || educatorStreaming;
-  const showEducatorChip = featureAvailable && authSession?.is_admin;
+  const showEducatorChip = featureAvailable;
 
   const patchMessages = useCallback(
     (updater: (msgs: typeof messages) => typeof messages) => {
@@ -187,11 +191,15 @@ export function ChatPage() {
   );
 
   const handleEducatorAnswer = useCallback(
-    async (answer: string, questionMsgId: string) => {
-      setAnsweredQuestionIds((prev) => new Set(prev).add(questionMsgId));
-      await submitAnswer(answer, activeSessionId, patchMessages, getMessages);
+    async (answer: string) => {
+      await submitAnswer(`I choose ${answer}`, activeSessionId, patchMessages, getMessages);
     },
     [submitAnswer, activeSessionId, patchMessages, getMessages],
+  );
+
+  const educatorActions = useCallback(
+    () => ({ chatSessionId: activeSessionId, patch: patchMessages, getMsgs: getMessages }),
+    [activeSessionId, patchMessages, getMessages],
   );
 
   const handleModeChange = useCallback(
@@ -208,7 +216,6 @@ export function ChatPage() {
   const handleExamSelected = useCallback(
     async (examId: string) => {
       setExamModalOpen(false);
-      setAnsweredQuestionIds(new Set());
       await startExam(examId);
       const startup = getStartupMessage();
       await submitAnswer(startup, activeSessionId, patchMessages, getMessages);
@@ -500,8 +507,8 @@ export function ChatPage() {
                 Educator mode · {exam.name}
               </p>
               <p className="text-xs text-slate-500 max-w-md">
-                Practice questions are generated from Experience League docs. Type /score for
-                progress or /quit to exit.
+                Your guide, not an examiner. Use hint or doc buttons before answering.
+                Commands: /hint · /doc · /skip · /score · /revisit · /quit
               </p>
             </div>
           )}
@@ -511,11 +518,13 @@ export function ChatPage() {
             return messages.map((msg) => {
               if (msg.role === 'user') userTurn++;
               const turn = userTurn;
+              const qRecord = getQuestionForMessage(msg.id);
               const hasQuestion =
                 rovrMode === 'educator' &&
                 msg.role === 'assistant' &&
                 !msg.streaming &&
                 !!parseQuestionFromMessage(msg.content);
+              const { chatSessionId, patch, getMsgs } = educatorActions();
               return (
                 <ChatMessage
                   key={msg.id}
@@ -523,18 +532,23 @@ export function ChatPage() {
                   onFollowUpClick={handleSelectPrompt}
                   turnNumber={turn}
                   educatorActive={rovrMode === 'educator'}
-                  educatorAnswered={answeredQuestionIds.has(msg.id)}
                   educatorDisabled={streaming}
-                  onEducatorAnswer={
+                  questionRecord={qRecord}
+                  onEducatorAnswer={hasQuestion ? handleEducatorAnswer : undefined}
+                  onEducatorHint={
                     hasQuestion
-                      ? (ans) => handleEducatorAnswer(ans, msg.id)
+                      ? () => requestHint(chatSessionId, patch, getMsgs)
                       : undefined
+                  }
+                  onEducatorDoc={
+                    hasQuestion ? () => requestDoc(chatSessionId, patch, getMsgs) : undefined
                   }
                   onEducatorSkip={
                     hasQuestion
-                      ? () => handleEducatorAnswer('skip', msg.id)
+                      ? () => skipQuestion(chatSessionId, patch, getMsgs)
                       : undefined
                   }
+                  onEducatorDeepen={(action) => deepen(action, chatSessionId, patch, getMsgs)}
                 />
               );
             });
@@ -575,7 +589,7 @@ export function ChatPage() {
             }
             placeholder={
               rovrMode === 'educator'
-                ? 'Answer A/B/C/D, explain reasoning, or type /score · /quit'
+                ? 'Answer or use /hint · /doc · /skip · /score · /revisit · /quit'
                 : knowledgeBankUpdating
                   ? 'Knowledge bank is updating — please check back shortly…'
                   : undefined
@@ -647,6 +661,7 @@ export function ChatPage() {
           report={scoreReport}
           examName={exam?.name}
           onClose={dismissScorePanel}
+          onRevisit={(prompt) => handleSend(prompt)}
         />
       )}
     </div>

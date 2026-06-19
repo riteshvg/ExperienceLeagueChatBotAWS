@@ -1,46 +1,88 @@
-import type { DomainScores, Exam, ReadinessReport } from '@/types/educator'
+import type { DomainScores, Exam, QuestionRecord, ReadinessReport } from '@/types/educator'
 
 export function generateReadinessReport(
   exam: Exam,
-  domainScores: DomainScores,
-  totalCorrect?: number,
-  totalAsked?: number,
+  questions: QuestionRecord[],
 ): ReadinessReport {
-  const asked =
-    totalAsked ?? Object.values(domainScores).reduce((s, d) => s + d.total, 0)
-  const correct =
-    totalCorrect ?? Object.values(domainScores).reduce((s, d) => s + d.correct, 0)
+  const resolved = questions.filter((q) => q.resolved && !q.skipped)
+  const skipped = questions.filter((q) => q.skipped)
+  const totalResolved = resolved.length
+  const totalCorrect = resolved.filter((q) => q.attempts.some((a) => a.correct)).length
+  const firstTryCorrect = resolved.filter((q) => q.attempts[0]?.correct).length
 
-  const overallPct = asked > 0 ? Math.round((correct / asked) * 100) : 0
+  const overallPct = totalResolved > 0 ? Math.round((totalCorrect / totalResolved) * 100) : 0
+  const firstTryPct = totalResolved > 0 ? Math.round((firstTryCorrect / totalResolved) * 100) : 0
   const passingPct = Math.round((exam.passingScore / exam.totalQuestions) * 100)
 
   const domainReports = exam.domains.map((domain) => {
-    const scores = domainScores[domain.id] ?? { correct: 0, total: 0 }
-    const pct = scores.total > 0 ? Math.round((scores.correct / scores.total) * 100) : 0
+    const domainQs = questions.filter((q) => q.domainId === domain.id)
+    const resolvedD = domainQs.filter((q) => q.resolved && !q.skipped)
+    const correct = resolvedD.filter((q) => q.attempts.some((a) => a.correct)).length
+    const total = resolvedD.length
+    const skippedCount = domainQs.filter((q) => q.skipped).length
+    const pct = total > 0 ? Math.round((correct / total) * 100) : 0
     return {
       domain: domain.name,
       domainId: domain.id,
-      correct: scores.correct,
-      total: scores.total,
+      correct,
+      total,
+      skipped: skippedCount,
       pct,
-      weak: pct < passingPct && scores.total >= 2,
+      weak: total >= 2 && pct < passingPct,
       docSearchHint: domain.docSearchHint,
     }
   })
 
+  domainReports.sort((a, b) => Number(b.weak) - Number(a.weak) || a.pct - b.pct)
+
   const verdict: ReadinessReport['verdict'] =
-    overallPct >= passingPct + 10
-      ? 'Ready'
-      : overallPct >= passingPct - 5
-        ? 'Almost ready'
-        : 'Needs more prep'
+    firstTryPct >= passingPct + 10
+      ? 'Ready to attempt'
+      : firstTryPct >= passingPct - 5
+        ? 'Almost there'
+        : 'Keep going'
 
   return {
     overallPct,
+    firstTryPct,
     passingPct,
-    totalCorrect: correct,
-    totalAsked: asked,
+    totalCorrect,
+    totalResolved,
+    totalSkipped: skipped.length,
+    totalAsked: totalResolved,
     verdict,
     domainReports,
+    skippedQuestions: skipped.map((q) => ({
+      questionId: q.questionId,
+      domainId: q.domainId,
+      questionText: q.questionText,
+      domain: q.domain,
+    })),
   }
+}
+
+export function emptyDomainScores(exam: Exam): DomainScores {
+  return Object.fromEntries(
+    exam.domains.map((d) => [d.id, { correct: 0, total: 0, skipped: 0 }]),
+  )
+}
+
+export function syncDomainScoresFromQuestions(
+  exam: Exam,
+  questions: QuestionRecord[],
+): DomainScores {
+  const scores = emptyDomainScores(exam)
+  for (const q of questions) {
+    const bucket = scores[q.domainId]
+    if (!bucket) continue
+    if (q.skipped) {
+      bucket.skipped += 1
+      continue
+    }
+    if (q.resolved) {
+      bucket.total += 1
+      if (q.attempts.some((a) => a.correct)) bucket.correct += 1
+    }
+  }
+  return scores
 }

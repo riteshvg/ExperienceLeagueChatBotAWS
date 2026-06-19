@@ -6,9 +6,26 @@ import {
   streamEducatorChat,
   type Message,
 } from '@/lib/api'
-import { generateReadinessReport } from '@/lib/readiness-report'
-import { isVerificationMessage, parseQuestionFromMessage } from '@/lib/educator-parse'
-import type { DomainScores, Exam, ReadinessReport, RovrMode } from '@/types/educator'
+import {
+  emptyDomainScores,
+  generateReadinessReport,
+  syncDomainScoresFromQuestions,
+} from '@/lib/readiness-report'
+import {
+  isCorrectResponse,
+  isRevealedResponse,
+  isSkipAcknowledged,
+  parseDocCitation,
+  parseQuestionFromMessage,
+} from '@/lib/educator-parse'
+import type {
+  DeepenAction,
+  DomainScores,
+  Exam,
+  QuestionRecord,
+  ReadinessReport,
+  RovrMode,
+} from '@/types/educator'
 
 const EDUCATOR_SESSION_KEY = 'rovr_educator_session'
 
@@ -16,9 +33,8 @@ function makeId() {
   return Math.random().toString(36).slice(2)
 }
 
-function emptyDomainScores(exam: Exam): DomainScores {
-  return Object.fromEntries(exam.domains.map((d) => [d.id, { correct: 0, total: 0 }]))
-}
+type PatchFn = (updater: (msgs: Message[]) => Message[]) => void
+type GetMsgsFn = () => Message[]
 
 interface EducatorState {
   mode: RovrMode
@@ -26,10 +42,13 @@ interface EducatorState {
   examId: string | null
   exam: Exam | null
   exams: Exam[]
+  questions: QuestionRecord[]
   domainScores: DomainScores
+  revisitQueue: string[]
+  activeDomainId: string | null
+  currentQuestionId: string | null
   sessionStarted: number | null
   questionNumber: number
-  pendingQuestionDomainId: string | null
   scoreReport: ReadinessReport | null
   showScorePanel: boolean
   isStreaming: boolean
@@ -37,33 +56,32 @@ interface EducatorState {
 
   init: () => Promise<void>
   loadExams: () => Promise<void>
-  startExam: (examId: string) => Promise<string>
+  startExam: (examId: string) => Promise<void>
   exitEducatorMode: () => void
-  handleDeepLink: (examId: string | null) => Promise<void>
-  sendMessage: (
-    query: string,
-    chatSessionId: string,
-    patchMessages: (updater: (msgs: Message[]) => Message[]) => void,
-    getMessages: () => Message[],
-  ) => Promise<void>
-  submitAnswer: (
-    answer: string,
-    chatSessionId: string,
-    patchMessages: (updater: (msgs: Message[]) => Message[]) => void,
-    getMessages: () => Message[],
-  ) => Promise<void>
+  sendMessage: (query: string, chatSessionId: string, patch: PatchFn, getMsgs: GetMsgsFn) => Promise<void>
+  requestHint: (chatSessionId: string, patch: PatchFn, getMsgs: GetMsgsFn) => Promise<void>
+  requestDoc: (chatSessionId: string, patch: PatchFn, getMsgs: GetMsgsFn) => Promise<void>
+  submitAnswer: (answer: string, chatSessionId: string, patch: PatchFn, getMsgs: GetMsgsFn) => Promise<void>
+  skipQuestion: (chatSessionId: string, patch: PatchFn, getMsgs: GetMsgsFn) => Promise<void>
+  deepen: (action: DeepenAction, chatSessionId: string, patch: PatchFn, getMsgs: GetMsgsFn) => Promise<void>
+  getQuestionForMessage: (messageId: string) => QuestionRecord | undefined
   dismissScorePanel: () => void
   getStartupMessage: () => string
 }
 
-function persistEducatorSession(examId: string | null, domainScores: DomainScores, started: number | null) {
-  if (!examId) {
+function persistSession(state: Pick<EducatorState, 'examId' | 'domainScores' | 'sessionStarted' | 'questions'>) {
+  if (!state.examId) {
     sessionStorage.removeItem(EDUCATOR_SESSION_KEY)
     return
   }
   sessionStorage.setItem(
     EDUCATOR_SESSION_KEY,
-    JSON.stringify({ examId, domainScores, sessionStarted: started }),
+    JSON.stringify({
+      examId: state.examId,
+      domainScores: state.domainScores,
+      sessionStarted: state.sessionStarted,
+      questions: state.questions,
+    }),
   )
 }
 
@@ -73,10 +91,13 @@ export const useEducatorStore = create<EducatorState>()((set, get) => ({
   examId: null,
   exam: null,
   exams: [],
+  questions: [],
   domainScores: {},
+  revisitQueue: [],
+  activeDomainId: null,
+  currentQuestionId: null,
   sessionStarted: null,
   questionNumber: 1,
-  pendingQuestionDomainId: null,
   scoreReport: null,
   showScorePanel: false,
   isStreaming: false,
@@ -84,17 +105,13 @@ export const useEducatorStore = create<EducatorState>()((set, get) => ({
 
   async init() {
     const status = await getEducatorStatus()
-    const available = !!(status?.enabled && status.is_admin)
-    set({ featureAvailable: available })
-    if (available) {
-      await get().loadExams()
-    }
+    set({ featureAvailable: !!(status?.enabled && status.is_admin) })
+    if (status?.enabled && status.is_admin) await get().loadExams()
   },
 
   async loadExams() {
     try {
-      const exams = await fetchEducatorExams()
-      set({ exams })
+      set({ exams: await fetchEducatorExams() })
     } catch {
       set({ exams: [] })
     }
@@ -110,54 +127,45 @@ export const useEducatorStore = create<EducatorState>()((set, get) => ({
       mode: 'educator',
       examId,
       exam,
+      questions: [],
       domainScores,
+      revisitQueue: [],
+      activeDomainId: null,
+      currentQuestionId: null,
       sessionStarted: started,
       questionNumber: 1,
       scoreReport: null,
       showScorePanel: false,
-      pendingQuestionDomainId: null,
     })
-    persistEducatorSession(examId, domainScores, started)
-
-    return (
-      `I'm preparing for the ${exam.id} exam (${exam.name}). ` +
-      `Please ask me which certification I'm preparing for, then begin with the first practice question.`
-    )
+    persistSession(get())
   },
 
   exitEducatorMode() {
-    const { examId, domainScores, sessionStarted, questionNumber } = get()
+    const { examId, questions, sessionStarted, questionNumber } = get()
     if (examId && sessionStarted) {
       logEducatorSession({
         examId,
-        domainScores,
+        domainScores: syncDomainScoresFromQuestions(get().exam!, questions),
         questionsAsked: questionNumber - 1,
         sessionStarted,
         durationSecs: Math.round((Date.now() - sessionStarted) / 1000),
       })
     }
-    persistEducatorSession(null, {}, null)
+    sessionStorage.removeItem(EDUCATOR_SESSION_KEY)
     set({
       mode: 'standard',
       examId: null,
       exam: null,
+      questions: [],
       domainScores: {},
+      revisitQueue: [],
+      activeDomainId: null,
+      currentQuestionId: null,
       sessionStarted: null,
       questionNumber: 1,
       scoreReport: null,
       showScorePanel: false,
-      pendingQuestionDomainId: null,
     })
-  },
-
-  async handleDeepLink(examId: string | null) {
-    if (!examId || !get().featureAvailable) return
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('mode') !== 'educator') return
-    if (params.get('exam') !== examId && params.get('exam')) return
-    const target = params.get('exam') ?? examId
-    if (!target) return
-    await get().startExam(target)
   },
 
   getStartupMessage() {
@@ -165,7 +173,8 @@ export const useEducatorStore = create<EducatorState>()((set, get) => ({
     if (!exam) return ''
     return (
       `Start my educator session for ${exam.id} — ${exam.name}. ` +
-      `Introduce the exam briefly, then ask Question 1 weighted to the highest-priority domain.`
+      `You are my teacher, not an examiner. Open with why the first domain concept matters in practice, ` +
+      `then pose Question 1 with [Give me a hint] and [Show me the doc first] available before I answer.`
     )
   },
 
@@ -173,97 +182,177 @@ export const useEducatorStore = create<EducatorState>()((set, get) => ({
     set({ showScorePanel: false })
   },
 
-  async sendMessage(query, chatSessionId, patchMessages, getMessages) {
+  getQuestionForMessage(messageId: string) {
+    return get().questions.find((q) => q.messageId === messageId)
+  },
+
+  async sendMessage(query, chatSessionId, patch, getMsgs) {
     const state = get()
     if (state.mode !== 'educator' || !state.examId || !state.exam || state.isStreaming) return
 
     const trimmed = query.trim()
     if (!trimmed) return
 
-    if (trimmed === '/quit' || trimmed === '/exit') {
+    const cmd = trimmed.toLowerCase()
+    if (cmd === '/quit' || cmd === '/exit') {
       get().exitEducatorMode()
-      patchMessages((msgs) => [
+      patch((msgs) => [
         ...msgs,
         { id: makeId(), role: 'user', content: trimmed },
         {
           id: makeId(),
           role: 'assistant',
-          content:
-            'Educator mode ended. You are back in standard Rovr mode — ask any Adobe documentation question.',
+          content: 'Educator mode ended. You are back in standard Rovr — ask any Adobe documentation question.',
         },
       ])
       return
     }
 
-    if (trimmed === '/score') {
-      const report = generateReadinessReport(state.exam, state.domainScores)
+    if (cmd === '/score') {
+      const report = generateReadinessReport(state.exam, state.questions)
       set({ scoreReport: report, showScorePanel: true })
-      patchMessages((msgs) => [
+      patch((msgs) => [
         ...msgs,
         { id: makeId(), role: 'user', content: '/score' },
         {
           id: makeId(),
           role: 'assistant',
           content:
-            `**Readiness report** — ${report.totalCorrect}/${report.totalAsked} correct (${report.overallPct}%). ` +
-            `Verdict: **${report.verdict}** (passing benchmark: ${report.passingPct}%). ` +
-            `See the score panel for per-domain breakdown.`,
+            `**Readiness report** — first-try ${report.firstTryPct}% · overall ${report.overallPct}% ` +
+            `(${report.totalCorrect}/${report.totalResolved} resolved). Verdict: **${report.verdict}**. ` +
+            `See the score panel for domain breakdown and revisit queue.`,
         },
       ])
       return
     }
 
-    await get().submitAnswer(trimmed, chatSessionId, patchMessages, getMessages)
+    if (cmd === '/hint') return get().requestHint(chatSessionId, patch, getMsgs)
+    if (cmd === '/doc') return get().requestDoc(chatSessionId, patch, getMsgs)
+    if (cmd === '/skip') return get().skipQuestion(chatSessionId, patch, getMsgs)
+
+    if (cmd === '/revisit') {
+      const skipped = state.questions.filter((q) => q.skipped)
+      const list =
+        skipped.length === 0
+          ? 'No skipped questions yet.'
+          : skipped.map((q, i) => `${i + 1}. ${q.domain}: ${q.questionText.slice(0, 80)}…`).join('\n')
+      patch((msgs) => [
+        ...msgs,
+        { id: makeId(), role: 'user', content: '/revisit' },
+        { id: makeId(), role: 'assistant', content: `**Revisit queue**\n\n${list}` },
+      ])
+      return
+    }
+
+    await get().submitAnswer(trimmed, chatSessionId, patch, getMsgs)
   },
 
-  async submitAnswer(query, chatSessionId, patchMessages, getMessages) {
-    const {
-      examId,
-      exam,
-      domainScores,
-      questionNumber,
-      pendingQuestionDomainId,
-    } = get()
+  async requestHint(chatSessionId, patch, getMsgs) {
+    await get().submitAnswer('Give me a hint', chatSessionId, patch, getMsgs)
+  },
+
+  async requestDoc(chatSessionId, patch, getMsgs) {
+    await get().submitAnswer('Show me the doc first', chatSessionId, patch, getMsgs)
+  },
+
+  async skipQuestion(chatSessionId, patch, getMsgs) {
+    const { currentQuestionId, questions, exam } = get()
+    if (currentQuestionId && exam) {
+      const updated = questions.map((q) =>
+        q.questionId === currentQuestionId ? { ...q, skipped: true, resolved: false } : q,
+      )
+      const domainScores = syncDomainScoresFromQuestions(exam, updated)
+      set({ questions: updated, domainScores, currentQuestionId: null })
+      persistSession(get())
+    }
+    await get().submitAnswer('Skip (I will come back to this)', chatSessionId, patch, getMsgs)
+  },
+
+  async deepen(action, chatSessionId, patch, getMsgs) {
+    if (action.type === 'next') {
+      set({ currentQuestionId: null })
+      await get().submitAnswer('Next question', chatSessionId, patch, getMsgs)
+      return
+    }
+    await get().submitAnswer(action.prompt, chatSessionId, patch, getMsgs)
+  },
+
+  async submitAnswer(query, chatSessionId, patch, getMsgs) {
+    const state = get()
+    const { examId, exam, questions, questionNumber, activeDomainId, currentQuestionId } = state
     if (!examId || !exam) return
+
+    const isAnswerChoice =
+      /^I choose [A-D]$/i.test(query.trim()) || /^[A-D]$/i.test(query.trim())
+    let workingQuestions = [...questions]
+
+    if (isAnswerChoice && currentQuestionId) {
+      const letter = (query.match(/[A-D]/i)?.[0] ?? query).toUpperCase()
+      workingQuestions = workingQuestions.map((q) =>
+        q.questionId === currentQuestionId
+          ? {
+              ...q,
+              attempts: [
+                ...q.attempts,
+                { answer: letter, correct: false, timestamp: Date.now() },
+              ],
+            }
+          : q,
+      )
+      set({ questions: workingQuestions })
+    }
 
     set({ isStreaming: true, error: null })
 
     const userMsg: Message = { id: makeId(), role: 'user', content: query }
     const assistantId = makeId()
-    const assistantMsg: Message = { id: assistantId, role: 'assistant', content: '', streaming: true }
+    patch((msgs) => [
+      ...msgs,
+      userMsg,
+      { id: assistantId, role: 'assistant', content: '', streaming: true },
+    ])
 
-    patchMessages((msgs) => [...msgs, userMsg, assistantMsg])
-
-    const history = getMessages()
+    const currentQ = workingQuestions.find((q) => q.questionId === currentQuestionId) ?? null
+    const history = getMsgs()
       .filter((m) => m.id !== assistantId && !m.streaming)
       .map((m) => ({ role: m.role, content: m.content }))
 
     try {
-      let nextDomainId = pendingQuestionDomainId
+      let nextDomainId = activeDomainId
 
-      for await (const event of streamEducatorChat(
-        history,
+      for await (const event of streamEducatorChat({
+        messages: history,
         examId,
-        chatSessionId,
-        domainScores,
+        sessionId: chatSessionId,
+        domainScores: syncDomainScoresFromQuestions(exam, workingQuestions),
         questionNumber,
-      )) {
+        currentQuestion: currentQ
+          ? {
+              questionId: currentQ.questionId,
+              domainId: currentQ.domainId,
+              attempts: currentQ.attempts,
+              skipped: currentQ.skipped,
+              resolved: currentQ.resolved,
+            }
+          : null,
+        activeDomainId: activeDomainId ?? undefined,
+      })) {
         if (event.type === 'token') {
-          patchMessages((msgs) =>
+          patch((msgs) =>
             msgs.map((m) =>
               m.id === assistantId ? { ...m, content: m.content + event.content } : m,
             ),
           )
         } else if (event.type === 'done') {
-          nextDomainId = event.next_domain ?? nextDomainId
-          patchMessages((msgs) =>
+          nextDomainId = event.active_domain ?? event.next_domain ?? nextDomainId
+          patch((msgs) =>
             msgs.map((m) =>
               m.id === assistantId ? { ...m, streaming: false, model: 'educator' } : m,
             ),
           )
         } else if (event.type === 'error') {
           set({ error: event.message })
-          patchMessages((msgs) =>
+          patch((msgs) =>
             msgs.map((m) =>
               m.id === assistantId
                 ? { ...m, content: `Error: ${event.message}`, streaming: false }
@@ -273,39 +362,75 @@ export const useEducatorStore = create<EducatorState>()((set, get) => ({
         }
       }
 
-      const finalMsg = getMessages().find((m) => m.id === assistantId)
-      const content = finalMsg?.content ?? ''
+      const content = getMsgs().find((m) => m.id === assistantId)?.content ?? ''
+      let updatedQuestions = [...get().questions]
 
-      let updatedScores = { ...get().domainScores }
-      if (isVerificationMessage(content) && pendingQuestionDomainId) {
-        const correct = content.trimStart().startsWith('✓')
-        const prev = updatedScores[pendingQuestionDomainId] ?? { correct: 0, total: 0 }
-        updatedScores = {
-          ...updatedScores,
-          [pendingQuestionDomainId]: {
-            correct: prev.correct + (correct ? 1 : 0),
-            total: prev.total + 1,
+      const parsed = parseQuestionFromMessage(content)
+      if (parsed && !currentQuestionId) {
+        const qid = makeId()
+        updatedQuestions = [
+          ...updatedQuestions,
+          {
+            questionId: qid,
+            messageId: assistantId,
+            domain: parsed.domain,
+            domainId: nextDomainId ?? '',
+            questionText: parsed.text,
+            options: parsed.options.map((o) => `${o.key}. ${o.label}`),
+            attempts: [],
+            skipped: false,
+            resolved: false,
           },
+        ]
+        set({ currentQuestionId: qid, activeDomainId: nextDomainId })
+      }
+
+      if (currentQuestionId) {
+        updatedQuestions = updatedQuestions.map((q) => {
+          if (q.questionId !== currentQuestionId) return q
+
+          let attempts = [...q.attempts]
+          if (isAnswerChoice && attempts.length > 0) {
+            const last = attempts[attempts.length - 1]
+            attempts[attempts.length - 1] = {
+              ...last,
+              correct: isCorrectResponse(content),
+            }
+          }
+
+          const docPreview = parseDocCitation(content, 'preview')
+          const docCite = parseDocCitation(content, 'citation')
+          const resolved =
+            isCorrectResponse(content) ||
+            isRevealedResponse(content) ||
+            isSkipAcknowledged(content)
+
+          if (isSkipAcknowledged(content)) {
+            return { ...q, skipped: true, resolved: false, attempts }
+          }
+
+          return {
+            ...q,
+            attempts,
+            resolved,
+            docCitation: docCite ?? docPreview ?? q.docCitation,
+          }
+        })
+
+        if (isCorrectResponse(content) || isRevealedResponse(content)) {
+          set({ currentQuestionId: null, questionNumber: questionNumber + 1 })
         }
       }
 
-      const parsed = parseQuestionFromMessage(content)
-      const newPending = parsed ? (nextDomainId ?? pendingQuestionDomainId) : pendingQuestionDomainId
-      const newQuestionNumber = parsed ? questionNumber + 1 : questionNumber
-
+      const domainScores = syncDomainScoresFromQuestions(exam, updatedQuestions)
       set({
-        domainScores: updatedScores,
-        pendingQuestionDomainId: newPending,
-        questionNumber: newQuestionNumber,
+        questions: updatedQuestions,
+        domainScores,
+        activeDomainId: nextDomainId,
       })
-      persistEducatorSession(examId, updatedScores, get().sessionStarted)
-
-      if (newQuestionNumber > 0 && newQuestionNumber % 10 === 1 && parsed) {
-        // checkpoint handled by LLM per system prompt
-      }
+      persistSession(get())
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      set({ error: msg })
+      set({ error: err instanceof Error ? err.message : String(err) })
     } finally {
       set({ isStreaming: false })
     }

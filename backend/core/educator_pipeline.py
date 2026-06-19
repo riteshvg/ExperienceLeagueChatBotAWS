@@ -1,14 +1,11 @@
 """
-Educator Mode pipeline — Anthropic tool-calling agent for exam prep.
-
-Uses search_experience_league (Chroma retrieval) to ground questions and verify answers.
+Educator Mode v2 pipeline — Socratic teaching with doc-grounded verification.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from anthropic import AsyncAnthropic
 
@@ -17,26 +14,27 @@ from backend.core.domain_selector import select_next_domain
 from backend.core.educator_prompt import build_educator_system_prompt
 from backend.core.query_processor import QueryProcessor
 from backend.core.session_store import SessionStore
-from config.exams import Exam, get_exam
+from config.exams import get_exam
 from config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
 _MODEL = "claude-sonnet-4-6"
+_MAX_TOKENS = 1500
 _MAX_TOOL_ROUNDS = 5
 
 _SEARCH_TOOL = {
     "name": "search_experience_league",
     "description": (
-        "Search Adobe Experience League documentation to generate exam questions "
-        "and verify candidate answers."
+        "Search Adobe Experience League documentation. Use to verify answers and to surface "
+        "doc sections when the candidate requests them before attempting."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Natural language search query using Adobe terminology.",
+                "description": "Specific concept or feature to look up",
             }
         },
         "required": ["query"],
@@ -83,6 +81,8 @@ class EducatorPipeline:
         domain_scores: dict[str, dict[str, int]],
         session_id: str,
         question_number: int = 1,
+        current_question: dict[str, Any] | None = None,
+        active_domain_id: str | None = None,
     ) -> AsyncGenerator[dict, None]:
         exam = get_exam(exam_id)
         if not exam:
@@ -95,16 +95,25 @@ class EducatorPipeline:
             return
 
         next_domain = select_next_domain(exam, domain_scores)
-        system_prompt = build_educator_system_prompt(exam)
+        if active_domain_id:
+            for d in exam.domains:
+                if d.id == active_domain_id:
+                    next_domain = d
+                    break
+
+        system_prompt = build_educator_system_prompt(exam, next_domain)
+        attempt_count = len((current_question or {}).get("attempts", []))
 
         augmented = [dict(m) for m in messages]
         if augmented and augmented[-1].get("role") == "user":
-            hint = (
-                f'\n\n[INTERNAL: Next question should be from domain "{next_domain.name}". '
-                f'Search hint: "{next_domain.doc_search_hint}". '
-                f"Question number: {question_number}.]"
+            ctx = (
+                f"\n\n[INTERNAL CONTEXT — do not surface to candidate: "
+                f'Domain: "{next_domain.name}". '
+                f'Doc search hint: "{next_domain.doc_search_hint}". '
+                f"Question number: {question_number}. "
+                f"Attempts on current question: {attempt_count}.]"
             )
-            augmented[-1]["content"] = augmented[-1]["content"] + hint
+            augmented[-1]["content"] = augmented[-1]["content"] + ctx
 
         client = AsyncAnthropic(api_key=settings.anthropic_api_key)
         api_messages = [{"role": m["role"], "content": m["content"]} for m in augmented]
@@ -114,7 +123,7 @@ class EducatorPipeline:
             for _ in range(_MAX_TOOL_ROUNDS):
                 response = await client.messages.create(
                     model=_MODEL,
-                    max_tokens=2048,
+                    max_tokens=_MAX_TOKENS,
                     system=system_prompt,
                     messages=api_messages,
                     tools=[_SEARCH_TOOL],
@@ -133,8 +142,7 @@ class EducatorPipeline:
                 tool_results = []
                 for tool_use in tool_uses:
                     if tool_use.name == "search_experience_league":
-                        query = tool_use.input.get("query", "")
-                        result = self._search_docs(query)
+                        result = self._search_docs(tool_use.input.get("query", ""))
                     else:
                         result = f"Unknown tool: {tool_use.name}"
                     tool_results.append(
@@ -151,10 +159,9 @@ class EducatorPipeline:
                     full_response = round_text
 
             if not full_response:
-                # Final pass without tools if we only got tool rounds
                 final = await client.messages.create(
                     model=_MODEL,
-                    max_tokens=2048,
+                    max_tokens=_MAX_TOKENS,
                     system=system_prompt,
                     messages=api_messages,
                 )
@@ -178,6 +185,7 @@ class EducatorPipeline:
                 "type": "done",
                 "model": "educator",
                 "session_id": session_id,
+                "active_domain": next_domain.id,
                 "next_domain": next_domain.id,
                 "next_domain_name": next_domain.name,
             }

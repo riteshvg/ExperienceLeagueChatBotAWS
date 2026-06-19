@@ -1,11 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Play, Copy, Check } from 'lucide-react'
+import { Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MessageExtras } from './MessageExtras'
 import { QuestionCard } from './QuestionCard'
-import { parseQuestionFromMessage } from '@/lib/educator-parse'
+import { DocCitationCard } from './DocCitationCard'
+import { TeachingNudge } from './TeachingNudge'
+import { DeepenRow } from './DeepenRow'
+import {
+  parseDeepenActions,
+  parseDocCitation,
+  parseDomainProgress,
+  parseQuestionFromMessage,
+  parseTeachingNudge,
+  parseTeachingPhase,
+} from '@/lib/educator-parse'
+import type { DeepenAction, QuestionRecord } from '@/types/educator'
 import { type Message } from '@/lib/api'
 
 interface Props {
@@ -13,29 +24,27 @@ interface Props {
   onFollowUpClick: (text: string) => void
   turnNumber?: number
   educatorActive?: boolean
-  educatorAnswered?: boolean
-  onEducatorAnswer?: (answer: string) => void
-  onEducatorSkip?: () => void
   educatorDisabled?: boolean
+  questionRecord?: QuestionRecord
+  onEducatorAnswer?: (answer: string) => void
+  onEducatorHint?: () => void
+  onEducatorDoc?: () => void
+  onEducatorSkip?: () => void
+  onEducatorDeepen?: (action: DeepenAction) => void
 }
 
-const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
-
-/** Typewriter effect — reveals text character by character while streaming. */
 function useTypewriter(fullText: string, isStreaming: boolean, speed = 8): string {
   const [displayed, setDisplayed] = useState('')
   const posRef = useRef(0)
   const textRef = useRef(fullText)
-  textRef.current = fullText   // always current without re-triggering effects
+  textRef.current = fullText
 
   useEffect(() => {
     if (!isStreaming) {
-      // Streaming finished — show everything immediately
       setDisplayed(textRef.current)
       posRef.current = textRef.current.length
       return
     }
-    // Reset and start typewriter
     posRef.current = 0
     setDisplayed('')
     const interval = setInterval(() => {
@@ -61,10 +70,23 @@ function stripCitationMarkers(text: string): string {
   return text.replace(/\[\d+\](?!\()/g, '')
 }
 
+function stripEducatorStructuredBlocks(text: string): string {
+  return text
+    .replace(/\*\*Question\s+\d+\*\*[\s\S]*?(?=\n\n|\*\*hint\*\*|\*\*Attempt|\*\*Nailed|\*\*Got it|\*\*There we go|$)/i, '')
+    .replace(/\*\*doc-preview\*\*[^\n]*/gi, '')
+    .replace(/\*\*doc-citation\*\*[^\n]*/gi, '')
+    .replace(/\*\*hint\*\*[^\n]*/gi, '')
+    .replace(/\*\*think about this\*\*[^\n]*/gi, '')
+    .replace(/\*\*let's work through it\*\*[^\n]*/gi, '')
+    .replace(/\[Give me a hint\][^\n]*/gi, '')
+    .replace(/\[Show me the doc first\][^\n]*/gi, '')
+    .replace(/\[([^\]]+?) ↗\]\(#deepen:[^)]+\)/gi, '')
+    .replace(/\*\*Domain progress\*\*[^\n]*/gi, '')
+}
+
 function stripMdLinks(text: string): string {
   return text
     .replace(/\[([^\]]+)\]\([^)]*\.md[^)]*\)/g, '$1')
-    // Strip inline EXL/developer.adobe.com doc links — 404-prone; citations panel handles sources
     .replace(/\[([^\]]+)\]\(https?:\/\/(?:experienceleague|developer)\.adobe\.com[^)]+\)/g, '$1')
 }
 
@@ -97,19 +119,35 @@ export function ChatMessage({
   onFollowUpClick,
   turnNumber = 0,
   educatorActive = false,
-  educatorAnswered = false,
-  onEducatorAnswer,
-  onEducatorSkip,
   educatorDisabled = false,
+  questionRecord,
+  onEducatorAnswer,
+  onEducatorHint,
+  onEducatorDoc,
+  onEducatorSkip,
+  onEducatorDeepen,
 }: Props) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
   const displayedContent = useTypewriter(message.content || '', !!message.streaming, 12)
-  const processedContent = stripMdLinks(stripCitationMarkers(sanitizeAdobeMarkup(displayedContent || ' ')))
+  const rawContent = displayedContent || ' '
+  const processedContent = stripMdLinks(
+    stripCitationMarkers(sanitizeAdobeMarkup(stripEducatorStructuredBlocks(rawContent))),
+  )
+
   const parsedQuestion =
-    educatorActive && !isUser && !message.streaming
-      ? parseQuestionFromMessage(message.content)
-      : null
+    educatorActive && !isUser && !message.streaming ? parseQuestionFromMessage(message.content) : null
+
+  const attemptCount = questionRecord?.attempts.length ?? 0
+  const phase = educatorActive && !isUser ? parseTeachingPhase(message.content, attemptCount) : 'posed'
+  const nudge = !isUser ? parseTeachingNudge(message.content) : null
+  const docPreview = !isUser ? parseDocCitation(message.content, 'preview') : null
+  const docCitation = !isUser ? parseDocCitation(message.content, 'citation') : null
+  const deepenActions = !isUser && phase === 'correct' ? parseDeepenActions(message.content) : []
+  const domainProgress = !isUser ? parseDomainProgress(message.content) : null
+
+  const wrongSelections =
+    questionRecord?.attempts.filter((a) => !a.correct).map((a) => a.answer) ?? []
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -120,97 +158,62 @@ export function ChatMessage({
   return (
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
       <div className={cn('max-w-[85%] space-y-2', isUser ? 'items-end' : 'items-start')}>
-
-        {/* Bubble */}
-        <div className={cn(
-          'relative px-4 py-3 rounded-2xl text-sm leading-relaxed',
-          isUser
-            ? 'bg-[#14532D] text-white rounded-br-sm'
-            : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm',
-          !isUser && !message.streaming && message.content.trim() && 'pr-10',
-        )}>
+        <div
+          className={cn(
+            'relative px-4 py-3 rounded-2xl text-sm leading-relaxed',
+            isUser
+              ? 'bg-[#14532D] text-white rounded-br-sm'
+              : 'bg-white border border-slate-200 text-slate-800 rounded-bl-sm shadow-sm',
+            !isUser && !message.streaming && message.content.trim() && 'pr-10',
+          )}
+        >
           {!isUser && !message.streaming && message.content.trim() && (
-            <CopyAnswerButton
-              copied={copied}
-              onCopy={handleCopy}
-              className="absolute right-2 top-2"
-            />
+            <CopyAnswerButton copied={copied} onCopy={handleCopy} className="absolute right-2 top-2" />
           )}
           {isUser ? (
             <p>{message.content}</p>
           ) : (
             <div className={cn('prose prose-sm max-w-none', message.streaming && 'streaming-cursor')}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  img: ({ src, alt }) => {
-                    if (!src) return null
-                    return (
-                      <a href={src} target="_blank" rel="noopener noreferrer" className="block my-3">
-                        <img
-                          src={src}
-                          alt={alt ?? ''}
-                          className="rounded-lg border border-slate-200 max-h-64 object-contain w-full"
-                          onError={(e) => {
-                            (e.currentTarget.closest('a') as HTMLElement).style.display = 'none'
-                          }}
-                        />
-                      </a>
-                    )
-                  },
-                  a: ({ href, children }) => {
-                    if (href && VIDEO_URL_RE.test(href)) {
-                      const match = href.match(/video\.tv\.adobe\.com\/v\/([^/?]+)/)
-                      if (match) {
-                        const videoId = match[1]
-                        const label = String(children).replace(/^▶\s*Watch:\s*/i, '').trim()
-                        if (message.streaming) {
-                          return (
-                            <span className="inline-flex items-center gap-2 my-1 px-3 py-1.5 rounded-lg
-                              bg-slate-50 border border-slate-200 text-xs font-medium text-slate-500 not-prose">
-                              <Play className="w-3 h-3 text-red-400 fill-red-400 flex-shrink-0" />
-                              <span>{label || 'Watch video'}</span>
-                            </span>
-                          )
-                        }
-                        const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
-                        return (
-                          <span className="block my-3 rounded-xl overflow-hidden border border-slate-200 not-prose w-1/2">
-                            {label && (
-                              <span className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-600">
-                                <Play className="w-3 h-3 text-red-500 fill-red-500 flex-shrink-0" />
-                                {label}
-                              </span>
-                            )}
-                            <span className="block relative w-full" style={{ paddingBottom: '56.25%' }}>
-                              <iframe src={embedUrl} className="absolute inset-0 w-full h-full"
-                                frameBorder="0" allow="autoplay; fullscreen" allowFullScreen title={label || 'Video'} />
-                            </span>
-                          </span>
-                        )
-                      }
-                    }
-                    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
-                  },
-                }}
-              >
-                {processedContent}
-              </ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{processedContent}</ReactMarkdown>
             </div>
           )}
-          {parsedQuestion && onEducatorAnswer && onEducatorSkip && (
-            <QuestionCard
-              question={parsedQuestion}
+
+          {docPreview && <DocCitationCard citation={docPreview} variant="preview" />}
+          {nudge && <TeachingNudge type={nudge.type} text={nudge.text} />}
+          {docCitation && (phase === 'correct' || phase === 'revealed') && (
+            <DocCitationCard citation={docCitation} variant="citation" />
+          )}
+
+          {parsedQuestion &&
+            onEducatorAnswer &&
+            onEducatorHint &&
+            onEducatorDoc &&
+            onEducatorSkip && (
+              <QuestionCard
+                question={parsedQuestion}
+                phase={phase}
+                attemptCount={attemptCount}
+                wrongSelections={wrongSelections}
+                resolved={questionRecord?.resolved ?? false}
+                disabled={educatorDisabled}
+                onAnswer={onEducatorAnswer}
+                onHint={onEducatorHint}
+                onShowDoc={onEducatorDoc}
+                onSkip={onEducatorSkip}
+                domainProgress={domainProgress ?? undefined}
+              />
+            )}
+
+          {deepenActions.length > 0 && onEducatorDeepen && (
+            <DeepenRow
+              actions={deepenActions}
               disabled={educatorDisabled}
-              answered={educatorAnswered}
-              onSubmit={onEducatorAnswer}
-              onSkip={onEducatorSkip}
+              onAction={onEducatorDeepen}
             />
           )}
         </div>
 
-        {/* Sources + follow-ups (compact expandable row) */}
-        {!isUser && !message.streaming && message.content.trim() && (
+        {!isUser && !message.streaming && message.content.trim() && message.model !== 'educator' && (
           <MessageExtras
             evidence={message.evidence}
             citations={message.citations}
@@ -221,7 +224,6 @@ export function ChatMessage({
             feedback={message.feedback}
           />
         )}
-
       </div>
     </div>
   )

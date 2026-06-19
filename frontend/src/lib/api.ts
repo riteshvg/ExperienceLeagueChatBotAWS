@@ -446,8 +446,31 @@ export async function isApiDisabled(): Promise<boolean> {
 
 export type EducatorSSEEvent =
   | { type: 'token'; content: string }
-  | { type: 'done'; model: string; session_id: string; next_domain?: string; next_domain_name?: string }
+  | {
+      type: 'done'
+      model: string
+      session_id: string
+      active_domain?: string
+      next_domain?: string
+      next_domain_name?: string
+    }
   | { type: 'error'; message: string }
+
+export interface EducatorChatParams {
+  messages: { role: string; content: string }[]
+  examId: string
+  sessionId: string
+  domainScores: DomainScores
+  questionNumber: number
+  currentQuestion?: {
+    questionId: string
+    domainId: string
+    attempts: { answer: string; correct: boolean; timestamp?: number }[]
+    skipped: boolean
+    resolved: boolean
+  } | null
+  activeDomainId?: string
+}
 
 export async function getEducatorStatus(): Promise<{
   enabled: boolean
@@ -473,9 +496,8 @@ export async function fetchEducatorExams(): Promise<Exam[]> {
 
 export async function fetchEducatorScore(
   examId: string,
+  questions: import('@/types/educator').QuestionRecord[],
   domainScores: DomainScores,
-  totalCorrect?: number,
-  totalAsked?: number,
 ): Promise<ReadinessReport> {
   const res = await fetch(`${API_BASE}/api/educator/score`, {
     method: 'POST',
@@ -483,8 +505,15 @@ export async function fetchEducatorScore(
     body: JSON.stringify({
       exam_id: examId,
       domain_scores: domainScores,
-      total_correct: totalCorrect,
-      total_asked: totalAsked,
+      questions: questions.map((q) => ({
+        questionId: q.questionId,
+        domainId: q.domainId,
+        domain: q.domain,
+        questionText: q.questionText,
+        resolved: q.resolved,
+        skipped: q.skipped,
+        attempts: q.attempts,
+      })),
     }),
   })
   if (!res.ok) throw new Error('Failed to generate score report')
@@ -511,22 +540,18 @@ export async function logEducatorSession(payload: {
   }).catch(() => {})
 }
 
-export async function* streamEducatorChat(
-  messages: { role: string; content: string }[],
-  examId: string,
-  sessionId: string,
-  domainScores: DomainScores,
-  questionNumber: number,
-): AsyncGenerator<EducatorSSEEvent> {
+export async function* streamEducatorChat(params: EducatorChatParams): AsyncGenerator<EducatorSSEEvent> {
   const res = await fetch(`${API_BASE}/api/educator/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
-      messages,
-      exam_id: examId,
-      session_id: sessionId,
-      domain_scores: domainScores,
-      question_number: questionNumber,
+      messages: params.messages,
+      exam_id: params.examId,
+      session_id: params.sessionId,
+      domain_scores: params.domainScores,
+      question_number: params.questionNumber,
+      current_question: params.currentQuestion,
+      active_domain_id: params.activeDomainId,
     }),
   })
 
