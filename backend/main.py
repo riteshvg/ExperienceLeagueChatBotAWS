@@ -32,6 +32,7 @@ from backend.api.routes.auth import router as auth_router
 from backend.api.routes.chat import router as chat_router
 from backend.api.routes.health import router as health_router
 from backend.api.routes.oauth import router as oauth_router
+from backend.core.chroma_paths import chroma_persist_dir
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core import user_db, google_db
 from backend.core.rag_pipeline import RAGPipeline
@@ -39,7 +40,7 @@ from backend.core.session_store import SessionStore
 from config.settings import get_settings
 
 _CHROMA_S3_KEY = os.getenv("CHROMA_S3_KEY", "chroma_db/chroma_db.tar.gz")
-_CHROMA_DIR = Path(__file__).parent.parent / "chroma_db"
+_CHROMA_DIR = chroma_persist_dir()
 _COLLECTION = "experience_league"
 
 
@@ -195,6 +196,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     _configure_langsmith()
     logger.info("Starting up — loading ChromaDB and models…")
+    logger.info("Chroma persist directory: %s", _CHROMA_DIR)
 
     if _env_truthy("KNOWLEDGE_BANK_UPDATING") or _env_truthy("FORCE_CHROMA_RESTORE"):
         app.state.maintenance_started_at = datetime.now(timezone.utc)

@@ -16,9 +16,11 @@ import boto3
 import chromadb
 from chromadb.config import Settings as ChromaSettings
 
+from backend.core.chroma_paths import chroma_persist_dir
+
 logger = logging.getLogger(__name__)
 
-_DEFAULT_PERSIST_DIR = str(Path(__file__).parent.parent.parent / "chroma_db")
+_DEFAULT_PERSIST_DIR = str(chroma_persist_dir())
 COLLECTION_NAME = "experience_league"
 TITAN_MODEL_ID = "amazon.titan-embed-text-v2:0"
 
