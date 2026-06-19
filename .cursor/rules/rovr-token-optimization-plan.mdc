@@ -1,0 +1,278 @@
+---
+description: Rovr prompt caching and token optimization — planning roadmap and architecture targets
+alwaysApply: false
+---
+
+# Rovr — Prompt Caching & Token Optimization Plan
+
+## Current architecture (baseline)
+
+**Primary path:** `backend/core/rag_pipeline.py` → Anthropic API via `ChatAnthropic` (not Bedrock).
+
+| Component | LLM calls per turn | Est. input tokens |
+|-----------|-------------------:|------------------:|
+| Main answer (Haiku) | 1 | ~500–5,000 |
+| Main answer (Sonnet) | 1 | ~500–6,000 |
+| Follow-ups (`/chat/follow-ups`) | +1 Haiku | ~200–400 |
+| Blocked paths (no retrieval / no match) | **0** | 0 |
+
+**Prompt structure today:**
+```
+system: _HAIKU_SYSTEM or _SONNET_SYSTEM with {context} embedded  ← entire system changes every request
+history: full session (unbounded turns, full assistant text)
+human: {query}
+```
+
+**Retrieval context:** up to `MAX_RETRIEVAL_RESULTS` chunks (default 8, Railway may use 15), ~500 tokens/chunk at ingest → **~4,000–7,500 tokens** of docs per request.
+
+**Static prompt sizes (approx):**
+- `_HAIKU_SYSTEM` / `_SONNET_SYSTEM`: ~340–400 tokens
+- Legacy `config/prompts.py` `_SYSTEM_PROMPT_TEMPLATE`: ~1,400 tokens (used by strands/Bedrock path, not main RAG)
+
+**Gaps:**
+- No Anthropic `cache_control` anywhere
+- Token counts estimated as `len(text)//4`, not API `usage` fields
+- Session history never truncated (`session_store.py`)
+- Follow-ups always fire after successful answers (extra Haiku call)
+- `{context}` inside system block **prevents prompt caching** (system hash changes every query)
+
+---
+
+## Goal
+
+Reduce **cost per query** and **latency to first token** without degrading answer quality, using:
+1. Anthropic **prompt caching** on stable instructions
+2. **Context budget** discipline on retrieval + history
+3. **Fewer auxiliary LLM calls**
+4. Real **usage telemetry** (cache hit rate, tokens in/out)
+
+Target: **30–50% input token reduction** on warm-cache turns; **90% discount** on cached static prefix reads (Anthropic pricing).
+
+---
+
+## Phase 1 — Prompt structure for caching (P0, ~2–3 days)
+
+### 1.1 Split static vs dynamic content
+
+Restructure message assembly:
+
+```
+[SYSTEM — cached, ephemeral]
+  Static persona + grounding rules + format rules + media rules
+  (~400 tokens Haiku / ~400 Sonnet — may need padding to 1,024 min for Haiku cache)
+
+[SYSTEM or USER — not cached]
+  Retrieved documentation:
+  [1] chunk…
+  [2] chunk…
+
+[MESSAGES — not cached]
+  history (trimmed, see Phase 2)
+
+[HUMAN]
+  {query}
+```
+
+**Files:** `backend/core/rag_pipeline.py`, extract static blocks to `config/prompts.py` (`STATIC_HAIKU_INSTRUCTIONS`, `STATIC_SONNET_INSTRUCTIONS`).
+
+### 1.2 Enable Anthropic cache_control
+
+Use LangChain `SystemMessage` with content blocks:
+
+```python
+{
+  "type": "text",
+  "text": STATIC_INSTRUCTIONS,
+  "cache_control": {"type": "ephemeral"}
+}
+```
+
+Verify `langchain-anthropic` version supports `cache_control` on streaming path. Test with `usage.cache_read_input_tokens` / `cache_creation_input_tokens` in response.
+
+### 1.3 Cache breakpoint strategy
+
+| Block | Cache? | TTL |
+|-------|--------|-----|
+| Static system instructions | Yes | 5 min ephemeral |
+| Product cheat-sheet (optional, from prompts.py) | Yes | same breakpoint |
+| Retrieved chunks | No | — |
+| Conversation history | No | — |
+| User query | No | — |
+
+**Do not cache** retrieved context — it changes every query.
+
+### 1.4 Acceptance criteria
+
+- LangSmith / logs show `cache_read_input_tokens > 0` on 2nd+ query within 5 min
+- Answer quality unchanged on golden test set (10–20 queries)
+- Streaming still works
+
+---
+
+## Phase 2 — Context & history budgets (P0, ~2 days)
+
+### 2.1 Retrieval context cap
+
+```python
+MAX_CONTEXT_TOKENS = 6000   # env: MAX_CONTEXT_TOKENS
+MAX_CHUNKS = 8              # keep MAX_RETRIEVAL_RESULTS aligned
+```
+
+- After retrieval + topical gate, **dedupe by `s3_key`** (same doc → keep highest score chunk only)
+- If over budget, drop lowest-score chunks first
+- Strip markdown noise (nav boilerplate, repeated headers) before joining context
+
+### 2.2 Conversation history cap
+
+```python
+MAX_HISTORY_TURNS = 6       # 3 user + 3 assistant
+MAX_HISTORY_TOKENS = 1500
+```
+
+- Keep last N turns in `session_store.get_history()` or trim in `_to_lc_history()`
+- For follow-ups, `_contextualize_query()` already expands short queries — don't need full assistant essays in history
+- Optional Phase 3: summarize turns older than 4 into one line
+
+### 2.3 Blocked-path savings (already partial)
+
+- `no_retrieval`, `no_direct_match`, `off_topic` → no LLM call ✓
+- Extend: skip follow-ups when `model == "none"` or answer empty ✓ (verify frontend)
+
+---
+
+## Phase 3 — Auxiliary call optimization (P1, ~1 day)
+
+### 3.1 Follow-ups
+
+| Change | Savings |
+|--------|---------|
+| Skip when answer < 100 chars or blocked | 1 Haiku call |
+| Skip when user didn't wait for stream complete | variable |
+| Cache static follow-up system prompt | cache read on prefix |
+| Generate from retrieved doc titles only (no LLM) for simple cases | optional |
+
+**File:** `backend/api/routes/chat.py`, `frontend/src/store/chatStore.ts`
+
+### 3.2 Consolidate duplicate prompt definitions
+
+- `config/prompts.py` `_SYSTEM_PROMPT_TEMPLATE` vs `rag_pipeline.py` inline prompts — **single source of truth**
+- Reduces drift and lets one cached static block serve all paths
+
+### 3.3 Query preprocessing
+
+- `QueryProcessor` is rule-based (no LLM) ✓ — keep it that way
+- Avoid adding LLM query expansion unless measured retrieval gain > token cost
+
+---
+
+## Phase 4 — Observability (P1, ~1–2 days)
+
+### 4.1 Real token metrics
+
+Replace `len(text)//4` estimates in `rag_pipeline.py` with Anthropic response metadata:
+
+```python
+usage.input_tokens
+usage.output_tokens
+usage.cache_creation_input_tokens
+usage.cache_read_input_tokens
+```
+
+Persist per query in `google_db` query logs (already has logging hooks in `chat.py`).
+
+### 4.2 Admin dashboard
+
+Add to admin analytics:
+- Avg input/output tokens per model
+- Cache hit rate (`cache_read / input`)
+- Cost estimate (Haiku vs Sonnet list prices)
+- P95 context size (chars/tokens)
+
+### 4.3 LangSmith
+
+Already enabled (`LANGCHAIN_TRACING_V2`). Tag runs with `cache_hit=true/false` for A/B comparison during rollout.
+
+---
+
+## Phase 5 — Model routing & quality guardrails (P2)
+
+### 5.1 Haiku expansion (cost down)
+
+With cached static prefix, Haiku marginal cost drops further. Re-evaluate `smart_router.py`:
+- Route more "how to" under 20 words to Haiku if golden-set quality holds
+- Keep Sonnet for multi-step procedural, comparisons with creation verbs
+
+### 5.2 Context-aware routing
+
+If retrieved context > 4K tokens → prefer Sonnet (complex synthesis).
+If context < 1K tokens + definition pattern → Haiku.
+
+### 5.3 Output caps
+
+| Model | Current max_tokens | Proposed |
+|-------|-------------------:|---------:|
+| Haiku | 2000 | 1200 (definitions rarely need more) |
+| Sonnet | 4000 | 3000 (monitor truncation rate) |
+
+---
+
+## Implementation order
+
+```
+Phase 1.1–1.2  Split prompts + cache_control     ← highest ROI
+Phase 2.1        Context dedupe + token cap
+Phase 2.2        History trim
+Phase 4.1        Real usage metrics
+Phase 1.4        Golden-set validation
+Phase 3.1        Follow-up skip rules
+Phase 3.2        Prompt consolidation
+Phase 5          Routing + max_tokens tuning
+```
+
+---
+
+## Per-request token budget (target state)
+
+| Segment | Target tokens | Cached? |
+|---------|-------------:|---------|
+| Static instructions | ~450 | Yes |
+| Retrieved docs | 2,000–4,000 | No |
+| History | ≤1,500 | No |
+| User query | ≤200 | No |
+| **Total input** | **~3,000–6,000** | partial |
+| Output (Haiku) | ≤1,200 | — |
+| Output (Sonnet) | ≤3,000 | — |
+
+Down from ~5,000–8,000+ input today on heavy turns.
+
+---
+
+## Risks & mitigations
+
+| Risk | Mitigation |
+|------|------------|
+| Cache min size not met (Haiku 1024 tokens) | Pad static block with product reference appendix from `prompts.py` |
+| LangChain streaming + cache_control bugs | Test direct `AsyncAnthropic` fallback path |
+| Quality regression on Sonnet→Haiku shifts | Golden set + LangSmith diffs before routing changes |
+| History trim breaks follow-ups | Keep `_contextualize_query()` + last user message always |
+
+---
+
+## Quick wins (can ship independently)
+
+1. Trim history to last 6 turns
+2. Dedupe retrieved chunks by `s3_key`
+3. Skip follow-ups on blocked responses
+4. Log real `usage` from Anthropic responses
+5. Set `MAX_RETRIEVAL_RESULTS=8` on Railway if currently 15
+
+---
+
+## References
+
+- Anthropic prompt caching: static prefix + `cache_control: {type: "ephemeral"}`
+- Main pipeline: `backend/core/rag_pipeline.py`
+- Prompts: `config/prompts.py`
+- Router: `backend/core/smart_router.py`
+- Follow-ups: `backend/api/routes/chat.py` `/chat/follow-ups`
+- Settings: `MAX_RETRIEVAL_RESULTS`, `SIMILARITY_THRESHOLD` in Railway env
