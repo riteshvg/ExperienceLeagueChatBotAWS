@@ -4,7 +4,10 @@ File path within the repo maps directly to the URL path after stripping
 repo-specific prefixes and applying folder renames.
 """
 
+import json
 import re
+from functools import lru_cache
+from pathlib import Path
 
 REPO_TO_EXL_BASE = {
     "AdobeDocs/analytics.en":
@@ -113,6 +116,16 @@ AEP_FOLDER_MAP = {
 }
 
 _USING_PRODUCTS = ("journey-optimizer", "target")
+
+_OVERRIDES_PATH = Path(__file__).parent.parent.parent / "config" / "cja_toc_exl_overrides.json"
+
+
+@lru_cache(maxsize=1)
+def _load_cja_toc_overrides() -> dict[str, str]:
+    """Repo-relative path → validated EXL URL (from build_cja_toc_exl_mapping.py)."""
+    if not _OVERRIDES_PATH.exists():
+        return {}
+    return json.loads(_OVERRIDES_PATH.read_text(encoding="utf-8"))
 
 
 def repo_from_s3_key(s3_key: str) -> str | None:
@@ -254,6 +267,11 @@ def derive_exl_url(s3_key: str) -> str | None:
             return None
 
         repo_relative = s3_key[len(s3_prefix):]
+
+        if repo == "AdobeDocs/analytics-platform.en":
+            override = _load_cja_toc_overrides().get(repo_relative)
+            if override:
+                return resolve_canonical_url(override)
 
         if repo == "AdobeDocs/analytics-platform.en" and _is_cja_unpublished_repo_path(repo_relative):
             return None
