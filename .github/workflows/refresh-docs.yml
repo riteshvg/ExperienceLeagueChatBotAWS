@@ -55,6 +55,7 @@ jobs:
       # Sources synced:
       #   AdobeDocs/analytics.en          → adobe-docs/adobe-analytics/
       #   AdobeDocs/analytics-platform.en → adobe-docs/customer-journey-analytics/
+      #   AdobeDocs/customer-journey-analytics-learn.en → adobe-docs/customer-journey-analytics-learn/
       #   AdobeDocs/experience-platform.en → adobe-docs/experience-platform/
       #   AdobeDocs/target.en             → adobe-docs/adobe-target/
       #   AdobeDocs/journey-optimizer.en  → adobe-docs/adobe-journey-optimizer/  [AJO]

@@ -19,6 +19,8 @@ REPO_TO_EXL_BASE = {
         "https://experienceleague.adobe.com/en/docs/target",
     "AdobeDocs/platform-learn.en":
         "https://experienceleague.adobe.com/en/docs/platform-learn",
+    "AdobeDocs/customer-journey-analytics-learn.en":
+        "https://experienceleague.adobe.com/en/docs/analytics-platform/using",
 }
 
 # Data Collection docs live inside experience-platform.en (help/collection,
@@ -46,6 +48,8 @@ S3_PREFIX_TO_REPO = {
         "AdobeDocs/experience-platform.en",
     "adobe-docs/platform-learn/":
         "AdobeDocs/platform-learn.en",
+    "adobe-docs/customer-journey-analytics-learn/":
+        "AdobeDocs/customer-journey-analytics-learn.en",
 }
 
 # CJA product guide: repo folder names differ from EXL publish paths.
@@ -195,6 +199,9 @@ def derive_exl_url(s3_key: str) -> str | None:
         if repo == "AdobeDocs/analytics-platform.en" and repo_relative.startswith("cja-main/"):
             repo_relative = repo_relative[len("cja-main/"):]
 
+        if repo == "AdobeDocs/customer-journey-analytics-learn.en" and repo_relative.startswith("cja-main/"):
+            repo_relative = repo_relative[len("cja-main/"):]
+
         if repo == "AdobeDocs/target.en" and repo_relative.startswith("main/"):
             repo_relative = repo_relative[len("main/"):]
 
@@ -205,6 +212,9 @@ def derive_exl_url(s3_key: str) -> str | None:
             repo_relative = repo_relative[:-6]
 
         if repo == "AdobeDocs/analytics-platform.en":
+            repo_relative = _apply_cja_folder_map(repo_relative)
+
+        if repo == "AdobeDocs/customer-journey-analytics-learn.en":
             repo_relative = _apply_cja_folder_map(repo_relative)
 
         if repo == "AdobeDocs/analytics.en":

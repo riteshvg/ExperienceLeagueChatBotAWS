@@ -106,6 +106,11 @@ SAMPLES = [
         "adobe-docs/platform-learn/help/data-collection/debugger/overview.md",
         "https://experienceleague.adobe.com/en/docs/platform-learn/data-collection/debugger/overview",
     ),
+    (
+        "AdobeDocs/customer-journey-analytics-learn.en",
+        "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/build-the-attribution-panel.md",
+        "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-workspace/panels/build-the-attribution-panel",
+    ),
 ]
 
 

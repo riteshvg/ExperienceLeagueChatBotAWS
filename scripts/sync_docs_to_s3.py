@@ -51,6 +51,23 @@ REPOS = {
         "branch": "main",
         "s3_prefix": "adobe-docs/customer-journey-analytics/",
         "path_filter": "help/",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/analytics-platform/using",
+        "url_path_strip": "help/",
+        "product": "Customer Journey Analytics",
+        "doc_type": "guide",
+        "level": "intermediate",
+    },
+    # CJA tutorials / video walkthroughs (separate from product guides in analytics-platform.en)
+    "adobe-docs/customer-journey-analytics-learn": {
+        "github": "AdobeDocs/customer-journey-analytics-learn.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/customer-journey-analytics-learn/",
+        "path_filter": "",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/analytics-platform/using",
+        "url_path_strip": "help/",
+        "product": "Customer Journey Analytics",
+        "doc_type": "tutorial",
+        "level": "beginner",
     },
     "adobe-docs/experience-platform": {
         "github": "AdobeDocs/experience-platform.en",
