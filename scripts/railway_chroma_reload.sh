@@ -83,6 +83,11 @@ for i in $(seq 1 "$MAX_POLLS"); do
       break
     fi
   fi
+  # During maintenance window status stays "updating" even when index is loaded.
+  if [[ "$status" == "updating" && "$count" -ge "$EXPECTED_CHUNKS" && "$EXPECTED_CHUNKS" -gt 0 ]]; then
+    echo "  Index loaded ($count chunks) under maintenance — proceeding to unset flags"
+    break
+  fi
   if [[ "$i" -eq "$MAX_POLLS" ]]; then
     echo "ERROR: Timed out waiting for healthy index" >&2
     exit 1
