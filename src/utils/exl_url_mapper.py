@@ -9,6 +9,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from config.api_docs_repos import DEVELOPER_ADOBE_S3_MAP
+
 REPO_TO_EXL_BASE = {
     "AdobeDocs/analytics.en":
         "https://experienceleague.adobe.com/en/docs/analytics",
@@ -54,6 +56,9 @@ S3_PREFIX_TO_REPO = {
     "adobe-docs/customer-journey-analytics-learn/":
         "AdobeDocs/customer-journey-analytics-learn.en",
 }
+
+for _prefix, (_repo, _base) in DEVELOPER_ADOBE_S3_MAP.items():
+    S3_PREFIX_TO_REPO[_prefix] = _repo
 
 # CJA product guide: GitHub help/cja-main/ folder names differ from EXL publish paths.
 CJA_FOLDER_MAP = {
@@ -252,12 +257,34 @@ def _fix_target_url(url: str) -> str:
     return "/".join(re.sub(r"^[crt]-", "", p) for p in parts)
 
 
+def _derive_developer_adobe_url(s3_key: str) -> str | None:
+    """Map API doc S3 keys to developer.adobe.com URLs."""
+    for prefix, (_repo, base) in DEVELOPER_ADOBE_S3_MAP.items():
+        if not s3_key.startswith(prefix):
+            continue
+        repo_relative = s3_key[len(prefix):]
+        if repo_relative.startswith("src/pages/"):
+            repo_relative = repo_relative[len("src/pages/"):]
+        if repo_relative.endswith(".md"):
+            repo_relative = repo_relative[:-3]
+        if repo_relative.endswith("/index"):
+            repo_relative = repo_relative[:-6]
+        if not repo_relative:
+            return base
+        return f"{base}/{repo_relative}"
+    return None
+
+
 def derive_exl_url(s3_key: str) -> str | None:
     """
     Derive the canonical Experience League URL from an S3 key,
     then resolve through the redirects map to get the current URL.
     """
     from src.utils.exl_redirects import resolve_canonical_url
+
+    dev_url = _derive_developer_adobe_url(s3_key)
+    if dev_url:
+        return dev_url
 
     for s3_prefix, repo in S3_PREFIX_TO_REPO.items():
         if not s3_key.startswith(s3_prefix):

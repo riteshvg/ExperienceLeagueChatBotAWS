@@ -102,6 +102,11 @@ jobs:
       #   AdobeDocs/journey-optimizer.en  → adobe-docs/adobe-journey-optimizer/  [AJO]
       #   AdobeDocs/experience-platform.en (help/tags/, help/collection/, help/datastreams/) → adobe-docs/data-collection/
       #   AdobeDocs/platform-learn.en     → adobe-docs/platform-learn/
+      #   AdobeDocs/analytics-2.0-apis    → adobe-docs/analytics-apis/          [Analytics APIs]
+      #   AdobeDocs/cja-apis              → adobe-docs/cja-apis/                [CJA APIs]
+      #   AdobeDocs/data-collection-apis  → adobe-docs/data-collection-apis/    [Data Collection APIs]
+      #   AdobeDocs/journey-optimizer-apis → adobe-docs/journey-optimizer-apis/ [AJO APIs]
+      #   AdobeDocs/experience-platform-apis → adobe-docs/experience-platform-apis/ [AEP APIs]
       # Writes data/changed_s3_keys.txt with the S3 keys of files that changed.
       - name: Sync GitHub → S3
         if: env.INGEST_START_AT == '0'

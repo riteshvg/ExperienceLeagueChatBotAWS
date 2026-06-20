@@ -31,6 +31,8 @@ _ROOT = Path(__file__).parent.parent
 load_dotenv(_ROOT / ".env")
 sys.path.insert(0, str(_ROOT))
 
+from config.api_docs_repos import API_DOC_REPOS
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-8s  %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -161,6 +163,8 @@ REPOS = {
     },
 }
 
+REPOS.update(API_DOC_REPOS)
+
 
 def _load_registry() -> dict:
     if REGISTRY_PATH.exists():
@@ -192,14 +196,23 @@ def _extract_title(content: bytes, path: str) -> str:
 
 def _generate_registry_entry(s3_key: str, path: str, content: bytes, config: dict) -> dict:
     """Generate a metadata_registry.json entry for a new-source file."""
-    el_base = config["experience_league_base"].rstrip("/")
     url_strip = config.get("url_path_strip", "help/")
     url_path = path[:-3] if path.endswith(".md") else path
     if url_strip and url_path.startswith(url_strip):
         url_path = url_path[len(url_strip):]
+    if url_path.endswith("/index"):
+        url_path = url_path[:-6]
+
+    if "developer_adobe_base" in config:
+        base = config["developer_adobe_base"].rstrip("/")
+    else:
+        base = config["experience_league_base"].rstrip("/")
+
+    url = f"{base}/{url_path}" if url_path else base
+
     return {
         "s3_key": s3_key,
-        "url": f"{el_base}/{url_path}",
+        "url": url,
         "title": _extract_title(content, path),
         "product": config["product"],
         "doc_type": config.get("doc_type", "guide"),
@@ -253,7 +266,9 @@ def sync_repo(repo_key: str, config: dict, s3, manifest: dict,
     branch = config["branch"]
     s3_prefix = config["s3_prefix"]
     path_filter = config.get("path_filter", "")
-    generates_registry = registry is not None and "experience_league_base" in config
+    generates_registry = registry is not None and (
+        "experience_league_base" in config or "developer_adobe_base" in config
+    )
 
     logger.info(f"Fetching tree for {github_repo}...")
     tree = get_repo_tree(github_repo, branch)

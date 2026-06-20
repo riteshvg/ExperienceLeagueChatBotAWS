@@ -59,8 +59,16 @@ _PRODUCT_INTENT_MAP = {
     " aep ": "Adobe Experience Platform",
     "real-time cdp": "Adobe Experience Platform",
     "journey optimizer": "Adobe Journey Optimizer",
-    " ajo ": "Adobe Journey Optimizer",
+    " adjo ": "Adobe Journey Optimizer",
     "adobe target": "Adobe Target",
+    "analytics 2.0 api": "Analytics APIs",
+    "analytics api": "Analytics APIs",
+    "reporting api": "Analytics APIs",
+    "cja api": "CJA APIs",
+    "edge network api": "Data Collection APIs",
+    "media edge api": "Data Collection APIs",
+    "reactor api": "AEP APIs",
+    "segmentation service api": "AEP APIs",
 }
 
 
