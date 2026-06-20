@@ -44,6 +44,9 @@ def get_eta_minutes() -> int:
 
 def resolve_started_at(app: Any) -> datetime:
     """Return UTC time maintenance began (env, app state, or now)."""
+    if not maintenance_flag_enabled():
+        return datetime.now(timezone.utc)
+
     env_raw = os.getenv("KNOWLEDGE_BANK_UPDATE_STARTED_AT", "").strip()
     parsed = _parse_started_at(env_raw)
     if parsed:

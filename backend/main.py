@@ -126,47 +126,63 @@ def _restore_chroma_from_s3() -> bool:
         logger.warning("AWS_S3_BUCKET not set — skipping S3 restore")
         return False
 
-    logger.info(f"ChromaDB empty — downloading from s3://{bucket}/{_CHROMA_S3_KEY} ...")
-    restore_parent = Path(tempfile.mkdtemp(prefix="chroma_restore_"))
-    tmp_archive: str | None = None
-    try:
-        s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
-        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
-            tmp_archive = tmp.name
-        s3.download_file(bucket, _CHROMA_S3_KEY, tmp_archive)
-        size_mb = Path(tmp_archive).stat().st_size / 1024 / 1024
-        logger.info(f"Downloaded {size_mb:.1f} MB — extracting to staging dir ...")
-        with tarfile.open(tmp_archive, "r:gz") as tar:
-            tar.extractall(restore_parent)
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            logger.warning("Chroma restore produced 0 chunks — retrying S3 download (attempt %d)", attempt)
+            _clear_chroma_dir()
 
-        staged_dir = restore_parent / "chroma_db"
-        if not staged_dir.exists() or not (staged_dir / "chroma.sqlite3").is_file():
-            logger.error("Archive missing chroma_db/chroma.sqlite3 after extract")
-            return False
-
-        sqlite_mb = (staged_dir / "chroma.sqlite3").stat().st_size / 1024 / 1024
-        logger.info("Staged ChromaDB archive OK (chroma.sqlite3 %.1f MB)", sqlite_mb)
-
-        _CHROMA_DIR.parent.mkdir(parents=True, exist_ok=True)
-        if _CHROMA_DIR.exists():
-            shutil.rmtree(_CHROMA_DIR)
-        shutil.move(str(staged_dir), str(_CHROMA_DIR))
-        _fix_chroma_permissions(_CHROMA_DIR)
-
-        logger.info("ChromaDB restored from S3 ✓ (moved to %s)", _CHROMA_DIR)
-        if force:
-            logger.warning(
-                "Unset FORCE_CHROMA_RESTORE on Railway after verifying /api/health "
-                "so future deploys do not re-download on every restart"
+        restore_parent = Path(tempfile.mkdtemp(prefix="chroma_restore_"))
+        tmp_archive: str | None = None
+        try:
+            logger.info(
+                "ChromaDB empty — downloading from s3://%s/%s (attempt %d/%d) ...",
+                bucket,
+                _CHROMA_S3_KEY,
+                attempt,
+                max_attempts,
             )
-        return True
-    except Exception as e:
-        logger.warning(f"S3 restore failed: {e} — continuing with empty DB")
-        return False
-    finally:
-        if tmp_archive:
-            Path(tmp_archive).unlink(missing_ok=True)
-        shutil.rmtree(restore_parent, ignore_errors=True)
+            s3 = boto3.client("s3", region_name=os.getenv("AWS_DEFAULT_REGION", "us-east-1"))
+            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+                tmp_archive = tmp.name
+            s3.download_file(bucket, _CHROMA_S3_KEY, tmp_archive)
+            size_mb = Path(tmp_archive).stat().st_size / 1024 / 1024
+            logger.info(f"Downloaded {size_mb:.1f} MB — extracting to staging dir ...")
+            with tarfile.open(tmp_archive, "r:gz") as tar:
+                tar.extractall(restore_parent)
+
+            staged_dir = restore_parent / "chroma_db"
+            if not staged_dir.exists() or not (staged_dir / "chroma.sqlite3").is_file():
+                logger.error("Archive missing chroma_db/chroma.sqlite3 after extract")
+                continue
+
+            sqlite_mb = (staged_dir / "chroma.sqlite3").stat().st_size / 1024 / 1024
+            logger.info("Staged ChromaDB archive OK (chroma.sqlite3 %.1f MB)", sqlite_mb)
+
+            _CHROMA_DIR.parent.mkdir(parents=True, exist_ok=True)
+            if _CHROMA_DIR.exists():
+                shutil.rmtree(_CHROMA_DIR)
+            shutil.copytree(staged_dir, _CHROMA_DIR)
+            _fix_chroma_permissions(_CHROMA_DIR)
+
+            count = _chroma_chunk_count()
+            logger.info("ChromaDB restored from S3 ✓ (%d chunks at %s)", count, _CHROMA_DIR)
+            if count > 0:
+                if force:
+                    logger.warning(
+                        "Unset FORCE_CHROMA_RESTORE on Railway after verifying /api/health "
+                        "so future deploys do not re-download on every restart"
+                    )
+                return True
+            logger.error("Restore finished but collection count is still 0")
+        except Exception as e:
+            logger.warning(f"S3 restore attempt {attempt} failed: {e}")
+        finally:
+            if tmp_archive:
+                Path(tmp_archive).unlink(missing_ok=True)
+            shutil.rmtree(restore_parent, ignore_errors=True)
+
+    return False
 
 
 def _configure_langsmith() -> None:
