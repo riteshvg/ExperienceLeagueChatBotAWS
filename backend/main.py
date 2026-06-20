@@ -105,6 +105,18 @@ def _clear_chroma_dir() -> None:
     _clear_chroma_dir_at(_CHROMA_DIR)
 
 
+def _remove_chroma_dest(dest: Path) -> None:
+    """Remove destination tree safely (volume mount: contents only)."""
+    import shutil
+
+    if not dest.exists():
+        return
+    if dest == Path("/app/chroma_db"):
+        _clear_chroma_dir_at(dest)
+        return
+    shutil.rmtree(dest)
+
+
 def _install_chroma_tree(source: Path, dest: Path) -> tuple[bool, Path]:
     """Install a validated Chroma tree; return (ok, path actually used)."""
     import shutil
@@ -116,14 +128,10 @@ def _install_chroma_tree(source: Path, dest: Path) -> tuple[bool, Path]:
         return count > 0, dest
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    _clear_chroma_dir_at(dest)
-    if dest.exists():
-        try:
-            dest.rmdir()
-        except OSError:
-            pass
+    _remove_chroma_dest(dest)
 
     # Move, do not copy — shutil.copytree breaks Chroma SQLite on Railway.
+    # dest must not exist or move nests source as dest/chroma_db/ (0 chunks).
     shutil.move(str(source), str(dest))
     _fix_chroma_permissions(dest)
     count = _chroma_chunk_count_at(dest)
@@ -138,12 +146,7 @@ def _install_chroma_tree(source: Path, dest: Path) -> tuple[bool, Path]:
             dest,
             _RAILWAY_TMP_CHROMA,
         )
-        _clear_chroma_dir_at(_RAILWAY_TMP_CHROMA)
-        if _RAILWAY_TMP_CHROMA.exists():
-            try:
-                _RAILWAY_TMP_CHROMA.rmdir()
-            except OSError:
-                pass
+        _remove_chroma_dest(_RAILWAY_TMP_CHROMA)
         shutil.move(str(dest), str(_RAILWAY_TMP_CHROMA))
         _fix_chroma_permissions(_RAILWAY_TMP_CHROMA)
         count = _chroma_chunk_count_at(_RAILWAY_TMP_CHROMA)
