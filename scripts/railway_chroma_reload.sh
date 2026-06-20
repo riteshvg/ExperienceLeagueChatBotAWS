@@ -55,7 +55,7 @@ echo "=== Rovr production Chroma reload ==="
 echo "Health URL: $HEALTH_URL"
 
 echo ""
-echo "Step 1: Use /tmp for Chroma (Railway volume mount breaks SQLite restore)"
+echo "Step 1: Confirm env (restore uses /tmp/chroma_data_* at runtime — see AGENTS.md)"
 run_railway variables --set "CHROMA_PERSIST_DIR=/tmp/chroma_db"
 
 echo ""
@@ -105,4 +105,5 @@ run_railway variables \
 echo ""
 echo "=== Done ==="
 echo "Verify chat: curl -s ${HEALTH_URL%/health}/ping"
-echo "Future git pushes redeploy code only — Chroma lives in /tmp until volume restore is verified."
+echo "Future git pushes redeploy code only — index re-downloads from S3 on cold start (~3 min)."
+echo "Pre-deploy checklist: .cursor/rules/railway-pre-deploy-checklist.mdc"

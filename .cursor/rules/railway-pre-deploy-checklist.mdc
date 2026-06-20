@@ -1,0 +1,55 @@
+---
+description: Mandatory pre-flight checklist before ANY Railway production deploy — read and verify before redeploy, railway up, or git push to main
+alwaysApply: true
+---
+
+# Railway Pre-Deploy Checklist (MANDATORY)
+
+**Before running `railway redeploy`, `railway up`, `git push origin main`, or `./scripts/railway_chroma_reload.sh`**, read `.cursor/rules/rovr-deployment-and-chroma.mdc` and confirm every item below.
+
+## 1. Classify the deploy
+
+| Type | When | Action |
+|------|------|--------|
+| **Code-only** | Backend/frontend code change, no new S3 index | Single deploy only; do **not** set `FORCE_CHROMA_RESTORE` |
+| **Index refresh** | After GHA `refresh-docs.yml` uploaded new S3 tarball | Follow Chroma reload runbook; one redeploy max |
+
+## 2. Pre-flight checks (run these)
+
+```bash
+railway deployment list | head -5          # no BUILDING/DEPLOYING unless intentional
+railway variables -k | grep -E 'CHROMA|KNOWLEDGE|FORCE'
+curl -s .../api/health                     # baseline status + chunk count
+curl -s .../api/ping                       # chat not blocked
+python3 -c "import backend.main"           # no SyntaxError before deploy
+```
+
+## 3. Env vars must be
+
+```
+CHROMA_PERSIST_DIR=/tmp/chroma_db          # ignored at runtime; restore uses chroma_data_* temp dir
+KNOWLEDGE_BANK_UPDATING=false              # unless intentional maintenance window
+KNOWLEDGE_BANK_UPDATE_STARTED_AT=         # empty when not maintaining
+FORCE_CHROMA_RESTORE=false                 # true ONLY for one controlled index reload
+CHROMA_USE_VOLUME=false                    # do not set unless volume path verified
+```
+
+## 4. Hard rules (incident learnings 2026-06-20)
+
+1. **ONE deploy per task** — never loop redeploys; abort duplicates (`deploymentCancel`) if git push + `railway up` both fire.
+2. **`railway redeploy` reuses old image** — for code fixes use `git push origin main` or `railway up`, not bare redeploy.
+3. **Never redeploy after unsetting maintenance flags** — vars only; second redeploy re-runs S3 restore.
+4. **Never leave `FORCE_CHROMA_RESTORE=true`** after restore completes.
+5. **Do not use `/app/chroma_db` or `/tmp/chroma_db` for restore** — code extracts to `/tmp/chroma_data_*` and uses that path (see `backend/main.py`).
+6. **Health 503 with 0 chunks fails Railway healthcheck** — wait for restore (~3 min) or deploy is REMOVED.
+
+## 5. Post-deploy verification (once)
+
+```bash
+curl -s .../api/health   # status=ok, document_count>=40000
+curl -s .../api/ping     # {"ok":true}
+```
+
+## 6. Full runbook
+
+See `.cursor/rules/rovr-deployment-and-chroma.mdc` and `AGENTS.md` § Railway deployment.

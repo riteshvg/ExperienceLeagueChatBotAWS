@@ -1,15 +1,18 @@
 ---
-description: Rovr production deploy, Chroma index refresh, Railway FORCE restore, and maintenance mode
+description: Rovr production deploy, Chroma index refresh, Railway restore, and maintenance mode
 alwaysApply: true
 ---
 
 # Rovr — Deployment, Chroma, and Production Ops
 
+**Before any deploy:** complete `.cursor/rules/railway-pre-deploy-checklist.mdc`. Cross-IDE copy: `AGENTS.md`.
+
 ## Architecture (code vs index)
 
-- **Git push / Railway redeploy** updates application code only — does **not** change chunk count.
-- **Chroma index** lives on Railway persistent volume (`/app/chroma_db`) and S3 backup (`s3://experienceleaguechatbot/chroma_db/chroma_db.tar.gz`).
-- **GHA** (`refresh-docs.yml`) updates S3 Chroma incrementally; Railway does **not** auto-sync from S3 unless volume is empty or `FORCE_CHROMA_RESTORE=true`.
+- **Git push / `railway up`** updates application code; triggers S3 restore only when local Chroma is empty (~3 min cold start).
+- **Chroma index** source of truth: S3 `s3://experienceleaguechatbot/chroma_db/chroma_db.tar.gz` (~41k chunks).
+- **Runtime persist path:** fresh `/tmp/chroma_data_*` per container (see `backend/main.py` `_restore_chroma_from_s3`). Do **not** rely on `/app/chroma_db` or `/tmp/chroma_db`.
+- **GHA** (`refresh-docs.yml`) updates S3 incrementally; Railway does not auto-sync unless index empty or `FORCE_CHROMA_RESTORE=true`.
 - **Never upload local Chroma to S3** without verifying chunk count matches or exceeds production.
 
 ## URLs
@@ -20,92 +23,74 @@ alwaysApply: true
 | Frontend | `https://thelearningproject.in/tools/rovr` |
 | Railway project | `experienceleaguechatbot` / service `ExperienceLeagueChatBotAWS` |
 
-## Standard production refresh (recommended)
+## Code-only deploy (default)
 
 ```bash
-# 1. Incremental index update (safe — production keeps serving during GHA)
+# Pre-flight: checklist + health baseline
+git push origin main    # OR single: railway up --detach
+# Post: curl /api/health (ok, >=40000 chunks) + /api/ping (ok:true)
+```
+
+Do **not** set `FORCE_CHROMA_RESTORE`. Do **not** redeploy twice.
+
+## Index refresh (after GHA)
+
+```bash
 gh workflow run refresh-docs.yml --ref main
-# or: gh workflow run refresh-docs.yml --ref main -f force=false
+# Verify GHA: Collection ~41k chunks, S3 upload ~400MB
 
-# 2. Verify GHA logs: ingest Done, Collection now has ~33k+ chunks, S3 upload ~300MB
-
-# 3. Controlled Railway reload (maintenance window ~2–4 min)
-STARTED=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-railway variables \
-  --set "KNOWLEDGE_BANK_UPDATING=true" \
-  --set "KNOWLEDGE_BANK_UPDATE_STARTED_AT=$STARTED" \
-  --set "FORCE_CHROMA_RESTORE=true" \
-  --set "CHROMA_RESTORE_ETA_MINUTES=4"
-railway redeploy -y
-
-# 4. Poll until document_count matches GHA (e.g. 41005)
-curl -s https://experienceleaguechatbotaws-production.up.railway.app/api/health
-
-# 5. Unset flags — do NOT redeploy (redeploy wipes /tmp and risks 0-chunk outage)
-railway variables \
-  --set "FORCE_CHROMA_RESTORE=false" \
-  --set "KNOWLEDGE_BANK_UPDATING=false" \
-  --set "KNOWLEDGE_BANK_UPDATE_STARTED_AT="
+./scripts/railway_chroma_reload.sh --expected-chunks 41005
 ```
 
-**Preferred:** use the safe wrapper (sets `CHROMA_PERSIST_DIR`, one redeploy, no step-5 redeploy):
+Manual alternative — **one redeploy only**, unset flags without second redeploy (see `AGENTS.md`).
 
-```bash
-./scripts/railway_chroma_reload.sh
-```
-
-## Railway CLI (linked from repo root)
+## Railway CLI
 
 ```bash
 railway status
+railway deployment list | head -5
 railway variables -k
 railway variables --set "KEY=value"   # no spaces around =
-railway redeploy -y
+railway up --detach                   # deploy local code (preferred for hotfixes)
 railway logs --lines 50 --filter "Chroma OR restore OR ERROR"
 ```
 
-## Frontend deploy (separate from Railway)
+Cancel stuck build: GraphQL `deploymentCancel(id: "...")` — see `AGENTS.md`.
+
+## Frontend deploy (separate)
 
 ```bash
-./deploy.sh --frontend-only   # builds → Hugo tlp repo → Cloudflare Pages
+./deploy.sh --frontend-only
 ```
 
-Backend code deploys via Railway git integration on push to `main`.
-
-## Maintenance mode (user-facing)
+## Maintenance mode
 
 When `KNOWLEDGE_BANK_UPDATING=true`, Chroma empty, or `/api/health` returns `status: "updating"`:
-- Backend returns `503 KNOWLEDGE_BANK_UPDATING` on chat routes
-- `/api/health` includes `maintenance.message` and `check_back_at`
-- Frontend shows violet banner **above input** and disables query box
+- Chat routes return `503 KNOWLEDGE_BANK_UPDATING`
+- Frontend shows violet banner and disables input
 
 Env vars: `KNOWLEDGE_BANK_UPDATING`, `KNOWLEDGE_BANK_UPDATE_STARTED_AT`, `CHROMA_RESTORE_ETA_MINUTES` (default 4).
 
-## FORCE restore pitfalls (learned 2026-06-19)
+Index loaded (`document_count > 0`) unblocks chat even if maintenance env lagged (`knowledge_bank_status.py`).
 
-1. **Never leave `FORCE_CHROMA_RESTORE=true`** — every restart wipes volume and re-downloads S3.
-2. **Never `railway redeploy` after unsetting flags** — only the ONE redeploy in step 3; a second redeploy re-runs startup and has caused repeated 0-chunk outages.
-3. **Use persistent volume, not `/tmp`** — set `CHROMA_PERSIST_DIR=/app/chroma_db` on Railway. Code-only deploys then skip S3 restore when count > 0.
-4. **Readonly SQLite on Railway volume** — tar extract can leave chroma files read-only → `attempt to write a readonly database`. Fixed in `backend/main.py` via `_fix_chroma_permissions()` after extract.
-5. **Use `get_collection` not `get_or_create_collection`** for post-restore count/open — avoid creating empty collection over valid restore (`ChromaRetriever` + `_chroma_chunk_count`).
-6. **If FORCE restore fails (0 chunks)** — run `./scripts/railway_chroma_reload.sh` or FORCE redeploy once; do not loop redeploys.
-7. **`get_or_create` on empty count masked failures** — restore must validate count > 0 before claiming success.
-8. **`/api/health` returns 503 while updating** — Railway healthcheck waits for restore instead of marking a 0-chunk instance healthy.
+## Restore pitfalls (2026-06-20)
+
+1. **Never loop redeploys** — one deploy per task; abort duplicates.
+2. **`railway redeploy` ≠ latest git** — use `git push` or `railway up` for code fixes.
+3. **Never redeploy after unsetting flags** — only `railway variables --set`.
+4. **Never leave `FORCE_CHROMA_RESTORE=true`** after restore.
+5. **`/app/chroma_db` and `/tmp/chroma_db` break Chroma on Railway** — use `chroma_data_*` temp extract (current code).
+6. **503 health with 0 chunks** → Railway REMOVES deployment after healthcheck timeout.
+7. **Staging open + move/copy** caused 0 chunks — current code extracts once to temp dir, no copytree.
 
 ## Doc sync repos (key S3 prefixes)
 
 | GitHub repo | S3 prefix | Product |
 |-------------|-----------|---------|
-| `AdobeDocs/analytics-platform.en` | `adobe-docs/customer-journey-analytics/` | CJA main guides |
+| `AdobeDocs/analytics-platform.en` | `adobe-docs/customer-journey-analytics/` | CJA guides |
 | `AdobeDocs/customer-journey-analytics-learn.en` | `adobe-docs/customer-journey-analytics-learn/` | CJA tutorials |
+| `AdobeDocs/cja-apis` etc. | `adobe-docs/cja-apis/` | CJA APIs (developer.adobe.com) |
 | `AdobeDocs/experience-platform.en` | `adobe-docs/experience-platform/` | AEP |
-| `AdobeDocs/platform-learn.en` | `adobe-docs/platform-learn/` | AEP tutorials |
-
-## CJA index status (as of 2026-06-19)
-
-- **Done:** CJA learn repo wired (`529a649`), 161 tutorials ingested (+210 chunks via GHA).
-- **Pending:** Main `analytics-platform.en` CJA guides (~450 docs) — calc metrics, derived fields, etc. Still needed for queries like "calculated metrics vs derived fields in CJA".
-- **Production:** ~33,538 chunks after GHA + FORCE cycle.
 
 ## Local ingest pipeline
 
@@ -121,3 +106,4 @@ python scripts/upload_chroma_to_s3.py   # only when explicitly requested for pro
 - Upload Chroma to S3 or run Railway FORCE restore
 - Commit `data/metadata_registry.json` without `git add -f`
 - Use GHA `force=true` unless full rebuild is intentional (hours)
+- Multiple simultaneous Railway deploys
