@@ -215,8 +215,9 @@ def _restore_chroma_from_s3() -> bool:
     for attempt in range(1, max_attempts + 1):
         if attempt > 1:
             logger.warning("Chroma restore produced 0 chunks — retrying S3 download (attempt %d)", attempt)
-            _remove_chroma_dest(_CHROMA_DIR)
 
+        # Use a fresh temp dir — /tmp/chroma_db is unreliable on Railway (0 chunks after extract).
+        data_parent = Path(tempfile.mkdtemp(prefix="chroma_data_", dir="/tmp"))
         tmp_archive: str | None = None
         try:
             logger.info(
@@ -231,36 +232,39 @@ def _restore_chroma_from_s3() -> bool:
                 tmp_archive = tmp.name
             s3.download_file(bucket, _CHROMA_S3_KEY, tmp_archive)
             size_mb = Path(tmp_archive).stat().st_size / 1024 / 1024
-            logger.info("Downloaded %.1f MB — extracting to %s ...", size_mb, _CHROMA_DIR.parent)
+            logger.info("Downloaded %.1f MB — extracting to %s ...", size_mb, data_parent)
 
-            _remove_chroma_dest(_CHROMA_DIR)
             with tarfile.open(tmp_archive, "r:gz") as tar:
-                tar.extractall(_CHROMA_DIR.parent)
+                tar.extractall(data_parent)
 
-            if not _CHROMA_DIR.is_dir() or not (_CHROMA_DIR / "chroma.sqlite3").is_file():
+            chroma_dir = data_parent / "chroma_db"
+            if not chroma_dir.is_dir() or not (chroma_dir / "chroma.sqlite3").is_file():
                 logger.error("Archive missing chroma_db/chroma.sqlite3 after extract")
+                shutil.rmtree(data_parent, ignore_errors=True)
                 continue
 
-            sqlite_mb = (_CHROMA_DIR / "chroma.sqlite3").stat().st_size / 1024 / 1024
+            sqlite_mb = (chroma_dir / "chroma.sqlite3").stat().st_size / 1024 / 1024
             logger.info(
                 "Extracted ChromaDB archive OK (chroma.sqlite3 %.1f MB at %s)",
                 sqlite_mb,
-                _CHROMA_DIR,
+                chroma_dir,
             )
 
-            _fix_chroma_permissions(_CHROMA_DIR)
+            _fix_chroma_permissions(chroma_dir)
             import gc
             gc.collect()
 
-            count = _chroma_chunk_count_at(_CHROMA_DIR)
+            count = _chroma_chunk_count_at(chroma_dir)
             if count <= 0:
-                logger.error("Extract finished but collection count is still 0 at %s", _CHROMA_DIR)
+                logger.error("Extract finished but collection count is still 0 at %s", chroma_dir)
+                shutil.rmtree(data_parent, ignore_errors=True)
                 continue
 
+            _set_chroma_dir(chroma_dir)
             logger.info(
                 "ChromaDB restored from S3 ✓ (%d chunks at %s)",
                 count,
-                _CHROMA_DIR,
+                chroma_dir,
             )
             if force:
                 logger.warning(
@@ -270,6 +274,7 @@ def _restore_chroma_from_s3() -> bool:
             return True
         except Exception as e:
             logger.warning(f"S3 restore attempt {attempt} failed: {e}")
+            shutil.rmtree(data_parent, ignore_errors=True)
         finally:
             if tmp_archive:
                 Path(tmp_archive).unlink(missing_ok=True)
