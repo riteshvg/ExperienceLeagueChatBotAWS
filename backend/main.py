@@ -89,14 +89,25 @@ def _clear_chroma_dir() -> None:
 
 
 def _install_chroma_tree(source: Path, dest: Path) -> bool:
-    """Copy a validated Chroma tree into the persist directory."""
+    """Install a validated Chroma tree into the persist directory."""
     import shutil
+
+    if source.resolve() == dest.resolve():
+        _fix_chroma_permissions(dest)
+        count = _chroma_chunk_count_at(dest)
+        logger.info("ChromaDB already at %s (%d chunks)", dest, count)
+        return count > 0
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     _clear_chroma_dir_at(dest)
     if dest.exists():
-        dest.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, dest, dirs_exist_ok=True)
+        try:
+            dest.rmdir()
+        except OSError:
+            pass
+
+    # Move, do not copy — shutil.copytree breaks Chroma SQLite on Railway.
+    shutil.move(str(source), str(dest))
     _fix_chroma_permissions(dest)
     count = _chroma_chunk_count_at(dest)
     logger.info("Installed ChromaDB at %s (%d chunks)", dest, count)
