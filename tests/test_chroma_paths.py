@@ -16,10 +16,9 @@ def test_local_default():
         assert chroma_paths.chroma_persist_dir() == _ROOT / "chroma_db"
 
 
-def test_railway_prefers_volume():
+def test_railway_defaults_to_tmp():
     with patch.dict("os.environ", {"RAILWAY_ENVIRONMENT": "production"}, clear=True):
-        with patch.object(Path, "is_dir", return_value=True):
-            assert chroma_paths.chroma_persist_dir() == Path("/app/chroma_db")
+        assert chroma_paths.chroma_persist_dir() == Path("/tmp/chroma_db")
 
 
 def test_chroma_persist_dir_override():

@@ -47,15 +47,15 @@ def test_health_updating_when_empty_chroma(monkeypatch):
     assert check_back == started + timedelta(minutes=4)
 
 
-def test_manual_flag_forces_updating(monkeypatch):
+def test_index_ready_unblocks_even_when_flag_set(monkeypatch):
     monkeypatch.setenv("KNOWLEDGE_BANK_UPDATING", "true")
     monkeypatch.setenv(
         "KNOWLEDGE_BANK_UPDATE_STARTED_AT", "2026-06-19T09:30:00Z"
     )
     app = _app(retriever=_FakeRetriever(33000))
-    assert kb.is_knowledge_bank_updating(app) is True
+    assert kb.is_knowledge_bank_updating(app) is False
     payload = kb.build_health_payload(app)
-    assert payload["status"] == "updating"
+    assert payload["status"] == "ok"
 
 
 def test_maintenance_payload_detail_code():

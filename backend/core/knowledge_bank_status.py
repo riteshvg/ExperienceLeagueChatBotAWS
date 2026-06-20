@@ -44,9 +44,6 @@ def get_eta_minutes() -> int:
 
 def resolve_started_at(app: Any) -> datetime:
     """Return UTC time maintenance began (env, app state, or now)."""
-    if not maintenance_flag_enabled():
-        return datetime.now(timezone.utc)
-
     env_raw = os.getenv("KNOWLEDGE_BANK_UPDATE_STARTED_AT", "").strip()
     parsed = _parse_started_at(env_raw)
     if parsed:
@@ -80,7 +77,14 @@ def is_knowledge_bank_updating(app: Any) -> bool:
     if maintenance_flag_enabled():
         return True
 
-    return getattr(app.state, "retriever", None) is None
+    retriever = getattr(app.state, "retriever", None)
+    if retriever is None:
+        return True
+
+    try:
+        return retriever.document_count() == 0
+    except Exception:
+        return True
 
 
 def format_check_back_at(dt: datetime) -> str:

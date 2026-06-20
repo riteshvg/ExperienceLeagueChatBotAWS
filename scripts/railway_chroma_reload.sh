@@ -55,8 +55,8 @@ echo "=== Rovr production Chroma reload ==="
 echo "Health URL: $HEALTH_URL"
 
 echo ""
-echo "Step 1: Ensure persistent volume path (one-time)"
-run_railway variables --set "CHROMA_PERSIST_DIR=/app/chroma_db"
+echo "Step 1: Use /tmp for Chroma (Railway volume mount breaks SQLite restore)"
+run_railway variables --set "CHROMA_PERSIST_DIR=/tmp/chroma_db"
 
 echo ""
 echo "Step 2: Enable maintenance + FORCE restore (single redeploy)"
@@ -105,4 +105,4 @@ run_railway variables \
 echo ""
 echo "=== Done ==="
 echo "Verify chat: curl -s ${HEALTH_URL%/health}/ping"
-echo "Future git pushes redeploy code only — Chroma stays on /app/chroma_db volume."
+echo "Future git pushes redeploy code only — Chroma lives in /tmp until volume restore is verified."

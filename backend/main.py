@@ -69,12 +69,38 @@ def _chroma_chunk_count() -> int:
     return _chroma_chunk_count_at(_CHROMA_DIR)
 
 
-def _clear_chroma_dir() -> None:
+def _clear_chroma_dir_at(path: Path | None = None) -> None:
+    """Remove Chroma files without deleting a Railway volume mount point."""
     import shutil
 
-    if _CHROMA_DIR.exists():
-        shutil.rmtree(_CHROMA_DIR)
-        logger.info(f"Cleared local ChromaDB at {_CHROMA_DIR}")
+    target = path or _CHROMA_DIR
+    if not target.exists():
+        return
+    for child in target.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+    logger.info("Cleared ChromaDB contents at %s", target)
+
+
+def _clear_chroma_dir() -> None:
+    _clear_chroma_dir_at(_CHROMA_DIR)
+
+
+def _install_chroma_tree(source: Path, dest: Path) -> bool:
+    """Copy a validated Chroma tree into the persist directory."""
+    import shutil
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    _clear_chroma_dir_at(dest)
+    if dest.exists():
+        dest.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, dest, dirs_exist_ok=True)
+    _fix_chroma_permissions(dest)
+    count = _chroma_chunk_count_at(dest)
+    logger.info("Installed ChromaDB at %s (%d chunks)", dest, count)
+    return count > 0
 
 
 def _fix_chroma_permissions(chroma_path: Path | None = None) -> None:
@@ -159,14 +185,35 @@ def _restore_chroma_from_s3() -> bool:
             sqlite_mb = (staged_dir / "chroma.sqlite3").stat().st_size / 1024 / 1024
             logger.info("Staged ChromaDB archive OK (chroma.sqlite3 %.1f MB)", sqlite_mb)
 
-            _CHROMA_DIR.parent.mkdir(parents=True, exist_ok=True)
-            if _CHROMA_DIR.exists():
-                shutil.rmtree(_CHROMA_DIR)
-            shutil.copytree(staged_dir, _CHROMA_DIR)
-            _fix_chroma_permissions(_CHROMA_DIR)
+            staging_count = _chroma_chunk_count_at(staged_dir)
+            if staging_count <= 0:
+                logger.error(
+                    "Staging dir has 0 chunks after extract — archive may be corrupt"
+                )
+                continue
+            logger.info("Staging validation OK — %d chunks in %s", staging_count, staged_dir)
 
-            count = _chroma_chunk_count()
-            logger.info("ChromaDB restored from S3 ✓ (%d chunks at %s)", count, _CHROMA_DIR)
+            if not _install_chroma_tree(staged_dir, _CHROMA_DIR):
+                fallback = Path("/tmp/chroma_db")
+                if _CHROMA_DIR != fallback:
+                    logger.warning(
+                        "Persist dir %s unreadable after install — falling back to %s",
+                        _CHROMA_DIR,
+                        fallback,
+                    )
+                    os.environ["CHROMA_PERSIST_DIR"] = str(fallback)
+                    if not _install_chroma_tree(staged_dir, fallback):
+                        logger.error("Fallback install to %s also failed", fallback)
+                        continue
+                else:
+                    continue
+
+            count = _chroma_chunk_count_at(chroma_persist_dir())
+            logger.info(
+                "ChromaDB restored from S3 ✓ (%d chunks at %s)",
+                count,
+                chroma_persist_dir(),
+            )
             if count > 0:
                 if force:
                     logger.warning(
@@ -230,7 +277,8 @@ async def lifespan(app: FastAPI):
         )
 
     _restore_chroma_from_s3()
-    _fix_chroma_permissions(_CHROMA_DIR)
+    persist = chroma_persist_dir()
+    _fix_chroma_permissions(persist)
     import gc
     gc.collect()
     try:
