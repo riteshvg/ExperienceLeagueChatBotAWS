@@ -295,43 +295,43 @@ export function ChatPage() {
                   : undefined
             }
           />
-          <div className="mt-2 flex flex-col items-center gap-0.5">
-            <p className="text-center text-xs text-slate-400">
-              Answers are grounded in Adobe Experience League documentation
-            </p>
-            <p className="text-center text-xs text-slate-400">
-              AI-generated — please validate answers before sharing or acting on them
-            </p>
+          <p className="mt-2 text-center text-xs text-slate-400">
+            <span>Answers are grounded in Adobe Experience League documentation</span>
+            <span aria-hidden="true"> · </span>
+            <span>AI-generated — please validate answers before sharing or acting on them</span>
             {monthlyLimit < 9999 ? (
-              <p
-                className={cn(
-                  'text-xs mt-0.5',
-                  isExhausted || monthlyExhausted
-                    ? 'text-red-500 font-medium'
-                    : monthlyRemaining <= 5
-                      ? 'text-amber-500'
-                      : 'text-slate-400',
-                )}
-              >
-                {isExhausted || monthlyExhausted ? monthlyLimit : monthlyUsed} / {monthlyLimit} queries used this month
-                {' '}· {isExhausted || monthlyExhausted ? 0 : monthlyRemaining} remaining
-              </p>
+              <>
+                <span aria-hidden="true"> · </span>
+                <span
+                  className={cn(
+                    isExhausted || monthlyExhausted
+                      ? 'text-red-500 font-medium'
+                      : monthlyRemaining <= 5
+                        ? 'text-amber-500'
+                        : undefined,
+                  )}
+                >
+                  {isExhausted || monthlyExhausted ? monthlyLimit : monthlyUsed} / {monthlyLimit} queries
+                  used this month · {isExhausted || monthlyExhausted ? 0 : monthlyRemaining} remaining
+                </span>
+              </>
             ) : queriesRemaining !== null ? (
-              <p
-                className={cn(
-                  'text-xs mt-0.5',
-                  queriesRemaining === 0
-                    ? 'text-red-500 font-medium'
-                    : queriesRemaining <= queriesLimit * 0.25
-                      ? 'text-amber-500'
-                      : 'text-slate-400',
-                )}
-              >
-                {queriesUsed} / {queriesLimit} queries used this month
-                {' '}· {queriesRemaining} remaining
-              </p>
+              <>
+                <span aria-hidden="true"> · </span>
+                <span
+                  className={cn(
+                    queriesRemaining === 0
+                      ? 'text-red-500 font-medium'
+                      : queriesRemaining <= queriesLimit * 0.25
+                        ? 'text-amber-500'
+                        : undefined,
+                  )}
+                >
+                  {queriesUsed} / {queriesLimit} queries used this month · {queriesRemaining} remaining
+                </span>
+              </>
             ) : null}
-          </div>
+          </p>
         </div>
       </main>
 

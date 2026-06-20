@@ -1,40 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
-import { fetchLandingQuestions, type LandingQuestion } from '@/lib/api'
-
-export type SolutionCategory =
-  | 'All'
-  | 'Analytics'
-  | 'CJA'
-  | 'AEP'
-  | 'Target'
-  | 'AJO'
-  | 'Data Collection'
-  | 'Cross-Product'
-  | 'General'
-
-export const LANDING_CATEGORIES: SolutionCategory[] = [
-  'All',
-  'Analytics',
-  'CJA',
-  'AEP',
-  'Target',
-  'AJO',
-  'Data Collection',
-  'Cross-Product',
-  'General',
-]
-
-export const CATEGORY_COLORS: Record<Exclude<SolutionCategory, 'All'>, string> = {
-  Analytics: 'bg-orange-50 text-orange-700 border-orange-200',
-  CJA: 'bg-violet-50 text-violet-700 border-violet-200',
-  AEP: 'bg-blue-50 text-blue-700 border-blue-200',
-  Target: 'bg-red-50 text-red-700 border-red-200',
-  AJO: 'bg-green-50 text-green-700 border-green-200',
-  'Data Collection': 'bg-amber-50 text-amber-700 border-amber-200',
-  'Cross-Product': 'bg-teal-50 text-teal-700 border-teal-200',
-  General: 'bg-slate-50 text-slate-600 border-slate-200',
-}
+import { fetchLandingQuestions } from '@/lib/api'
+import { mergeTickerQuestions } from '@/config/questions'
+import { QuestionTicker } from '@/components/QuestionTicker'
 
 interface Props {
   sessionId: string
@@ -55,11 +23,9 @@ export function LandingPanel({
   welcomeDismissed,
   onDismissWelcome,
 }: Props) {
-  const [activeCategory, setActiveCategory] = useState<SolutionCategory>('All')
-  const [bySolution, setBySolution] = useState<Record<string, LandingQuestion[]>>({})
   const [source, setSource] = useState<'postgres' | 'fallback' | null>(null)
-  const [allTabLimit, setAllTabLimit] = useState(4)
   const [loading, setLoading] = useState(true)
+  const [apiQuestions, setApiQuestions] = useState<{ text: string; solution: string; times_asked: number }[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -67,14 +33,13 @@ export function LandingPanel({
     fetchLandingQuestions()
       .then((data) => {
         if (cancelled) return
-        setBySolution(data.by_solution)
+        setApiQuestions(data.questions)
         setSource(data.source)
-        setAllTabLimit(data.all_tab_per_solution ?? 4)
       })
       .catch(() => {
         if (cancelled) return
         setSource('fallback')
-        setBySolution({})
+        setApiQuestions([])
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -84,34 +49,34 @@ export function LandingPanel({
     }
   }, [sessionId])
 
-  const visibleQuestions = useMemo(() => {
-    if (activeCategory === 'All') {
-      return LANDING_CATEGORIES.filter((c) => c !== 'All').flatMap((cat) =>
-        (bySolution[cat] ?? []).slice(0, allTabLimit).map((q) => ({ ...q, solution: cat })),
-      )
-    }
-    return (bySolution[activeCategory] ?? []).map((q) => ({
-      ...q,
-      solution: activeCategory,
-    }))
-  }, [activeCategory, bySolution, allTabLimit])
+  const tickerQuestions = useMemo(
+    () =>
+      mergeTickerQuestions(
+        apiQuestions.map((q) => ({
+          text: q.text,
+          solution: q.solution,
+          times_asked: q.times_asked,
+        })),
+      ),
+    [apiQuestions],
+  )
 
   return (
-    <div className="min-h-full flex flex-col items-center justify-center px-4 py-8 md:py-12">
+    <div className="min-h-full flex flex-col items-center justify-center px-4 py-6 md:py-8">
       <img
         src={`${import.meta.env.BASE_URL}rovrlogo.png`}
         alt="Rovr"
-        className="h-12 w-auto mb-4"
+        className="h-12 w-auto mb-3"
       />
       <h2 className="text-lg font-semibold text-slate-700 mb-1 text-center">
         Ask about Adobe Experience League docs
       </h2>
       {source === 'postgres' && (
-        <p className="text-xs text-slate-400 mb-5 text-center">
+        <p className="text-xs text-slate-400 mb-3 text-center">
           Popular questions from other Rovr users — pick one to get started
         </p>
       )}
-      {source !== 'postgres' && <div className="mb-5" />}
+      {source !== 'postgres' && <div className="mb-3" />}
 
       {isNewUser && monthlyRemaining > 0 && !welcomeDismissed && monthlyLimit < 9999 && (
         <div className="w-full max-w-md mb-5 px-5 py-4 rounded-xl bg-emerald-50 border border-emerald-200 text-left">
@@ -130,57 +95,13 @@ export function LandingPanel({
         </div>
       )}
 
-      <div className="flex flex-wrap justify-center gap-1.5 mb-4 max-w-2xl">
-        {LANDING_CATEGORIES.map((cat) => (
-          <button
-            key={cat}
-            onClick={() => setActiveCategory(cat)}
-            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-              activeCategory === cat
-                ? 'bg-[#10B981] text-white border-[#10B981]'
-                : 'bg-white text-slate-500 border-slate-200 hover:border-[#10B981] hover:text-[#10B981]'
-            }`}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
-
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-slate-400 py-8">
           <Loader2 className="w-4 h-4 animate-spin" />
           Loading questions…
         </div>
-      ) : visibleQuestions.length === 0 ? (
-        <p className="text-sm text-slate-400 py-8 text-center max-w-md">
-          No questions for this solution yet. Type your own question below.
-        </p>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 w-full max-w-4xl">
-          {visibleQuestions.map((item) => (
-            <button
-              key={`${item.solution}-${item.text}`}
-              onClick={() => onSelectPrompt(item.text)}
-              className="group text-left px-4 py-3 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 hover:shadow-sm transition-all"
-            >
-              <span
-                className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border mb-1.5 ${
-                  CATEGORY_COLORS[item.solution as Exclude<SolutionCategory, 'All'>]
-                }`}
-              >
-                {item.solution}
-              </span>
-              <p className="text-sm text-slate-600 group-hover:text-[#14532D] leading-snug">
-                {item.text}
-              </p>
-              {item.times_asked > 1 && (
-                <p className="text-[10px] text-slate-400 mt-1.5">
-                  Asked {item.times_asked} times
-                </p>
-              )}
-            </button>
-          ))}
-        </div>
+        <QuestionTicker questions={tickerQuestions} onSelectPrompt={onSelectPrompt} />
       )}
     </div>
   )

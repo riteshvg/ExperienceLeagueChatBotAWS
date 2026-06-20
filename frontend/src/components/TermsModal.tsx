@@ -83,68 +83,72 @@ export function TermsModal({ onAccept }: Props) {
   }
 
   return (
-    // Backdrop — blocks all pointer events on the page behind
+    // Backdrop — scrollable on short viewports so the full modal is reachable
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 overflow-y-auto"
       style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
-      // Swallow all pointer events so nothing behind is clickable
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <div
-        ref={modalRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="terms-heading"
-        className="w-full max-w-[520px] bg-white rounded-2xl overflow-hidden"
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
+      <div className="flex min-h-full items-center justify-center p-4">
         <div
-          className="flex items-center gap-3 px-6 py-4"
-          style={{ backgroundColor: '#14532D' }}
+          ref={modalRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="terms-heading"
+          className="w-full max-w-[520px] max-h-[calc(100dvh-2rem)] flex flex-col bg-white rounded-2xl overflow-hidden shadow-xl"
+          onPointerDown={(e) => e.stopPropagation()}
         >
-          <img
-            src={`${import.meta.env.BASE_URL}rovrlogo.png`}
-            alt="Rovr"
-            className="h-8 w-auto flex-shrink-0"
-          />
-          <span className="text-white font-semibold text-base">Rovr</span>
-        </div>
-
-        {/* Body */}
-        <div className="px-6 py-6">
-          <h2
-            id="terms-heading"
-            className="text-lg font-semibold text-slate-800 mb-5"
+          {/* Header */}
+          <div
+            className="flex-shrink-0 flex items-center gap-3 px-6 py-4"
+            style={{ backgroundColor: '#14532D' }}
           >
-            Before you begin
-          </h2>
-
-          <div className="space-y-0">
-            {SECTIONS.map(({ Icon, title, body }, i) => (
-              <div key={title}>
-                <div className="flex gap-3 py-4">
-                  <Icon
-                    className="w-5 h-5 flex-shrink-0 mt-0.5"
-                    style={{ color: '#10B981' }}
-                    aria-hidden="true"
-                  />
-                  <div>
-                    <p className="text-sm font-semibold text-slate-700 mb-1">{title}</p>
-                    <p className="text-sm leading-relaxed" style={{ color: '#374151' }}>
-                      {body}
-                    </p>
-                  </div>
-                </div>
-                {i < SECTIONS.length - 1 && (
-                  <hr style={{ borderColor: '#A7F3D0' }} />
-                )}
-              </div>
-            ))}
+            <img
+              src={`${import.meta.env.BASE_URL}rovrlogo.png`}
+              alt="Rovr"
+              className="h-8 w-auto flex-shrink-0"
+            />
+            <span className="text-white font-semibold text-base">Rovr</span>
           </div>
 
-          {/* Checkbox */}
-          <div className="mt-5 pt-5" style={{ borderTop: '1px solid #A7F3D0' }}>
+          {/* Scrollable terms body */}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-6">
+            <h2
+              id="terms-heading"
+              className="text-lg font-semibold text-slate-800 mb-5"
+            >
+              Before you begin
+            </h2>
+
+            <div className="space-y-0">
+              {SECTIONS.map(({ Icon, title, body }, i) => (
+                <div key={title}>
+                  <div className="flex gap-3 py-4">
+                    <Icon
+                      className="w-5 h-5 flex-shrink-0 mt-0.5"
+                      style={{ color: '#10B981' }}
+                      aria-hidden="true"
+                    />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-700 mb-1">{title}</p>
+                      <p className="text-sm leading-relaxed" style={{ color: '#374151' }}>
+                        {body}
+                      </p>
+                    </div>
+                  </div>
+                  {i < SECTIONS.length - 1 && (
+                    <hr style={{ borderColor: '#A7F3D0' }} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Footer — always visible: checkbox + submit */}
+          <div
+            className="flex-shrink-0 px-6 py-4 border-t bg-white"
+            style={{ borderColor: '#A7F3D0' }}
+          >
             <label
               htmlFor="terms-checkbox"
               className="flex items-start gap-3 cursor-pointer"
@@ -162,21 +166,20 @@ export function TermsModal({ onAccept }: Props) {
                 I have read and understood the above. I agree to use Rovr responsibly.
               </span>
             </label>
-          </div>
 
-          {/* Button */}
-          <button
-            onClick={handleAccept}
-            disabled={!checked}
-            className={cn(
-              'mt-4 w-full py-2.5 px-7 rounded-lg text-sm font-medium transition-colors',
-              checked
-                ? 'bg-[#14532D] text-white hover:bg-[#10B981] cursor-pointer'
-                : 'bg-[#D1D5DB] text-[#9CA3AF] cursor-not-allowed'
-            )}
-          >
-            I agree
-          </button>
+            <button
+              onClick={handleAccept}
+              disabled={!checked}
+              className={cn(
+                'mt-4 w-full py-2.5 px-7 rounded-lg text-sm font-medium transition-colors',
+                checked
+                  ? 'bg-[#14532D] text-white hover:bg-[#10B981] cursor-pointer'
+                  : 'bg-[#D1D5DB] text-[#9CA3AF] cursor-not-allowed',
+              )}
+            >
+              I agree
+            </button>
+          </div>
         </div>
       </div>
     </div>
