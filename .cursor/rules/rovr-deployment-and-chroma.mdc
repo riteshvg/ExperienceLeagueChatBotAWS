@@ -38,14 +38,20 @@ railway variables \
   --set "CHROMA_RESTORE_ETA_MINUTES=4"
 railway redeploy -y
 
-# 4. Poll until document_count matches GHA (e.g. 33538)
+# 4. Poll until document_count matches GHA (e.g. 41005)
 curl -s https://experienceleaguechatbotaws-production.up.railway.app/api/health
 
-# 5. IMMEDIATELY unset flags (never leave FORCE=true overnight)
+# 5. Unset flags — do NOT redeploy (redeploy wipes /tmp and risks 0-chunk outage)
 railway variables \
   --set "FORCE_CHROMA_RESTORE=false" \
-  --set "KNOWLEDGE_BANK_UPDATING=false"
-railway redeploy -y
+  --set "KNOWLEDGE_BANK_UPDATING=false" \
+  --set "KNOWLEDGE_BANK_UPDATE_STARTED_AT="
+```
+
+**Preferred:** use the safe wrapper (sets `CHROMA_PERSIST_DIR`, one redeploy, no step-5 redeploy):
+
+```bash
+./scripts/railway_chroma_reload.sh
 ```
 
 ## Railway CLI (linked from repo root)
@@ -78,10 +84,13 @@ Env vars: `KNOWLEDGE_BANK_UPDATING`, `KNOWLEDGE_BANK_UPDATE_STARTED_AT`, `CHROMA
 ## FORCE restore pitfalls (learned 2026-06-19)
 
 1. **Never leave `FORCE_CHROMA_RESTORE=true`** — every restart wipes volume and re-downloads S3.
-2. **Readonly SQLite on Railway volume** — tar extract can leave chroma files read-only → `attempt to write a readonly database`. Fixed in `backend/main.py` via `_fix_chroma_permissions()` after extract.
-3. **Use `get_collection` not `get_or_create_collection`** for post-restore count/open — avoid creating empty collection over valid restore (`ChromaRetriever` + `_chroma_chunk_count`).
-4. **If FORCE restore fails (0 chunks)** — unset FORCE, redeploy; non-force path re-downloads without wipe (recovery worked in prod).
-5. **`get_or_create` on empty count masked failures** — restore must validate count > 0 before claiming success.
+2. **Never `railway redeploy` after unsetting flags** — only the ONE redeploy in step 3; a second redeploy re-runs startup and has caused repeated 0-chunk outages.
+3. **Use persistent volume, not `/tmp`** — set `CHROMA_PERSIST_DIR=/app/chroma_db` on Railway. Code-only deploys then skip S3 restore when count > 0.
+4. **Readonly SQLite on Railway volume** — tar extract can leave chroma files read-only → `attempt to write a readonly database`. Fixed in `backend/main.py` via `_fix_chroma_permissions()` after extract.
+5. **Use `get_collection` not `get_or_create_collection`** for post-restore count/open — avoid creating empty collection over valid restore (`ChromaRetriever` + `_chroma_chunk_count`).
+6. **If FORCE restore fails (0 chunks)** — run `./scripts/railway_chroma_reload.sh` or FORCE redeploy once; do not loop redeploys.
+7. **`get_or_create` on empty count masked failures** — restore must validate count > 0 before claiming success.
+8. **`/api/health` returns 503 while updating** — Railway healthcheck waits for restore instead of marking a 0-chunk instance healthy.
 
 ## Doc sync repos (key S3 prefixes)
 
