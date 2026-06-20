@@ -61,19 +61,26 @@ def resolve_started_at(app: Any) -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _index_ready(app: Any) -> bool:
+    retriever = getattr(app.state, "retriever", None)
+    if retriever is None:
+        return False
+    try:
+        return retriever.document_count() > 0
+    except Exception:
+        return False
+
+
 def is_knowledge_bank_updating(app: Any) -> bool:
     """True when chat retrieval should be blocked with a maintenance message."""
+    # Index loaded — unblock even if maintenance env lagged on a prior deploy.
+    if _index_ready(app):
+        return False
+
     if maintenance_flag_enabled():
         return True
 
-    retriever = getattr(app.state, "retriever", None)
-    if retriever is None:
-        return True
-
-    try:
-        return retriever.document_count() == 0
-    except Exception:
-        return True
+    return getattr(app.state, "retriever", None) is None
 
 
 def format_check_back_at(dt: datetime) -> str:
