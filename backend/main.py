@@ -40,8 +40,19 @@ from backend.core.session_store import SessionStore
 from config.settings import get_settings
 
 _CHROMA_S3_KEY = os.getenv("CHROMA_S3_KEY", "chroma_db/chroma_db.tar.gz")
-_CHROMA_DIR = chroma_persist_dir()
 _COLLECTION = "experience_league"
+_RAILWAY_TMP_CHROMA = Path("/tmp/chroma_db")
+
+
+def _refresh_chroma_dir() -> Path:
+    """Resolve persist dir (honours Railway /tmp default) and sync module global."""
+    global _CHROMA_DIR
+    _CHROMA_DIR = chroma_persist_dir()
+    os.environ["CHROMA_PERSIST_DIR"] = str(_CHROMA_DIR)
+    return _CHROMA_DIR
+
+
+_CHROMA_DIR = _refresh_chroma_dir()
 
 
 def _env_truthy(name: str) -> bool:
@@ -88,15 +99,15 @@ def _clear_chroma_dir() -> None:
     _clear_chroma_dir_at(_CHROMA_DIR)
 
 
-def _install_chroma_tree(source: Path, dest: Path) -> bool:
-    """Install a validated Chroma tree into the persist directory."""
+def _install_chroma_tree(source: Path, dest: Path) -> tuple[bool, Path]:
+    """Install a validated Chroma tree; return (ok, path actually used)."""
     import shutil
 
     if source.resolve() == dest.resolve():
         _fix_chroma_permissions(dest)
         count = _chroma_chunk_count_at(dest)
         logger.info("ChromaDB already at %s (%d chunks)", dest, count)
-        return count > 0
+        return count > 0, dest
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     _clear_chroma_dir_at(dest)
@@ -110,8 +121,36 @@ def _install_chroma_tree(source: Path, dest: Path) -> bool:
     shutil.move(str(source), str(dest))
     _fix_chroma_permissions(dest)
     count = _chroma_chunk_count_at(dest)
-    logger.info("Installed ChromaDB at %s (%d chunks)", dest, count)
-    return count > 0
+    if count > 0:
+        logger.info("Installed ChromaDB at %s (%d chunks)", dest, count)
+        return True, dest
+
+    # Files may exist but SQLite is unreadable on a Railway volume mount.
+    if dest != _RAILWAY_TMP_CHROMA and dest.exists():
+        logger.warning(
+            "Chroma unreadable at %s after install — relocating tree to %s",
+            dest,
+            _RAILWAY_TMP_CHROMA,
+        )
+        _clear_chroma_dir_at(_RAILWAY_TMP_CHROMA)
+        if _RAILWAY_TMP_CHROMA.exists():
+            try:
+                _RAILWAY_TMP_CHROMA.rmdir()
+            except OSError:
+                pass
+        shutil.move(str(dest), str(_RAILWAY_TMP_CHROMA))
+        _fix_chroma_permissions(_RAILWAY_TMP_CHROMA)
+        count = _chroma_chunk_count_at(_RAILWAY_TMP_CHROMA)
+        logger.info(
+            "Installed ChromaDB at %s (%d chunks) after volume relocate",
+            _RAILWAY_TMP_CHROMA,
+            count,
+        )
+        if count > 0:
+            return True, _RAILWAY_TMP_CHROMA
+
+    logger.error("Install failed — 0 chunks at %s", dest)
+    return False, dest
 
 
 def _fix_chroma_permissions(chroma_path: Path | None = None) -> None:
@@ -204,20 +243,12 @@ def _restore_chroma_from_s3() -> bool:
                 continue
             logger.info("Staging validation OK — %d chunks in %s", staging_count, staged_dir)
 
-            if not _install_chroma_tree(staged_dir, _CHROMA_DIR):
-                fallback = Path("/tmp/chroma_db")
-                if _CHROMA_DIR != fallback:
-                    logger.warning(
-                        "Persist dir %s unreadable after install — falling back to %s",
-                        _CHROMA_DIR,
-                        fallback,
-                    )
-                    os.environ["CHROMA_PERSIST_DIR"] = str(fallback)
-                    if not _install_chroma_tree(staged_dir, fallback):
-                        logger.error("Fallback install to %s also failed", fallback)
-                        continue
-                else:
-                    continue
+            installed_ok, installed_at = _install_chroma_tree(staged_dir, _CHROMA_DIR)
+            if not installed_ok:
+                continue
+            global _CHROMA_DIR
+            os.environ["CHROMA_PERSIST_DIR"] = str(installed_at)
+            _CHROMA_DIR = installed_at
 
             count = _chroma_chunk_count_at(chroma_persist_dir())
             logger.info(
@@ -267,8 +298,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _configure_langsmith()
+    persist = _refresh_chroma_dir()
     logger.info("Starting up — loading ChromaDB and models…")
-    logger.info("Chroma persist directory: %s", _CHROMA_DIR)
+    logger.info("Chroma persist directory: %s", persist)
 
     if _env_truthy("KNOWLEDGE_BANK_UPDATING") or _env_truthy("FORCE_CHROMA_RESTORE"):
         app.state.maintenance_started_at = datetime.now(timezone.utc)

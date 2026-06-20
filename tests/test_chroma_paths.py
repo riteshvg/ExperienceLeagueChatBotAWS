@@ -21,6 +21,31 @@ def test_railway_defaults_to_tmp():
         assert chroma_paths.chroma_persist_dir() == Path("/tmp/chroma_db")
 
 
+def test_railway_ignores_volume_path_without_flag():
+    with patch.dict(
+        "os.environ",
+        {
+            "RAILWAY_ENVIRONMENT": "production",
+            "CHROMA_PERSIST_DIR": "/app/chroma_db",
+        },
+        clear=True,
+    ):
+        assert chroma_paths.chroma_persist_dir() == Path("/tmp/chroma_db")
+
+
+def test_railway_honours_volume_when_opted_in():
+    with patch.dict(
+        "os.environ",
+        {
+            "RAILWAY_ENVIRONMENT": "production",
+            "CHROMA_PERSIST_DIR": "/app/chroma_db",
+            "CHROMA_USE_VOLUME": "true",
+        },
+        clear=True,
+    ):
+        assert chroma_paths.chroma_persist_dir() == Path("/app/chroma_db")
+
+
 def test_chroma_persist_dir_override():
     with patch.dict("os.environ", {"CHROMA_PERSIST_DIR": "/data/chroma"}, clear=True):
         assert chroma_paths.chroma_persist_dir() == Path("/data/chroma")
