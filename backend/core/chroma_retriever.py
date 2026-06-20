@@ -53,11 +53,8 @@ class ChromaRetriever:
         try:
             self.collection = self.client.get_collection(name=COLLECTION_NAME)
         except Exception as exc:
-            logger.warning("get_collection failed (%s) — trying get_or_create", exc)
-            self.collection = self.client.get_or_create_collection(
-                name=COLLECTION_NAME,
-                metadata={"hnsw:space": "cosine"},
-            )
+            logger.error("get_collection failed (%s) — not creating an empty collection", exc)
+            raise
         count = self.collection.count()
         logger.info(f"ChromaDB ready — {count} document chunks indexed")
 

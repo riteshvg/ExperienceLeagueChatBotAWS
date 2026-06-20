@@ -115,6 +115,11 @@ def _restore_chroma_from_s3() -> bool:
         if count > 0:
             logger.info(f"ChromaDB already populated ({count} chunks) — skipping S3 restore")
             return True
+        if _CHROMA_DIR.exists():
+            logger.warning(
+                "ChromaDB path exists but collection count is 0 — clearing before S3 restore"
+            )
+            _clear_chroma_dir()
 
     bucket = os.getenv("AWS_S3_BUCKET", "")
     if not bucket:
