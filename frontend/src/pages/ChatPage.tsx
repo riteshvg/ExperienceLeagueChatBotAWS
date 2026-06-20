@@ -6,79 +6,12 @@ import { useQuotaStore } from '@/store/quotaStore';
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput';
 import { ChatMessage } from '@/components/ChatMessage';
 import { Sidebar } from '@/components/Sidebar';
+import { LandingPanel } from '@/components/LandingPanel';
 import { getMe, fetchMaintenanceStatus, isApiDisabled } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { trackSessionStart, trackSessionEnd } from '@/analytics';
 
 const WELCOME_KEY = 'rovr_welcome_dismissed';
-
-type Category =
-  | 'All'
-  | 'Analytics'
-  | 'CJA'
-  | 'AEP'
-  | 'Target'
-  | 'AJO'
-  | 'Cross-Product';
-
-const QUESTION_BANK: Record<Exclude<Category, 'All'>, string[]> = {
-  Analytics: [
-    'How do I create a segment in Adobe Analytics?',
-    'What is the difference between eVars and props in Adobe Analytics?',
-    'How do I set up processing rules in Adobe Analytics?',
-    'How do I configure marketing channel rules in Adobe Analytics?',
-  ],
-  CJA: [
-    'What is a Data View in Customer Journey Analytics?',
-    'How do I create a calculated metric in CJA?',
-    'What is the difference between Adobe Analytics and Customer Journey Analytics?',
-    'How does stitching work in Customer Journey Analytics?',
-  ],
-  AEP: [
-    'What are the different ways to ingest data into Adobe Experience Platform?',
-    'How do I create an XDM schema in Adobe Experience Platform?',
-    'What is Real-Time CDP and how does it work with AEP profiles?',
-    'How do I set up identity resolution in Adobe Experience Platform?',
-  ],
-  Target: [
-    'How do I create an A/B test in Adobe Target?',
-    'What is the difference between A/B testing and multivariate testing in Target?',
-    'How do I set up Experience Targeting activities in Adobe Target?',
-    'How do I use Recommendations in Adobe Target?',
-  ],
-  AJO: [
-    'What is Adobe Journey Optimizer and how does it differ from Adobe Campaign?',
-    'How do I create a journey in Adobe Journey Optimizer?',
-    'What is decision management in Adobe Journey Optimizer?',
-    'How do I set up frequency capping rules in Adobe Journey Optimizer?',
-  ],
-  'Cross-Product': [
-    'How do I use AEP audiences in Adobe Target for personalisation?',
-    'How does data flow from Adobe Analytics to Customer Journey Analytics?',
-    'How do I connect an Adobe Analytics report suite to CJA?',
-    'What is the difference between Adobe Analytics and Real-Time CDP for audience building?',
-    'How do server-side forwarding and the Experience Platform Web SDK compare for sending data to AEP?',
-  ],
-};
-
-const CATEGORIES: Category[] = [
-  'All',
-  'Analytics',
-  'CJA',
-  'AEP',
-  'Target',
-  'AJO',
-  'Cross-Product',
-];
-
-const CATEGORY_COLORS: Record<Exclude<Category, 'All'>, string> = {
-  Analytics: 'bg-orange-50 text-orange-700 border-orange-200',
-  CJA: 'bg-violet-50 text-violet-700 border-violet-200',
-  AEP: 'bg-blue-50 text-blue-700 border-blue-200',
-  Target: 'bg-red-50 text-red-700 border-red-200',
-  AJO: 'bg-green-50 text-green-700 border-green-200',
-  'Cross-Product': 'bg-teal-50 text-teal-700 border-teal-200',
-};
 
 export function ChatPage() {
   const {
@@ -114,23 +47,11 @@ export function ChatPage() {
     fetchQuota,
   } = useQuotaStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<Category>('All');
   const [welcomeDismissed, setWelcomeDismissed] = useState(
     () => !!localStorage.getItem(WELCOME_KEY),
   );
   const messages = sessions[activeSessionId]?.messages ?? [];
-
-  const visibleQuestions =
-    activeCategory === 'All'
-      ? Object.entries(QUESTION_BANK).flatMap(([cat, qs]) =>
-          qs
-            .slice(0, 1)
-            .map((q) => ({ q, cat: cat as Exclude<Category, 'All'> })),
-        )
-      : QUESTION_BANK[activeCategory].map((q) => ({
-          q,
-          cat: activeCategory as Exclude<Category, 'All'>,
-        }));
+  const isLanding = messages.length === 0;
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
@@ -188,8 +109,11 @@ export function ChatPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    bottomRef.current?.scrollIntoView({
+      behavior: isStreaming ? 'auto' : 'smooth',
+      block: 'end',
+    });
+  }, [messages, isStreaming]);
 
   useEffect(() => {
     if (!isStreaming && messages.length > 0) {
@@ -199,6 +123,11 @@ export function ChatPage() {
 
   const handleSelectPrompt = (text: string) => {
     inputRef.current?.fill(text);
+  };
+
+  const dismissWelcome = () => {
+    localStorage.setItem(WELCOME_KEY, 'true');
+    setWelcomeDismissed(true);
   };
 
   if (accessDenied) {
@@ -297,86 +226,16 @@ export function ChatPage() {
             </div>
           )}
 
-          {messages.length === 0 && (
-            <div className="min-h-full flex flex-col items-center justify-center px-4 py-8 md:py-12">
-              <img
-                src={`${import.meta.env.BASE_URL}rovrlogo.png`}
-                alt="Rovr"
-                className="h-12 w-auto mb-4"
-              />
-              <h2 className="text-lg font-semibold text-slate-700 mb-1 text-center">
-                Ask about Adobe Experience League docs
-              </h2>
-              <p className="text-sm text-slate-400 max-w-md text-center mb-5">
-                Analytics · CJA · Experience Platform · Target · Adobe Journey
-                Optimizer
-              </p>
-
-              {/* First-time welcome card */}
-              {isNewUser &&
-                monthlyRemaining > 0 &&
-                !welcomeDismissed &&
-                monthlyLimit < 9999 && (
-                  <div className="w-full max-w-md mb-5 px-5 py-4 rounded-xl bg-emerald-50 border border-emerald-200 text-left">
-                    <h3 className="text-sm font-semibold text-emerald-800 mb-1">
-                      Welcome to Rovr
-                    </h3>
-                    <p className="text-xs text-emerald-700 leading-relaxed">
-                      You have {monthlyLimit} free queries this month to explore
-                      Adobe Experience Cloud documentation. Your quota resets on
-                      the 1st of each month. An administrator can adjust your
-                      limit if you need more.
-                    </p>
-                    <button
-                      onClick={() => {
-                        localStorage.setItem(WELCOME_KEY, 'true');
-                        setWelcomeDismissed(true);
-                      }}
-                      className="mt-3 px-3 py-1.5 rounded-lg bg-[#14532D] text-white text-xs font-medium hover:bg-[#10B981] transition-colors"
-                    >
-                      Got it
-                    </button>
-                  </div>
-                )}
-
-              {/* Category filter chips */}
-              <div className="flex flex-wrap justify-center gap-1.5 mb-4 max-w-lg">
-                {CATEGORIES.map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setActiveCategory(cat)}
-                    className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                      activeCategory === cat
-                        ? 'bg-[#10B981] text-white border-[#10B981]'
-                        : 'bg-white text-slate-500 border-slate-200 hover:border-[#10B981] hover:text-[#10B981]'
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
-              </div>
-
-              {/* Question cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full max-w-2xl">
-                {visibleQuestions.map(({ q, cat }) => (
-                  <button
-                    key={q}
-                    onClick={() => sendMessage(q)}
-                    className="group text-left px-4 py-3 rounded-xl border border-slate-200 bg-white
-                      hover:border-indigo-300 hover:shadow-sm transition-all"
-                  >
-                    <span
-                      className={`inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded border mb-1.5 ${CATEGORY_COLORS[cat]}`}
-                    >
-                      {cat}
-                    </span>
-                    <p className="text-sm text-slate-600 group-hover:text-[#14532D] leading-snug">
-                      {q}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            </div>
+          {isLanding && (
+            <LandingPanel
+              sessionId={activeSessionId}
+              onSelectPrompt={handleSelectPrompt}
+              isNewUser={isNewUser}
+              monthlyRemaining={monthlyRemaining}
+              monthlyLimit={monthlyLimit}
+              welcomeDismissed={welcomeDismissed}
+              onDismissWelcome={dismissWelcome}
+            />
           )}
 
           {(() => {
@@ -431,7 +290,9 @@ export function ChatPage() {
             placeholder={
               knowledgeBankUpdating
                 ? 'Knowledge bank is updating — please check back shortly…'
-                : undefined
+                : isLanding
+                  ? 'Or type your own question…'
+                  : undefined
             }
           />
           <div className="mt-2 flex flex-col items-center gap-0.5">

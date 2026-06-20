@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation, type RetrievalEvidence } from '@/lib/api'
+import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation, type RetrievalEvidence, type ClarificationOption, type ClarificationSelection, type ClarificationPayload } from '@/lib/api'
 import {
   trackQuerySent,
   trackFollowupQuery,
@@ -48,6 +48,8 @@ interface ChatState {
 
   feedbackToast: boolean
   sendMessage: (query: string) => Promise<void>
+  selectClarification: (option: ClarificationOption, originalQuery: string) => Promise<void>
+  _streamQuery: (query: string, clarification?: ClarificationSelection) => Promise<void>
   setFeedback: (messageId: string, rating: 1 | -1, query: string, comment?: string) => void
   dismissFeedbackToast: () => void
   startNewChat: () => void
@@ -181,6 +183,21 @@ export const useChatStore = create<ChatState>()(
         },
 
         sendMessage: async (query: string) => {
+          await get()._streamQuery(query)
+        },
+
+        selectClarification: async (option: ClarificationOption, originalQuery: string) => {
+          const clarification: ClarificationSelection = {
+            option_id: option.id,
+            resolved_query: option.query,
+            product_override: option.product,
+            doc_anchor_s3_key: option.doc_anchor_s3_key,
+            original_query: originalQuery,
+          }
+          await get()._streamQuery(option.query, clarification)
+        },
+
+        _streamQuery: async (query: string, clarification?: ClarificationSelection) => {
           const { activeSessionId, isStreaming, accessDenied, rateLimited, apiDisabled, monthlyExhausted } = get()
           if (!query.trim() || isStreaming || accessDenied || rateLimited || apiDisabled || monthlyExhausted) return
           set({ error: null })
@@ -189,7 +206,7 @@ export const useChatStore = create<ChatState>()(
           const existingMsgs = get().sessions[activeSessionId]?.messages ?? []
           const turnNumber = existingMsgs.filter((m) => m.role === 'user').length + 1
 
-          // Fire analytics before the API call
+          // Fire analytics before the API call (clarification follow-ups count as queries)
           trackQuerySent(query, turnNumber, 'unknown', 'uncategorised')
           if (turnNumber >= 2) trackFollowupQuery(query, turnNumber)
 
@@ -207,7 +224,7 @@ export const useChatStore = create<ChatState>()(
           }))
 
           try {
-            for await (const event of streamChat(query, activeSessionId, false, assistantId)) {
+            for await (const event of streamChat(query, activeSessionId, false, assistantId, clarification)) {
               if (!get().isStreaming) break
 
               if (event.type === 'token') {
@@ -227,6 +244,17 @@ export const useChatStore = create<ChatState>()(
                 set((s) => ({
                   sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                     msgs.map((m) => (m.id === assistantId ? { ...m, evidence: evidence as RetrievalEvidence } : m))
+                  ),
+                }))
+              } else if (event.type === 'clarification') {
+                const { type: _t, ...clarificationPayload } = event
+                set((s) => ({
+                  sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
+                    msgs.map((m) =>
+                      m.id === assistantId
+                        ? { ...m, clarification: clarificationPayload as ClarificationPayload }
+                        : m
+                    )
                   ),
                 }))
               } else if (event.type === 'done') {
@@ -308,7 +336,7 @@ export const useChatStore = create<ChatState>()(
           // After streaming: generate follow-up questions (non-blocking)
           const finalMsg = get().sessions[get().activeSessionId]?.messages
             .find((m) => m.id === assistantId)
-          if (finalMsg && finalMsg.content && !finalMsg.content.startsWith('Error:') && finalMsg.model !== 'none') {
+          if (finalMsg && finalMsg.content && !finalMsg.content.startsWith('Error:') && finalMsg.model !== 'none' && finalMsg.model !== 'clarification') {
             getFollowUps(query, finalMsg.content).then((follow_ups) => {
               if (follow_ups.length > 0) {
                 set((s) => ({

@@ -67,6 +67,8 @@ class ChromaRetriever:
         n_results: int = 8,
         similarity_threshold: float = 0.0,
         where: Optional[dict] = None,
+        *,
+        where_document: Optional[dict] = None,
     ) -> list[dict]:
         count = self.collection.count()
         if count == 0:
@@ -83,6 +85,8 @@ class ChromaRetriever:
         )
         if where:
             kwargs["where"] = where
+        if where_document:
+            kwargs["where_document"] = where_document
 
         results = self.collection.query(**kwargs)
 
@@ -103,6 +107,29 @@ class ChromaRetriever:
             })
 
         return output
+
+    def retrieve_document_contains(
+        self,
+        phrase: str,
+        n_results: int = 8,
+        similarity_threshold: float = 0.0,
+        where: Optional[dict] = None,
+    ) -> list[dict]:
+        """Vector search restricted to chunks whose body contains ``phrase``."""
+        needle = phrase.strip()
+        if not needle:
+            return []
+        try:
+            return self.retrieve(
+                needle,
+                n_results=n_results,
+                similarity_threshold=similarity_threshold,
+                where=where,
+                where_document={"$contains": needle.lower()},
+            )
+        except Exception as exc:
+            logger.debug("where_document contains failed for %r: %s", phrase[:40], exc)
+            return []
 
     def document_count(self) -> int:
         return self.collection.count()

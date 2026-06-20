@@ -43,6 +43,13 @@ body {
 .prose blockquote { border-left: 3px solid #cbd5e0; padding-left: 1em; color: #718096; margin: 0.75em 0; }
 .prose a { color: #10B981; text-decoration: none; }
 .prose a:hover { text-decoration: underline; }
+.prose img {
+  width: auto;
+  height: auto;
+  max-width: min(100%, 28rem);
+  max-height: 16rem;
+  object-fit: contain;
+}
 
 /* Streaming cursor */
 @keyframes blink {

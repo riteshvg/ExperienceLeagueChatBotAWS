@@ -13,6 +13,12 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.core.query_keywords import (
+    QueryKeywords,
+    extract_query_keywords,
+    hybrid_doc_score,
+)
+
 logger = logging.getLogger(__name__)
 
 _OFF_TOPIC_THRESHOLD = 0.25
@@ -65,25 +71,8 @@ _SHORT_ALLOW = frozenset({"sdk", "web", "aep", "ajo", "cja", "api", "xdm", "fpid
 
 
 def _extract_terms(query: str) -> list[str]:
-    terms: list[str] = []
-    seen: set[str] = set()
-
-    for match in _CAMEL_RE.findall(query):
-        token = match.strip()
-        if token.lower() not in seen:
-            seen.add(token.lower())
-            terms.append(token)
-
-    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9._-]{2,}", query):
-        lower = word.lower()
-        if lower in _STOPWORDS or lower in seen:
-            continue
-        if len(word) <= 3 and word.lower() not in _SHORT_ALLOW and not word.isupper():
-            continue
-        seen.add(lower)
-        terms.append(word)
-
-    return terms[:8]
+    from backend.core.query_keywords import extract_terms as _et
+    return _et(query)
 
 
 def _title_keywords(title: str) -> list[str]:
@@ -271,6 +260,66 @@ def _needs_refinement(docs: list[dict]) -> bool:
     return _top_score(docs) < _OFF_TOPIC_THRESHOLD
 
 
+def _keyword_retrieval_pass(
+    retriever,
+    keywords: QueryKeywords,
+    *,
+    n_results: int,
+    where_filter: dict | None,
+) -> list[dict]:
+    """Second-pass retrieval using phrase-focused embeddings and document contains."""
+    batches: list[list[dict]] = []
+
+    for eq in keywords.embedding_queries[:4]:
+        batches.append(
+            retriever.retrieve(
+                eq,
+                n_results=n_results,
+                similarity_threshold=0.0,
+                where=where_filter,
+            )
+        )
+        if where_filter:
+            batches.append(
+                retriever.retrieve(
+                    eq,
+                    n_results=n_results,
+                    similarity_threshold=0.0,
+                    where=None,
+                )
+            )
+
+    for phrase in keywords.contains_phrases[:3]:
+        batches.append(
+            retriever.retrieve_document_contains(
+                phrase,
+                n_results=n_results,
+                similarity_threshold=0.0,
+                where=where_filter,
+            )
+        )
+        if where_filter:
+            batches.append(
+                retriever.retrieve_document_contains(
+                    phrase,
+                    n_results=n_results,
+                    similarity_threshold=0.0,
+                    where=None,
+                )
+            )
+
+    return _merge_docs(batches)
+
+
+def _rank_hybrid(docs: list[dict], keywords: QueryKeywords, user_query: str) -> list[dict]:
+    terms = keywords.match_terms or _extract_terms(user_query)
+    return sorted(
+        docs,
+        key=lambda d: hybrid_doc_score(d, keywords, user_query),
+        reverse=True,
+    )
+
+
 def retrieve_with_refinement(
     retriever,
     search_query: str,
@@ -285,12 +334,26 @@ def retrieve_with_refinement(
     First-pass retrieval; on weak/empty results, refine using near-neighbor titles.
     Returns (docs, refinement_metadata).
     """
+    keywords = extract_query_keywords(user_query, product_filter)
+
     initial = retriever.retrieve(
         search_query,
         n_results=n_results,
         similarity_threshold=similarity_threshold,
         where=where_filter,
     )
+
+    keyword_docs = _keyword_retrieval_pass(
+        retriever,
+        keywords,
+        n_results=n_results,
+        where_filter=where_filter,
+    )
+    merged = _merge_docs([initial, keyword_docs])
+    if merged:
+        merged = _rank_hybrid(merged, keywords, user_query)[:n_results]
+        if not initial or _top_score(merged) > _top_score(initial):
+            initial = merged
 
     meta = RefinementResult(
         original_search=search_query,
@@ -317,7 +380,7 @@ def retrieve_with_refinement(
         similarity_threshold=similarity_threshold,
         product_filter=product_filter,
     )
-    terms = _extract_terms(user_query)
+    terms = keywords.match_terms or _extract_terms(user_query)
 
     # When product intent is set, anchor refinement to that product's neighbors only.
     if product_filter and where_filter:

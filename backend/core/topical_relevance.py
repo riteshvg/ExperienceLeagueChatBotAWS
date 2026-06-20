@@ -11,7 +11,8 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-from backend.core.retrieval_refiner import _extract_terms, _lexical_overlap
+from backend.core.query_keywords import extract_terms
+from backend.core.retrieval_refiner import _lexical_overlap
 
 _TITLE_CLEAN_RE = re.compile(r"\s*\{#[^}]+\}")
 
@@ -32,7 +33,12 @@ _MIN_SIGNIFICANT_FOR_URL_CHECK = 2
 
 def significant_terms(query: str) -> list[str]:
     """Topic terms from the user query, excluding generic product vocabulary."""
-    terms = _extract_terms(query)
+    from backend.core.query_keywords import extract_query_keywords
+
+    kw = extract_query_keywords(query)
+    if kw.match_terms:
+        return kw.match_terms[:10]
+    terms = extract_terms(query)
     return [t for t in terms if t.lower() not in _GENERIC_TERMS]
 
 
@@ -62,8 +68,11 @@ def topical_match_score(query: str, doc: dict) -> float:
 
     Combines term overlap with title/snippet text and bonus for URL path hits.
     """
+    from backend.core.query_keywords import extract_query_keywords
+
+    kw = extract_query_keywords(query)
     sig = significant_terms(query)
-    terms = sig if sig else _extract_terms(query)
+    terms = sig if sig else extract_terms(query)
     if not terms:
         return 0.0
 
@@ -84,6 +93,13 @@ def topical_match_score(query: str, doc: dict) -> float:
     score = term_ratio * 0.45 + url_ratio * 0.35 + lex * 0.20
     if url_hits > 0:
         score = min(1.0, score + 0.15)
+
+    for phrase in kw.topic_phrases:
+        pl = phrase.lower()
+        if pl in text or pl.replace(" ", "-") in url_path:
+            score = min(1.0, score + 0.12)
+            break
+
     return min(1.0, score)
 
 

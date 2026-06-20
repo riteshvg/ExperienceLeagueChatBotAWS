@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Play, Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MessageExtras } from './MessageExtras'
+import { ClarificationCard } from './ClarificationCard'
 import { type Message } from '@/lib/api'
+import { useChatStore } from '@/store/chatStore'
 
 interface Props {
   message: Message
@@ -14,33 +16,98 @@ interface Props {
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
 
-/** Typewriter effect — reveals text character by character while streaming. */
-function useTypewriter(fullText: string, isStreaming: boolean, speed = 8): string {
-  const [displayed, setDisplayed] = useState('')
-  const posRef = useRef(0)
-  const textRef = useRef(fullText)
-  textRef.current = fullText   // always current without re-triggering effects
+/** Fixed-aspect video shell — same dimensions while streaming and after, avoids layout jump. */
+function AdobeVideoEmbed({
+  videoId,
+  label,
+  ready,
+}: {
+  videoId: string
+  label: string
+  ready: boolean
+}) {
+  const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
+  return (
+    <span className="block my-3 rounded-xl overflow-hidden border border-slate-200 not-prose w-full max-w-md">
+      {label && (
+        <span className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-600">
+          <Play className="w-3 h-3 text-red-500 fill-red-500 flex-shrink-0" />
+          {label}
+        </span>
+      )}
+      <span className="block relative w-full bg-slate-100" style={{ paddingBottom: '56.25%' }}>
+        {ready ? (
+          <iframe
+            src={embedUrl}
+            className="absolute inset-0 w-full h-full"
+            frameBorder="0"
+            allow="autoplay; fullscreen"
+            allowFullScreen
+            title={label || 'Video'}
+          />
+        ) : (
+          <span className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-slate-400">
+            <Play className="w-4 h-4 text-red-400 fill-red-400 flex-shrink-0" />
+            Loading video…
+          </span>
+        )}
+      </span>
+    </span>
+  )
+}
 
-  useEffect(() => {
-    if (!isStreaming) {
-      // Streaming finished — show everything immediately
-      setDisplayed(textRef.current)
-      posRef.current = textRef.current.length
-      return
-    }
-    // Reset and start typewriter
-    posRef.current = 0
-    setDisplayed('')
-    const interval = setInterval(() => {
-      if (posRef.current < textRef.current.length) {
-        posRef.current += 1
-        setDisplayed(textRef.current.slice(0, posRef.current))
-      }
-    }, speed)
-    return () => clearInterval(interval)
-  }, [isStreaming, speed])
+/** Doc screenshots vs small UI icons/buttons from EXL — avoid stretching icons to full bubble width. */
+function DocImage({ src, alt }: { src: string; alt: string }) {
+  const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
 
-  return displayed
+  const altHintsUi =
+    /\b(button|icon|click|cta|add service|plus|toggle|checkbox|radio|tab)\b/i.test(alt) ||
+    /^\s*\+?\s*$/.test(alt)
+
+  const isSquareIcon =
+    natural !== null &&
+    Math.abs(natural.w - natural.h) / Math.max(natural.w, natural.h) < 0.12
+
+  const isSmallUi =
+    altHintsUi ||
+    (natural !== null && natural.w <= 180 && natural.h <= 180) ||
+    (isSquareIcon && natural !== null && Math.max(natural.w, natural.h) <= 512)
+
+  const isWideScreenshot =
+    natural !== null && natural.w > natural.h * 1.4 && natural.w >= 400
+
+  const sizeClass = isSmallUi
+    ? 'max-w-[140px] max-h-[140px]'
+    : isWideScreenshot
+      ? 'max-w-full max-h-72'
+      : 'max-w-md max-h-64'
+
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-block my-3 max-w-full not-prose"
+    >
+      <img
+        src={src}
+        alt={alt}
+        className={cn(
+          'rounded-lg border border-slate-200 object-contain w-auto h-auto',
+          sizeClass,
+        )}
+        onLoad={(e) => {
+          setNatural({
+            w: e.currentTarget.naturalWidth,
+            h: e.currentTarget.naturalHeight,
+          })
+        }}
+        onError={(e) => {
+          (e.currentTarget.closest('a') as HTMLElement).style.display = 'none'
+        }}
+      />
+    </a>
+  )
 }
 
 function sanitizeAdobeMarkup(text: string): string {
@@ -86,10 +153,16 @@ function CopyAnswerButton({
 }
 
 export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props) {
+  const selectClarification = useChatStore((s) => s.selectClarification)
+  const isStreaming = useChatStore((s) => s.isStreaming)
   const isUser = message.role === 'user'
+  const isClarificationOnly =
+    !isUser && message.model === 'clarification' && !!message.clarification
   const [copied, setCopied] = useState(false)
-  const displayedContent = useTypewriter(message.content || '', !!message.streaming, 12)
-  const processedContent = stripMdLinks(stripCitationMarkers(sanitizeAdobeMarkup(displayedContent || ' ')))
+  // Show SSE content as it arrives — typewriter lag caused layout thrash with embedded media.
+  const processedContent = stripMdLinks(
+    stripCitationMarkers(sanitizeAdobeMarkup(message.content || (isClarificationOnly ? '' : ' '))),
+  )
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -101,7 +174,8 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
       <div className={cn('max-w-[85%] space-y-2', isUser ? 'items-end' : 'items-start')}>
 
-        {/* Bubble */}
+        {/* Bubble — omitted when the response is clarification-only (no answer text yet) */}
+        {!isClarificationOnly && (
         <div className={cn(
           'relative px-4 py-3 rounded-2xl text-sm leading-relaxed',
           isUser
@@ -125,18 +199,7 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
                 components={{
                   img: ({ src, alt }) => {
                     if (!src) return null
-                    return (
-                      <a href={src} target="_blank" rel="noopener noreferrer" className="block my-3">
-                        <img
-                          src={src}
-                          alt={alt ?? ''}
-                          className="rounded-lg border border-slate-200 max-h-64 object-contain w-full"
-                          onError={(e) => {
-                            (e.currentTarget.closest('a') as HTMLElement).style.display = 'none'
-                          }}
-                        />
-                      </a>
-                    )
+                    return <DocImage src={src} alt={alt ?? ''} />
                   },
                   a: ({ href, children }) => {
                     if (href && VIDEO_URL_RE.test(href)) {
@@ -144,29 +207,12 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
                       if (match) {
                         const videoId = match[1]
                         const label = String(children).replace(/^▶\s*Watch:\s*/i, '').trim()
-                        if (message.streaming) {
-                          return (
-                            <span className="inline-flex items-center gap-2 my-1 px-3 py-1.5 rounded-lg
-                              bg-slate-50 border border-slate-200 text-xs font-medium text-slate-500 not-prose">
-                              <Play className="w-3 h-3 text-red-400 fill-red-400 flex-shrink-0" />
-                              <span>{label || 'Watch video'}</span>
-                            </span>
-                          )
-                        }
-                        const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
                         return (
-                          <span className="block my-3 rounded-xl overflow-hidden border border-slate-200 not-prose w-1/2">
-                            {label && (
-                              <span className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-600">
-                                <Play className="w-3 h-3 text-red-500 fill-red-500 flex-shrink-0" />
-                                {label}
-                              </span>
-                            )}
-                            <span className="block relative w-full" style={{ paddingBottom: '56.25%' }}>
-                              <iframe src={embedUrl} className="absolute inset-0 w-full h-full"
-                                frameBorder="0" allow="autoplay; fullscreen" allowFullScreen title={label || 'Video'} />
-                            </span>
-                          </span>
+                          <AdobeVideoEmbed
+                            videoId={videoId}
+                            label={label || 'Watch video'}
+                            ready={!message.streaming}
+                          />
                         )
                       }
                     }
@@ -179,9 +225,20 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
             </div>
           )}
         </div>
+        )}
+
+        {!isUser && message.clarification && message.model === 'clarification' && (
+          <ClarificationCard
+            clarification={message.clarification}
+            disabled={isStreaming}
+            onSelect={(option) =>
+              selectClarification(option, message.clarification!.original_query)
+            }
+          />
+        )}
 
         {/* Sources + follow-ups (compact expandable row) */}
-        {!isUser && !message.streaming && message.content.trim() && (
+        {!isUser && !message.streaming && message.content.trim() && message.model !== 'clarification' && (
           <MessageExtras
             evidence={message.evidence}
             citations={message.citations}

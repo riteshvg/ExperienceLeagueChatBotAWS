@@ -579,6 +579,56 @@ def _rows_to_query_log_dicts(rows) -> list[dict]:
     return result
 
 
+def get_popular_query_logs(limit: int = 200) -> list[dict]:
+    """Return deduplicated user queries ranked by frequency and recency."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH normalized AS (
+                    SELECT
+                        TRIM(query_text) AS query_text,
+                        LOWER(TRIM(query_text)) AS norm,
+                        created_at,
+                        llm_model
+                    FROM exl_query_logs
+                    WHERE llm_model NOT LIKE 'blocked%%'
+                      AND LENGTH(TRIM(query_text)) >= 15
+                ),
+                counts AS (
+                    SELECT norm, COUNT(*) AS times_asked, MAX(created_at) AS last_asked
+                    FROM normalized
+                    GROUP BY norm
+                ),
+                latest AS (
+                    SELECT DISTINCT ON (norm)
+                        query_text,
+                        norm,
+                        created_at
+                    FROM normalized
+                    ORDER BY norm, created_at DESC
+                )
+                SELECT l.query_text, c.times_asked, c.last_asked
+                FROM latest l
+                JOIN counts c ON c.norm = l.norm
+                ORDER BY c.times_asked DESC, c.last_asked DESC
+                LIMIT %s
+                """,
+                (limit,),
+            )
+            rows = cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            if hasattr(d.get("last_asked"), "isoformat"):
+                d["last_asked"] = d["last_asked"].isoformat()
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
 def list_query_logs(limit: int = 100) -> list[dict]:
     """Return recent query logs with feedback rating joined from exl_feedback."""
     conn = _connect()

@@ -51,12 +51,41 @@ export interface RetrievalEvidence {
   sources: RetrievalSource[]
 }
 
+export interface ClarificationOption {
+  id: string
+  label: string
+  query: string
+  product: string
+  doc_title: string
+  preview_url: string
+  doc_anchor_s3_key?: string
+  similarity_score?: number
+  match_strength?: string
+}
+
+export interface ClarificationPayload {
+  genesis: string
+  original_query: string
+  blocked_reason: string
+  intent_summary: string
+  options: ClarificationOption[]
+}
+
+export interface ClarificationSelection {
+  option_id: string
+  resolved_query: string
+  product_override?: string
+  doc_anchor_s3_key?: string
+  original_query?: string
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   citations?: Citation[]
   evidence?: RetrievalEvidence
+  clarification?: ClarificationPayload
   model?: string
   streaming?: boolean
   follow_ups?: string[]
@@ -67,6 +96,7 @@ export type SSEEvent =
   | { type: 'token'; content: string }
   | { type: 'citations'; citations: Citation[] }
   | ({ type: 'evidence' } & RetrievalEvidence)
+  | ({ type: 'clarification' } & ClarificationPayload)
   | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number }
   | { type: 'error'; message: string }
 
@@ -106,11 +136,18 @@ export async function* streamChat(
   sessionId: string,
   haikuOnly = false,
   messageId?: string,
+  clarification?: ClarificationSelection,
 ): AsyncGenerator<SSEEvent> {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ query, session_id: sessionId, haiku_only: haikuOnly, message_id: messageId }),
+    body: JSON.stringify({
+      query,
+      session_id: sessionId,
+      haiku_only: haikuOnly,
+      message_id: messageId,
+      clarification: clarification ?? undefined,
+    }),
   })
 
   if (!res.ok) {
@@ -412,6 +449,29 @@ export async function getUserQuota(): Promise<UserQuota> {
   } catch {
     return { monthly_limit: 999999, monthly_used: 0, monthly_remaining: 999999, reset_date: null, is_new_user: false }
   }
+}
+
+export interface LandingQuestion {
+  text: string
+  solution: string
+  times_asked: number
+}
+
+export interface LandingQuestionsResponse {
+  questions: LandingQuestion[]
+  by_solution: Record<string, LandingQuestion[]>
+  total: number
+  source: 'postgres' | 'fallback'
+  all_tab_per_solution?: number
+  max_per_solution?: number
+}
+
+export async function fetchLandingQuestions(): Promise<LandingQuestionsResponse> {
+  const res = await fetch(`${API_BASE}/api/chat/landing-questions`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Landing questions failed: ${res.status}`)
+  return res.json()
 }
 
 export async function getMe(): Promise<{ queries_used: number; queries_limit: number; queries_remaining: number }> {

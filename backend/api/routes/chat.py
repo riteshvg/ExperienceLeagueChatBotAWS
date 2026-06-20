@@ -19,6 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from backend.api.deps import get_pipeline, get_session_store, get_site_user
 from backend.core import google_db
+from backend.core.landing_questions import build_landing_payload
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 
@@ -98,11 +99,20 @@ def _is_non_english(text: str) -> bool:
     return False
 
 
+class ClarificationSelection(BaseModel):
+    option_id: str
+    resolved_query: str
+    product_override: Optional[str] = None
+    doc_anchor_s3_key: Optional[str] = None
+    original_query: Optional[str] = None
+
+
 class ChatRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
     haiku_only: bool = False
     message_id: Optional[str] = None
+    clarification: Optional[ClarificationSelection] = None
 
 
 @router.post("/chat")
@@ -181,6 +191,7 @@ async def chat(
             query=body.query,
             session_id=session_id,
             haiku_only=body.haiku_only,
+            clarification=body.clarification.model_dump() if body.clarification else None,
         ):
             if event["type"] == "token":
                 full_response += event.get("content", "")
@@ -192,7 +203,8 @@ async def chat(
 
         # After the pipeline loop: augment done event with usage counts, then yield it
         if last_done is not None:
-            if uid:
+            skip_usage = last_done.get("model") == "clarification"
+            if uid and not skip_usage:
                 try:
                     usage = google_db.increment_daily_count(uid)
                     last_done = {
@@ -209,8 +221,8 @@ async def chat(
                     logger.warning(f"Monthly count increment failed (non-fatal): {e}")
             yield {"data": json.dumps(last_done)}
 
-        # After streaming: track usage + log query
-        if uid and last_done:
+        # After streaming: track usage + log query (skip clarification-only prompts)
+        if uid and last_done and last_done.get("model") != "clarification":
             try:
                 google_db.increment_total_queries(uid)
                 google_db.touch_last_seen(uid)
@@ -227,6 +239,17 @@ async def chat(
                 logger.warning(f"Usage tracking failed (non-fatal): {e}")
 
     return EventSourceResponse(event_generator())
+
+
+@router.get("/chat/landing-questions")
+async def landing_questions(_user: Annotated[dict, Depends(get_site_user)]):
+    """Real user questions from PostgreSQL, grouped by Rovr solution."""
+    try:
+        rows = google_db.get_popular_query_logs(limit=200)
+        return build_landing_payload(rows)
+    except Exception as e:
+        logger.warning(f"Landing questions fetch failed, using fallback: {e}")
+        return build_landing_payload([])
 
 
 @router.get("/chat/history/{session_id}")

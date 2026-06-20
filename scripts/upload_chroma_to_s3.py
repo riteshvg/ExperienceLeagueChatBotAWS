@@ -15,11 +15,13 @@ Before a FORCE redeploy, set on Railway (optional but recommended for user messa
 After /api/health shows expected chunk count, unset KNOWLEDGE_BANK_UPDATING and FORCE.
 """
 
+import json
 import os
 import sys
 import tarfile
 import tempfile
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 
 import boto3
@@ -67,6 +69,37 @@ def main():
     print()
 
     Path(tmp_path).unlink()
+
+    uploaded_at = datetime.now(timezone.utc).isoformat()
+    chunk_count = 0
+    try:
+        import chromadb
+        from chromadb.config import Settings as ChromaSettings
+        client = chromadb.PersistentClient(
+            path=str(CHROMA_DIR),
+            settings=ChromaSettings(anonymized_telemetry=False),
+        )
+        chunk_count = client.get_collection("experience_league").count()
+    except Exception as exc:
+        logger.warning("Could not read chunk count for metadata: %s", exc)
+
+    meta_key = "state/chroma_last_refreshed.json"
+    meta_body = json.dumps(
+        {
+            "uploaded_at": uploaded_at,
+            "chunk_count": chunk_count,
+            "s3_key": S3_KEY,
+        },
+        indent=2,
+    )
+    s3.put_object(
+        Bucket=S3_BUCKET,
+        Key=meta_key,
+        Body=meta_body.encode("utf-8"),
+        ContentType="application/json",
+    )
+    logger.info("Wrote %s (uploaded_at=%s, chunks=%s)", meta_key, uploaded_at, chunk_count)
+
     logger.info("Done ✓")
     logger.info(f"Railway will download from s3://{S3_BUCKET}/{S3_KEY} on next cold start")
 

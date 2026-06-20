@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 from jose import jwt
 from pydantic import BaseModel
 
@@ -357,8 +358,10 @@ async def system_status(request: Request, _: Annotated[str, Depends(get_admin_us
     except Exception:
         bedrock_ok = False
 
+    from backend.core.knowledge_base_refresh import get_knowledge_base_last_refreshed
     from backend.core.refresh_pipeline import get_status as get_refresh_status
     rs = get_refresh_status()
+    kb_refresh = get_knowledge_base_last_refreshed()
 
     return {
         "components": {
@@ -372,11 +375,26 @@ async def system_status(request: Request, _: Annotated[str, Depends(get_admin_us
         "citation_stats": dict(_citation_stats),
         "environment": os.getenv("ENVIRONMENT", "development"),
         "knowledge_base": {
-            "last_refreshed": rs.get("last_run"),
+            "last_refreshed": kb_refresh.get("last_refreshed") or rs.get("last_run"),
+            "last_refreshed_source": kb_refresh.get("source"),
             "total_chunks": chroma_stats.get("document_count", 0),
             "product_breakdown": product_breakdown,
         },
     }
+
+
+@router.get("/readiness/cja")
+async def cja_readiness(request: Request, _: Annotated[str, Depends(get_admin_user)]):
+    """Retrieval-only CJA smoke test — no LLM tokens."""
+    from backend.core.cja_readiness import evaluate_cja_readiness
+    from config.settings import get_settings
+
+    retriever = get_retriever(request)
+    if not retriever:
+        raise HTTPException(status_code=503, detail="Retriever not initialized")
+    report = evaluate_cja_readiness(retriever, get_settings())
+    status_code = 200 if report.passed else 422
+    return JSONResponse(content=report.to_dict(), status_code=status_code)
 
 
 @router.get("/settings")
