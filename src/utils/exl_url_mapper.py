@@ -399,7 +399,12 @@ def is_specific_url(url: str | None) -> bool:
         return False
     if "developer.adobe.com/" in clean:
         parts = clean.split("/")
-        return len(parts) >= 7
+        try:
+            host_idx = parts.index("developer.adobe.com")
+        except ValueError:
+            return False
+        # Require product slug + at least one content segment (AJO/AEP paths are shorter than Analytics /docs/2.0/…).
+        return len(parts) > host_idx + 2
     parts = clean.replace(
         "https://experienceleague.adobe.com/en/docs/", ""
     ).split("/")

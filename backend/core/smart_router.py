@@ -44,6 +44,22 @@ _SONNET_OVERRIDE = re.compile(
 )
 
 
+# Checked before product guide keywords — "journey optimizer api" must beat "journey optimizer".
+_API_INTENT_MAP = {
+    "analytics 2.0 api": "Analytics APIs",
+    "analytics api": "Analytics APIs",
+    "reporting api": "Analytics APIs",
+    "cja api": "CJA APIs",
+    "data collection api": "Data Collection APIs",
+    "edge network api": "Data Collection APIs",
+    "media edge api": "Data Collection APIs",
+    "journey optimizer api": "AJO APIs",
+    "ajo api": "AJO APIs",
+    "experience platform api": "AEP APIs",
+    "reactor api": "AEP APIs",
+    "segmentation service api": "AEP APIs",
+}
+
 _PRODUCT_INTENT_MAP = {
     "adobe tags": "Adobe Data Collection",
     "launch": "Adobe Data Collection",
@@ -61,14 +77,6 @@ _PRODUCT_INTENT_MAP = {
     "journey optimizer": "Adobe Journey Optimizer",
     " adjo ": "Adobe Journey Optimizer",
     "adobe target": "Adobe Target",
-    "analytics 2.0 api": "Analytics APIs",
-    "analytics api": "Analytics APIs",
-    "reporting api": "Analytics APIs",
-    "cja api": "CJA APIs",
-    "edge network api": "Data Collection APIs",
-    "media edge api": "Data Collection APIs",
-    "reactor api": "AEP APIs",
-    "segmentation service api": "AEP APIs",
 }
 
 
@@ -78,6 +86,9 @@ def detect_product_intent(query: str) -> str | None:
     otherwise None. Used to scope ChromaDB retrieval.
     """
     q_lower = f" {query.lower()} "
+    for keyword, product in _API_INTENT_MAP.items():
+        if keyword in q_lower:
+            return product
     for keyword, product in _PRODUCT_INTENT_MAP.items():
         if keyword in q_lower:
             return product

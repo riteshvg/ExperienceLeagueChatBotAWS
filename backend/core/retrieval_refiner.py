@@ -279,15 +279,6 @@ def _keyword_retrieval_pass(
                 where=where_filter,
             )
         )
-        if where_filter:
-            batches.append(
-                retriever.retrieve(
-                    eq,
-                    n_results=n_results,
-                    similarity_threshold=0.0,
-                    where=None,
-                )
-            )
 
     for phrase in keywords.contains_phrases[:3]:
         batches.append(
@@ -298,15 +289,6 @@ def _keyword_retrieval_pass(
                 where=where_filter,
             )
         )
-        if where_filter:
-            batches.append(
-                retriever.retrieve_document_contains(
-                    phrase,
-                    n_results=n_results,
-                    similarity_threshold=0.0,
-                    where=None,
-                )
-            )
 
     return _merge_docs(batches)
 

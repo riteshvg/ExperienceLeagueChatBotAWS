@@ -250,8 +250,16 @@ class QueryProcessor:
         """
         enhanced_query = query
         changes = []
-        
-        # Detect Adobe Journey Optimizer queries (check first — "journey" is ambiguous)
+
+        from backend.core.smart_router import detect_product_intent
+
+        api_product = detect_product_intent(query)
+        if api_product and api_product.endswith(" APIs"):
+            return enhanced_query, changes
+
+        q_lower = query.lower()
+        if "segmentation service" in q_lower or "segmentation service api" in q_lower:
+            return enhanced_query, changes
         ajo_patterns = [
             r'\badobe journey optimizer\b',
             r'\bjourney optimizer\b',

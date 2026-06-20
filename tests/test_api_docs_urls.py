@@ -7,7 +7,7 @@ _ROOT = Path(__file__).parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from src.utils.exl_url_mapper import derive_exl_url
+from src.utils.exl_url_mapper import derive_exl_url, is_specific_url
 
 
 def test_analytics_api_url():
@@ -36,3 +36,21 @@ def test_data_collection_api_index():
         "adobe-docs/data-collection-apis/src/pages/api/index.md"
     )
     assert url == "https://developer.adobe.com/data-collection-apis/docs/api"
+
+
+def test_ajo_api_url():
+    url = derive_exl_url(
+        "adobe-docs/journey-optimizer-apis/src/pages/references/authentication.md"
+    )
+    assert url == "https://developer.adobe.com/journey-optimizer-apis/references/authentication"
+
+
+def test_is_specific_url_developer_adobe_short_paths():
+    assert is_specific_url(
+        "https://developer.adobe.com/journey-optimizer-apis/references/authentication"
+    )
+    assert is_specific_url(
+        "https://developer.adobe.com/experience-platform-apis/references/segmentation"
+    )
+    assert not is_specific_url("https://developer.adobe.com/journey-optimizer-apis")
+    assert not is_specific_url("https://developer.adobe.com/experience-platform-apis")

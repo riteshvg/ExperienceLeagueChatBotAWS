@@ -309,7 +309,7 @@ class RAGPipeline:
             pool = product_docs if product_intent and product_docs else raw_docs
             if not pool:
                 pool = raw_docs
-            if self._is_off_topic(pool):
+            if self._is_off_topic(pool, product_intent=product_intent):
                 return pool, refinement, None, topical_scores, "off_topic"
             return pool[: settings.max_retrieval_results], refinement, None, topical_scores, None
 
@@ -339,8 +339,14 @@ class RAGPipeline:
             )[:5]
             return [], refinement, related, topical_scores, "no_direct_match"
 
-        if self._is_off_topic(relevant_docs):
-            return relevant_docs, refinement, None, topical_scores, "off_topic"
+        if self._is_off_topic(relevant_docs, product_intent=product_intent):
+            best_topical = max(topical_match_score(query, d) for d in relevant_docs)
+            if not (
+                product_intent
+                and product_intent.endswith(" APIs")
+                and best_topical >= 0.35
+            ):
+                return relevant_docs, refinement, None, topical_scores, "off_topic"
 
         return relevant_docs, refinement, None, topical_scores, None
 
@@ -600,10 +606,17 @@ class RAGPipeline:
         return citations
 
     @staticmethod
-    def _is_off_topic(raw_docs: list, threshold: float = 0.25) -> bool:
+    def _is_off_topic(
+        raw_docs: list,
+        threshold: float = 0.25,
+        *,
+        product_intent: str | None = None,
+    ) -> bool:
         """Return True if the retrieved docs are too dissimilar — off-topic query."""
         if not raw_docs:
             return True
+        if product_intent and product_intent.endswith(" APIs"):
+            threshold = min(threshold, 0.05)
         return max(d.get("score", 0) for d in raw_docs) < threshold
 
     def _fetch_related_docs(self, search_query: str, where_filter: dict | None) -> list:
