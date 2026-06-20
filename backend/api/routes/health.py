@@ -11,6 +11,10 @@ router = APIRouter()
 @router.get("/health")
 async def health(request: Request):
     payload = build_health_payload(request.app)
-    # 503 while index is empty/updating so Railway healthcheck waits for restore.
-    status_code = 200 if payload.get("status") == "ok" else 503
+    count = int((payload.get("chromadb") or {}).get("document_count") or 0)
+    # Railway healthcheck: 503 only while index is empty; 200 once chunks are loaded.
+    if payload.get("status") == "ok" or count > 0:
+        status_code = 200
+    else:
+        status_code = 503
     return JSONResponse(content=payload, status_code=status_code)
