@@ -52,6 +52,12 @@ def _refresh_chroma_dir() -> Path:
     return _CHROMA_DIR
 
 
+def _set_chroma_dir(path: Path) -> None:
+    global _CHROMA_DIR
+    _CHROMA_DIR = path
+    os.environ["CHROMA_PERSIST_DIR"] = str(path)
+
+
 _CHROMA_DIR = _refresh_chroma_dir()
 
 
@@ -246,9 +252,7 @@ def _restore_chroma_from_s3() -> bool:
             installed_ok, installed_at = _install_chroma_tree(staged_dir, _CHROMA_DIR)
             if not installed_ok:
                 continue
-            global _CHROMA_DIR
-            os.environ["CHROMA_PERSIST_DIR"] = str(installed_at)
-            _CHROMA_DIR = installed_at
+            _set_chroma_dir(installed_at)
 
             count = _chroma_chunk_count_at(chroma_persist_dir())
             logger.info(
