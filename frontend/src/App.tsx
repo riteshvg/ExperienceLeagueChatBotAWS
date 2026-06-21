@@ -38,9 +38,10 @@ function TermsGate() {
 export default function App() {
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
-      <RouterAnalytics />
-      <TermsGate />
-      <Routes>
+      <div className="w-full min-h-screen flex flex-col">
+        <RouterAnalytics />
+        <TermsGate />
+        <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/callback" element={<OAuthCallback />} />
         <Route path="/" element={
@@ -49,7 +50,8 @@ export default function App() {
         <Route path="/admin" element={
           <ProtectedRoute><AdminPage /></ProtectedRoute>
         } />
-      </Routes>
+        </Routes>
+      </div>
     </BrowserRouter>
   )
 }

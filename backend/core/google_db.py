@@ -766,7 +766,7 @@ def list_feedback(limit: int = 100) -> list[dict]:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, message_id, user_id, email, query_text, rating, created_at "
+                "SELECT id, message_id, user_id, email, query_text, rating, comment, created_at "
                 "FROM exl_feedback ORDER BY created_at DESC LIMIT %s",
                 (limit,),
             )
