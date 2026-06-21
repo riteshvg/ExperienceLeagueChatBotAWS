@@ -5,6 +5,7 @@ import { Play, Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MessageExtras } from './MessageExtras'
 import { ClarificationCard } from './ClarificationCard'
+import { ImageCarousel, type CarouselImage } from './ImageCarousel'
 import { type Message } from '@/lib/api'
 import { useChatStore } from '@/store/chatStore'
 
@@ -15,6 +16,30 @@ interface Props {
 }
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
+const MD_IMAGE_RE = /!\[([^\]]*)\]\(([^)\s"']+)(?:\s+["'][^"']*["'])?\)/g
+
+/** Images in document order; code blocks stripped so inline samples are not counted. */
+function extractMarkdownImages(text: string): CarouselImage[] {
+  const stripped = text.replace(/```[\s\S]*?```/g, (block) => ' '.repeat(block.length))
+  const images: CarouselImage[] = []
+  let match: RegExpExecArray | null
+  MD_IMAGE_RE.lastIndex = 0
+  while ((match = MD_IMAGE_RE.exec(stripped)) !== null) {
+    images.push({ alt: match[1], src: match[2] })
+  }
+  return images
+}
+
+function resolveImageIndex(
+  images: CarouselImage[],
+  preferred: number,
+  src: string,
+  alt: string,
+): number {
+  if (images[preferred]?.src === src && images[preferred]?.alt === alt) return preferred
+  const found = images.findIndex((img) => img.src === src && img.alt === alt)
+  return found >= 0 ? found : preferred
+}
 
 /** Fixed-aspect video shell — iframe mounts once and is never torn down on parent re-renders. */
 function AdobeVideoEmbed({
@@ -65,7 +90,15 @@ function AdobeVideoEmbed({
 }
 
 /** Doc screenshots vs small UI icons/buttons from EXL — avoid stretching icons to full bubble width. */
-function DocImage({ src, alt }: { src: string; alt: string }) {
+function DocImage({
+  src,
+  alt,
+  onOpen,
+}: {
+  src: string
+  alt: string
+  onOpen: () => void
+}) {
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null)
 
   const altHintsUi =
@@ -91,17 +124,26 @@ function DocImage({ src, alt }: { src: string; alt: string }) {
       : 'max-w-md max-h-64'
 
   return (
-    <a
-      href={src}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-block my-3 max-w-full not-prose"
+    // span (not button) — valid inside markdown <p>; nested <button> breaks DOM for 2+ images
+    <span
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpen()
+        }
+      }}
+      className="inline-block my-3 max-w-full not-prose cursor-zoom-in"
+      title="View in gallery"
     >
       <img
         src={src}
         alt={alt}
+        draggable={false}
         className={cn(
-          'rounded-lg border border-slate-200 object-contain w-auto h-auto',
+          'rounded-lg border border-slate-200 object-contain w-auto h-auto pointer-events-none hover:border-slate-300 hover:shadow-sm transition-shadow',
           sizeClass,
         )}
         onLoad={(e) => {
@@ -111,10 +153,10 @@ function DocImage({ src, alt }: { src: string; alt: string }) {
           })
         }}
         onError={(e) => {
-          (e.currentTarget.closest('a') as HTMLElement).style.display = 'none'
+          (e.currentTarget.closest('[role="button"]') as HTMLElement).style.display = 'none'
         }}
       />
-    </a>
+    </span>
   )
 }
 
@@ -167,6 +209,7 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
   const isClarificationOnly =
     !isUser && message.model === 'clarification' && !!message.clarification
   const [copied, setCopied] = useState(false)
+  const [carousel, setCarousel] = useState<{ images: CarouselImage[]; index: number } | null>(null)
   // Show SSE content as it arrives — typewriter lag caused layout thrash with embedded media.
   const processedContent = stripMdLinks(
     stripCitationMarkers(sanitizeAdobeMarkup(message.content || (isClarificationOnly ? '' : ' '))),
@@ -174,11 +217,29 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
 
   const embedReady = !message.streaming
 
-  const markdownComponents = useMemo(
-    () => ({
+  const { markdownComponents } = useMemo(() => {
+    const messageImages = extractMarkdownImages(processedContent)
+    // React Strict Mode renders markdown twice; reset counter when the second pass starts.
+    let nextIndex = 0
+
+    const markdownComponents = {
       img: ({ src, alt }: { src?: string; alt?: string }) => {
         if (!src) return null
-        return <DocImage src={src} alt={alt ?? ''} />
+        if (nextIndex >= messageImages.length) nextIndex = 0
+        const index = nextIndex++
+        const altText = alt ?? ''
+        return (
+          <DocImage
+            src={src}
+            alt={altText}
+            onOpen={() =>
+              setCarousel({
+                images: messageImages,
+                index: resolveImageIndex(messageImages, index, src, altText),
+              })
+            }
+          />
+        )
       },
       a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
         if (href && VIDEO_URL_RE.test(href)) {
@@ -201,9 +262,10 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
           </a>
         )
       },
-    }),
-    [embedReady],
-  )
+    }
+
+    return { markdownComponents, messageImages }
+  }, [embedReady, processedContent])
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
@@ -267,6 +329,15 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
         )}
 
       </div>
+
+      {carousel && carousel.images.length > 0 && (
+        <ImageCarousel
+          images={carousel.images}
+          index={carousel.index}
+          onClose={() => setCarousel(null)}
+          onIndexChange={(index) => setCarousel((prev) => (prev ? { ...prev, index } : null))}
+        />
+      )}
     </div>
   )
 }
