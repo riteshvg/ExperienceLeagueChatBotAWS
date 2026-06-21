@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Play, Copy, Check } from 'lucide-react'
@@ -16,7 +16,7 @@ interface Props {
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
 
-/** Fixed-aspect video shell — same dimensions while streaming and after, avoids layout jump. */
+/** Fixed-aspect video shell — iframe mounts once and is never torn down on parent re-renders. */
 function AdobeVideoEmbed({
   videoId,
   label,
@@ -26,9 +26,16 @@ function AdobeVideoEmbed({
   label: string
   ready: boolean
 }) {
+  const latched = useRef(false)
+  if (ready) latched.current = true
+  const showIframe = latched.current
+
   const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
   return (
-    <span className="block my-3 rounded-xl overflow-hidden border border-slate-200 not-prose w-full max-w-md">
+    <span
+      className="block my-3 rounded-xl overflow-hidden border border-slate-200 not-prose w-full max-w-md"
+      data-video-id={videoId}
+    >
       {label && (
         <span className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs font-medium text-slate-600">
           <Play className="w-3 h-3 text-red-500 fill-red-500 flex-shrink-0" />
@@ -36,8 +43,9 @@ function AdobeVideoEmbed({
         </span>
       )}
       <span className="block relative w-full bg-slate-100" style={{ paddingBottom: '56.25%' }}>
-        {ready ? (
+        {showIframe ? (
           <iframe
+            key={videoId}
             src={embedUrl}
             className="absolute inset-0 w-full h-full"
             frameBorder="0"
@@ -164,6 +172,39 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
     stripCitationMarkers(sanitizeAdobeMarkup(message.content || (isClarificationOnly ? '' : ' '))),
   )
 
+  const embedReady = !message.streaming
+
+  const markdownComponents = useMemo(
+    () => ({
+      img: ({ src, alt }: { src?: string; alt?: string }) => {
+        if (!src) return null
+        return <DocImage src={src} alt={alt ?? ''} />
+      },
+      a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+        if (href && VIDEO_URL_RE.test(href)) {
+          const match = href.match(/video\.tv\.adobe\.com\/v\/([^/?]+)/)
+          if (match) {
+            const videoId = match[1]
+            const label = String(children).replace(/^▶\s*Watch:\s*/i, '').trim()
+            return (
+              <AdobeVideoEmbed
+                videoId={videoId}
+                label={label || 'Watch video'}
+                ready={embedReady}
+              />
+            )
+          }
+        }
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer">
+            {children}
+          </a>
+        )
+      },
+    }),
+    [embedReady],
+  )
+
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)
     setCopied(true)
@@ -194,32 +235,7 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
             <p>{message.content}</p>
           ) : (
             <div className={cn('prose prose-sm max-w-none', message.streaming && 'streaming-cursor')}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                components={{
-                  img: ({ src, alt }) => {
-                    if (!src) return null
-                    return <DocImage src={src} alt={alt ?? ''} />
-                  },
-                  a: ({ href, children }) => {
-                    if (href && VIDEO_URL_RE.test(href)) {
-                      const match = href.match(/video\.tv\.adobe\.com\/v\/([^/?]+)/)
-                      if (match) {
-                        const videoId = match[1]
-                        const label = String(children).replace(/^▶\s*Watch:\s*/i, '').trim()
-                        return (
-                          <AdobeVideoEmbed
-                            videoId={videoId}
-                            label={label || 'Watch video'}
-                            ready={!message.streaming}
-                          />
-                        )
-                      }
-                    }
-                    return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
-                  },
-                }}
-              >
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
                 {processedContent}
               </ReactMarkdown>
             </div>
