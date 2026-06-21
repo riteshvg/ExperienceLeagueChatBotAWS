@@ -126,6 +126,10 @@ class Settings(BaseSettings):
     retraining_cooldown: int = Field(default=60, env="RETRAINING_COOLDOWN")
     enable_claude_retraining: bool = Field(default=True, env="ENABLE_CLAUDE_RETRAINING")
     enable_gemini_retraining: bool = Field(default=False, env="ENABLE_GEMINI_RETRAINING")
+
+    # Interviewer Mode (mock job interview prep)
+    interviewer_mode_enabled: bool = Field(default=True, env="INTERVIEWER_MODE_ENABLED")
+    interviewer_mode_admin_only: bool = Field(default=True, env="INTERVIEWER_MODE_ADMIN_ONLY")
     
     class Config:
         env_file = ".env"

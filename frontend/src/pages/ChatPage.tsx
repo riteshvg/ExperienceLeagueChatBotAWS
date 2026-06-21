@@ -3,8 +3,12 @@ import { Menu, Ban, Clock, WifiOff, CalendarX } from 'lucide-react';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { useQuotaStore } from '@/store/quotaStore';
+import { useInterviewerStore } from '@/store/interviewerStore';
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput';
 import { ChatMessage } from '@/components/ChatMessage';
+import { InterviewWorkspace } from '@/components/InterviewWorkspace';
+import { InterviewerModeChip } from '@/components/InterviewerModeChip';
+import { InterviewSetupModal } from '@/components/InterviewSetupModal';
 import { Sidebar } from '@/components/Sidebar';
 import { LandingPanel } from '@/components/LandingPanel';
 import { getMe, fetchMaintenanceStatus, isApiDisabled } from '@/lib/api';
@@ -38,6 +42,24 @@ export function ChatPage() {
   } = useChatStore();
   const { logout } = useAuthStore();
   const {
+    active: interviewerActive,
+    featureAvailable: interviewerAvailable,
+    adminOnly: interviewerAdminOnly,
+    profiles: interviewerProfiles,
+    isStreaming: interviewerStreaming,
+    error: interviewerError,
+    setupOpen: interviewerSetupOpen,
+    completed: interviewerCompleted,
+    profileLabel: interviewerProfileLabel,
+    phase: interviewerPhase,
+    questionIndex: interviewerQuestionIndex,
+    totalQuestions: interviewerTotalQuestions,
+    init: initInterviewer,
+    toggle: toggleInterviewer,
+    closeSetup: closeInterviewerSetup,
+    startSession: startInterviewerSession,
+  } = useInterviewerStore();
+  const {
     monthlyLimit,
     monthlyUsed,
     monthlyRemaining,
@@ -51,7 +73,8 @@ export function ChatPage() {
     () => !!localStorage.getItem(WELCOME_KEY),
   );
   const messages = sessions[activeSessionId]?.messages ?? [];
-  const isLanding = messages.length === 0;
+  const isLanding = messages.length === 0 && !interviewerActive;
+  const displayStreaming = interviewerActive ? interviewerStreaming : isStreaming;
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
@@ -86,6 +109,7 @@ export function ChatPage() {
 
     pollHealth();
     const interval = setInterval(pollHealth, 10_000);
+    initInterviewer();
     return () => clearInterval(interval);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -110,19 +134,23 @@ export function ChatPage() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({
-      behavior: isStreaming ? 'auto' : 'smooth',
+      behavior: displayStreaming ? 'auto' : 'smooth',
       block: 'end',
     });
-  }, [messages, isStreaming]);
+  }, [messages, displayStreaming]);
 
   useEffect(() => {
-    if (!isStreaming && messages.length > 0) {
+    if (!displayStreaming && messages.length > 0) {
       inputRef.current?.focus();
     }
-  }, [isStreaming, messages.length]);
+  }, [displayStreaming, messages.length]);
 
   const handleSelectPrompt = (text: string) => {
     inputRef.current?.fill(text);
+  };
+
+  const handleSend = (text: string) => {
+    sendMessage(text);
   };
 
   const dismissWelcome = () => {
@@ -197,6 +225,12 @@ export function ChatPage() {
             <Menu className="w-4 h-4" />
           </button>
           <h1 className="text-sm font-semibold text-slate-700">Rovr</h1>
+          <InterviewerModeChip
+            active={interviewerActive}
+            available={interviewerAvailable}
+            adminOnly={interviewerAdminOnly}
+            onClick={toggleInterviewer}
+          />
         </header>
 
         {/* Messages */}
@@ -226,7 +260,23 @@ export function ChatPage() {
             </div>
           )}
 
-          {isLanding && (
+          {interviewerActive && interviewerProfileLabel && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-sm">
+              <span className="font-medium">Interview prep</span>
+              <span className="text-emerald-700/80">· {interviewerProfileLabel}</span>
+              {interviewerTotalQuestions > 0 && (
+                <span className="text-xs text-emerald-700/70 ml-auto">
+              {interviewerPhase === 'review'
+                ? 'Review'
+                : interviewerCompleted
+                  ? 'Complete'
+                  : `Q${Math.min(interviewerQuestionIndex + 1, interviewerTotalQuestions)} / ${interviewerTotalQuestions}`}
+                </span>
+              )}
+            </div>
+          )}
+
+          {!interviewerActive && isLanding && (
             <LandingPanel
               sessionId={activeSessionId}
               onSelectPrompt={handleSelectPrompt}
@@ -238,7 +288,11 @@ export function ChatPage() {
             />
           )}
 
-          {(() => {
+          {interviewerActive && !interviewerSetupOpen && (
+            <InterviewWorkspace />
+          )}
+
+          {!interviewerActive && (() => {
             let userTurn = 0;
             return messages.map((msg) => {
               if (msg.role === 'user') userTurn++;
@@ -254,16 +308,16 @@ export function ChatPage() {
             });
           })()}
 
-          {error && (
+          {(error || interviewerError) && (
             <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">
-              {error}
+              {interviewerError ?? error}
             </div>
           )}
 
           <div ref={bottomRef} />
         </div>
 
-        {/* Input */}
+        {/* Input — hidden during interview prep (Q&A workspace has its own editor) */}
         <div className="flex-shrink-0 px-4 py-3 bg-slate-50 border-t border-slate-200">
           {knowledgeBankUpdating && !apiDisabled && (
             <div
@@ -277,24 +331,31 @@ export function ChatPage() {
               </p>
             </div>
           )}
-          <ChatInput
-            ref={inputRef}
-            onSend={sendMessage}
-            disabled={
-              isStreaming ||
-              apiDisabled ||
-              knowledgeBankUpdating ||
-              isExhausted ||
-              monthlyExhausted
-            }
-            placeholder={
-              knowledgeBankUpdating
-                ? 'Knowledge bank is updating — please check back shortly…'
-                : isLanding
-                  ? 'Or type your own question…'
-                  : undefined
-            }
-          />
+          {!interviewerActive && (
+            <ChatInput
+              ref={inputRef}
+              onSend={handleSend}
+              disabled={
+                displayStreaming ||
+                apiDisabled ||
+                knowledgeBankUpdating ||
+                isExhausted ||
+                monthlyExhausted
+              }
+              placeholder={
+                knowledgeBankUpdating
+                  ? 'Knowledge bank is updating — please check back shortly…'
+                  : isLanding
+                    ? 'Or type your own question…'
+                    : undefined
+              }
+            />
+          )}
+          {interviewerActive && interviewerCompleted && (
+            <p className="text-center text-sm text-slate-500 py-1">
+              Session complete — toggle off Interview prep to return to Rovr chat.
+            </p>
+          )}
           <p className="mt-2 text-center text-xs text-slate-400">
             <span>Answers are grounded in Adobe Experience League documentation</span>
             <span aria-hidden="true"> · </span>
@@ -334,6 +395,14 @@ export function ChatPage() {
           </p>
         </div>
       </main>
+
+      <InterviewSetupModal
+        open={interviewerSetupOpen}
+        profiles={interviewerProfiles}
+        onClose={closeInterviewerSetup}
+        onStart={startInterviewerSession}
+        loading={interviewerStreaming}
+      />
 
       {/* Feedback thank-you toast */}
       <div

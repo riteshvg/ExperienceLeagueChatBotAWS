@@ -1,6 +1,17 @@
 /**
  * Typed API client for the FastAPI backend.
  */
+import type {
+  AdvanceResponse,
+  InterviewerProfiles,
+  InterviewerSSEEvent,
+  InterviewerSessionInfo,
+  InterviewerStatus,
+  InterviewLevel,
+  ReviewItem,
+  SaveAnswerResponse,
+} from '@/types/interviewer'
+
 // In production, VITE_API_URL points to the Railway backend.
 // In development, empty string → Vite proxy handles /api/* → localhost:8000
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
@@ -565,3 +576,135 @@ export function getFallbackMaintenanceMessage(etaMinutes = 4): KnowledgeBankMain
     eta_minutes: etaMinutes,
   }
 }
+
+// ── Interviewer Mode ─────────────────────────────────────────────────────────
+
+async function* streamInterviewerSSE(
+  path: string,
+  body: Record<string, unknown>,
+): AsyncGenerator<InterviewerSSEEvent> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  })
+
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    if (res.status === 403 && errBody.detail === 'INTERVIEWER_MODE_UNAVAILABLE') {
+      throw new Error('INTERVIEWER_MODE_UNAVAILABLE')
+    }
+    throw new Error(errBody.detail ?? `Interviewer request failed: ${res.status}`)
+  }
+
+  const reader = res.body!.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const raw = line.slice(6).trim()
+        if (raw && raw !== '[DONE]') {
+          try {
+            yield JSON.parse(raw) as InterviewerSSEEvent
+          } catch {
+            // skip malformed chunk
+          }
+        }
+      }
+    }
+  }
+}
+
+export async function getInterviewerStatus(): Promise<InterviewerStatus> {
+  const res = await fetch(`${API_BASE}/api/interviewer/status`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Status request failed: ${res.status}`)
+  return res.json() as Promise<InterviewerStatus>
+}
+
+export async function getInterviewerProfiles(): Promise<InterviewerProfiles> {
+  const res = await fetch(`${API_BASE}/api/interviewer/profiles`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Profiles request failed: ${res.status}`)
+  return res.json() as Promise<InterviewerProfiles>
+}
+
+export async function* streamInterviewerStart(
+  level: InterviewLevel,
+  profileId: string,
+): AsyncGenerator<InterviewerSSEEvent> {
+  yield* streamInterviewerSSE('/api/interviewer/start', { level, profile_id: profileId })
+}
+
+async function interviewerJson<T>(
+  path: string,
+  method: 'POST' | 'PATCH',
+  body: Record<string, unknown>,
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    throw new Error(
+      typeof errBody.detail === 'string' ? errBody.detail : `Request failed: ${res.status}`,
+    )
+  }
+  return res.json() as Promise<T>
+}
+
+export function saveInterviewerAnswer(
+  sessionId: string,
+  answer: string,
+): Promise<SaveAnswerResponse> {
+  return interviewerJson('/api/interviewer/answer', 'POST', { session_id: sessionId, answer })
+}
+
+export function editInterviewerAnswer(
+  sessionId: string,
+  questionId: string,
+  answer: string,
+): Promise<SaveAnswerResponse> {
+  return interviewerJson('/api/interviewer/answer', 'PATCH', {
+    session_id: sessionId,
+    question_id: questionId,
+    answer,
+  })
+}
+
+export function advanceInterviewerSession(sessionId: string): Promise<AdvanceResponse> {
+  return interviewerJson('/api/interviewer/advance', 'POST', { session_id: sessionId })
+}
+
+export async function getInterviewerReview(sessionId: string): Promise<{
+  items: ReviewItem[]
+  all_answered: boolean
+} & InterviewerSessionInfo> {
+  const res = await fetch(`${API_BASE}/api/interviewer/review/${sessionId}`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    throw new Error(errBody.detail ?? `Review request failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function* streamInterviewerSubmit(
+  sessionId: string,
+): AsyncGenerator<InterviewerSSEEvent> {
+  yield* streamInterviewerSSE('/api/interviewer/submit', { session_id: sessionId })
+}
+
+export type { InterviewerSessionInfo }
