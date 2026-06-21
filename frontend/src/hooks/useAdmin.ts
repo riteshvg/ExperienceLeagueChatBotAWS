@@ -11,6 +11,18 @@ import {
 const TOKEN_KEY = 'el_admin_token'
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
+async function adminGetJson(path: string, token: string): Promise<unknown | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return null
+    return res.json()
+  } catch {
+    return null
+  }
+}
+
 export interface RefreshStatus {
   state: 'idle' | 'running' | 'success' | 'failed'
   last_run: string | null
@@ -76,15 +88,9 @@ export function useAdmin() {
         getAdminStatus(token),
         getAdminSettings(token),
         getAdminAnalytics(token),
-        fetch(`${API_BASE}/api/admin/demo/status`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }).then((r) => r.json()),
-        fetch(`${API_BASE}/api/admin/feedback`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }).then((r) => r.json()),
-        fetch(`${API_BASE}/api/admin/refresh/status`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }).then((r) => r.json()),
+        adminGetJson('/api/admin/demo/status', token),
+        adminGetJson('/api/admin/feedback', token),
+        adminGetJson('/api/admin/refresh/status', token),
         listGoogleUsers(token).catch(() => []),
         getGoogleUserSummary(token).catch(() => null),
         getQueryLogs(token).catch(() => null),
@@ -95,9 +101,9 @@ export function useAdmin() {
       setStatus(s)
       setSettings(cfg)
       setAnalytics(a)
-      setDemoStatus(demo)
-      setFeedback(fb)
-      setRefreshStatus(rs)
+      setDemoStatus(demo as Record<string, unknown> | null)
+      setFeedback(fb as Record<string, unknown> | null)
+      setRefreshStatus(rs as RefreshStatus | null)
       setGoogleUsers(users)
       setGoogleUserSummary(summary)
       setQueryLogs(logs)

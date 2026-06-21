@@ -29,9 +29,6 @@ router = APIRouter(prefix="/admin")
 _TOKEN_TTL_HOURS = 1
 _FEEDBACK_FILE = _ROOT / "data" / "feedback.jsonl"
 
-# Citation stats are no longer tracked (citation_mapper removed); return empty.
-_citation_stats: dict = {}
-
 
 # ── Admin auth ────────────────────────────────────────────────────────────────
 
@@ -372,7 +369,6 @@ async def system_status(request: Request, _: Annotated[str, Depends(get_admin_us
                 "active_sessions": len(request.app.state.session_store.list_sessions()),
             },
         },
-        "citation_stats": dict(_citation_stats),
         "environment": os.getenv("ENVIRONMENT", "development"),
         "knowledge_base": {
             "last_refreshed": kb_refresh.get("last_refreshed") or rs.get("last_run"),
@@ -469,7 +465,5 @@ async def analytics(request: Request, _: Annotated[str, Depends(get_admin_user)]
     return {
         "active_sessions": len(sessions),
         "total_turns": total_turns,
-        "citation_registry_hits": _citation_stats.get("registry_hits", 0),
-        "citation_fallback_misses": _citation_stats.get("fallback_misses", 0),
         "rate_limits": rate_limits,
     }
