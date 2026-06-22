@@ -47,6 +47,12 @@ export interface RetrievalSource {
   cited?: boolean
 }
 
+export interface ContextIndexSource {
+  url: string
+  title: string
+  product?: string
+}
+
 export interface RetrievalEvidence {
   source_count: number
   citation_count: number
@@ -60,6 +66,7 @@ export interface RetrievalEvidence {
   failure_reason?: 'no_retrieval' | 'no_direct_match' | 'off_topic' | null
   banner?: string | null
   sources: RetrievalSource[]
+  context_index?: ContextIndexSource[]
 }
 
 export interface ClarificationOption {
@@ -353,6 +360,85 @@ export interface PaginatedQueryLogs {
   pagination: Pagination
 }
 
+export interface PaginatedGoogleUsers {
+  data: GoogleUser[]
+  pagination: Pagination
+}
+
+const USER_SORT_KEYS = new Set(['last_seen', 'first_seen', 'total_queries', 'name', 'email'])
+
+/** Accept legacy flat-array responses until backend pagination is deployed everywhere. */
+export function normalizePaginatedGoogleUsers(
+  raw: unknown,
+  params: { page: number; pageSize: number; sortBy: string; sortOrder: string; search: string },
+): PaginatedGoogleUsers {
+  if (
+    raw
+    && typeof raw === 'object'
+    && !Array.isArray(raw)
+    && 'data' in raw
+    && 'pagination' in raw
+  ) {
+    return raw as PaginatedGoogleUsers
+  }
+
+  const emptyPagination = (pageSize: number): Pagination => ({
+    page: 1,
+    page_size: pageSize,
+    total_records: 0,
+    total_pages: 1,
+    has_next: false,
+    has_prev: false,
+  })
+
+  if (!Array.isArray(raw)) {
+    return { data: [], pagination: emptyPagination(params.pageSize) }
+  }
+
+  const sortBy = USER_SORT_KEYS.has(params.sortBy) ? params.sortBy : 'last_seen'
+  const asc = params.sortOrder.toLowerCase() === 'asc'
+  const term = params.search.trim().toLowerCase()
+
+  let items = raw as GoogleUser[]
+  if (term) {
+    items = items.filter(
+      (u) =>
+        (u.name ?? '').toLowerCase().includes(term)
+        || (u.email ?? '').toLowerCase().includes(term),
+    )
+  }
+
+  items = [...items].sort((a, b) => {
+    const av = a[sortBy as keyof GoogleUser]
+    const bv = b[sortBy as keyof GoogleUser]
+    if (av == null && bv == null) return 0
+    if (av == null) return 1
+    if (bv == null) return -1
+    if (typeof av === 'number' && typeof bv === 'number') {
+      return asc ? av - bv : bv - av
+    }
+    const cmp = String(av).localeCompare(String(bv), undefined, { sensitivity: 'base' })
+    return asc ? cmp : -cmp
+  })
+
+  const total = items.length
+  const totalPages = Math.max(1, Math.ceil(total / params.pageSize))
+  const page = Math.min(Math.max(1, params.page), totalPages)
+  const start = (page - 1) * params.pageSize
+
+  return {
+    data: items.slice(start, start + params.pageSize),
+    pagination: {
+      page,
+      page_size: params.pageSize,
+      total_records: total,
+      total_pages: totalPages,
+      has_next: page < totalPages,
+      has_prev: page > 1,
+    },
+  }
+}
+
 export interface GoogleUserSummary {
   total_users: number
   total_queries_all_time: number
@@ -375,8 +461,27 @@ async function adminMutate(path: string, token: string, method: string, body?: u
   return res.json()
 }
 
-export const listGoogleUsers = (token: string): Promise<GoogleUser[]> =>
-  adminFetch('/api/admin/users', token)
+export const listGoogleUsers = async (
+  token: string,
+  params: {
+    page?: number
+    pageSize?: number
+    sortBy?: string
+    sortOrder?: string
+    search?: string
+  } = {},
+): Promise<PaginatedGoogleUsers> => {
+  const { page = 1, pageSize = 25, sortBy = 'last_seen', sortOrder = 'desc', search = '' } = params
+  const q = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+    sort_by: sortBy,
+    sort_order: sortOrder,
+  })
+  if (search.trim()) q.set('search', search.trim())
+  const raw = await adminFetch(`/api/admin/users?${q}`, token)
+  return normalizePaginatedGoogleUsers(raw, { page, pageSize, sortBy, sortOrder, search })
+}
 
 export const updateGoogleUser = (
   token: string,

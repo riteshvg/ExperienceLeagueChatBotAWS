@@ -29,7 +29,7 @@ from backend.core.clarification_resolver import (
     build_clarification,
     clarification_selection_to_routing,
 )
-from backend.core.evidence import build_evidence
+from backend.core.evidence import build_evidence, build_numbered_context
 from backend.core.retrieval_refiner import (
     RefinementResult,
     refinement_to_evidence_fields,
@@ -92,7 +92,8 @@ Media embedding rules:
 - Embed videos inline using: [▶ Watch: Brief Title](video_url)
 - Place media naturally after the relevant paragraph.
 - Never include links ending in .md — only use full https:// URLs.
-- Do not include inline hyperlinks to Adobe documentation pages in your answer. Describe topics and guide titles by name only — source links are shown automatically in the citations panel.
+- Cite facts using [1], [2], … matching the **numbered** context blocks only (ignore unnumbered sections). One marker per major point is enough.
+- Do not paste full documentation URLs in prose — use [n] markers only.
 
 Retrieved documentation context:
 {context}"""
@@ -120,7 +121,8 @@ Media embedding rules:
 - Embed videos inline using: [▶ Watch: Brief Title](video_url)
 - Place media naturally after the relevant paragraph.
 - Never include links ending in .md — only use full https:// URLs.
-- Do not include inline hyperlinks to Adobe documentation pages in your answer. Describe topics and guide titles by name only — source links are shown automatically in the citations panel.
+- Cite facts using [1], [2], … matching the **numbered** context blocks only (ignore unnumbered sections). One marker per major point is enough.
+- Do not paste full documentation URLs in prose — use [n] markers only.
 
 Retrieved documentation context:
 {context}"""
@@ -463,10 +465,8 @@ class RAGPipeline:
         )
         yield {"type": "evidence", **evidence}
 
-        # Number docs so the LLM can cite [1], [2], etc. inline
-        context = "\n\n---\n\n".join(
-            f"[{i+1}] {doc['content']}" for i, doc in enumerate(raw_docs)
-        )
+        # Number only linkable docs so [n] markers always resolve to a URL
+        context, _ = build_numbered_context(raw_docs)
         context += _build_media_context(raw_docs)
 
         raw_citations = self._extract_citations(raw_docs)
@@ -536,9 +536,7 @@ class RAGPipeline:
         )
         yield {"type": "evidence", **evidence}
 
-        context = "\n\n---\n\n".join(
-            f"[{i+1}] {doc['content']}" for i, doc in enumerate(raw_docs)
-        )
+        context, _ = build_numbered_context(raw_docs)
         context += _build_media_context(raw_docs)
 
         raw_citations = self._extract_citations(raw_docs)

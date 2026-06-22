@@ -150,9 +150,10 @@ Match your response structure to the question type:
 - Be thorough — do not truncate procedures or omit steps present in the context.
 - Do not repeat the question back to the user.
 - Do not add a closing line like "I hope this helps" or "Let me know if you need more."
-- Do not embed raw URLs in your prose — source links are shown separately below your response.
-- When drawing from a specific section of the retrieved context, name it \
-(e.g., "According to the Segmentation Overview...").
+- Cite facts using [1], [2], … matching the numbered context blocks (one marker per major point — do not over-cite).
+- Do not paste full documentation URLs in prose — use [n] markers only.
+- When drawing from a specific section of the retrieved context, you may name it \
+(e.g., "According to the Segmentation Overview [2]...").
 
 ---
 
