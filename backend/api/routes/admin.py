@@ -76,11 +76,25 @@ def _serialize_user(u: dict) -> dict:
 
 
 @router.get("/users")
-async def list_users(_: Annotated[str, Depends(get_admin_user)]):
-    """Return all Google OAuth users ordered by last_seen desc."""
+async def list_users(
+    _: Annotated[str, Depends(get_admin_user)],
+    page: int = 1,
+    page_size: int = 25,
+    sort_by: str = "last_seen",
+    sort_order: str = "desc",
+    search: str = "",
+):
+    """Return paginated Google OAuth users with sort and optional search."""
     try:
-        users = _google_db.list_users()
-        return [_serialize_user(u) for u in users]
+        result = _google_db.list_users_paginated(
+            page=max(1, page),
+            page_size=min(max(1, page_size), 100),
+            sort_by=sort_by,
+            sort_order=sort_order,
+            search=search,
+        )
+        result["data"] = [_serialize_user(u) for u in result["data"]]
+        return result
     except Exception as exc:
         raise HTTPException(status_code=503, detail=f"User DB unavailable: {exc}")
 
@@ -238,6 +252,87 @@ async def export_queries_excel(
     buf.seek(0)
 
     filename = f"rovr-queries-{date.today().isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@router.get("/export/users/excel")
+async def export_users_excel(
+    _: Annotated[str, Depends(get_admin_user)],
+    search: Optional[str] = None,
+):
+    """Export all Google OAuth users as an Excel file."""
+    import io
+    from datetime import date, datetime
+    from fastapi.responses import StreamingResponse
+    import openpyxl
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    try:
+        records = _google_db.export_all_users(search=search or "")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Export failed: {exc}")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Users"
+
+    headers = [
+        "Name", "Email", "First Seen", "Last Seen", "Total Queries",
+        "Admin", "Disabled", "Daily Limit", "Used Today", "Daily Resets At",
+        "Monthly Limit", "Monthly Used", "Quota Reset Date",
+    ]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+
+    def _fmt_ts(val: object) -> str:
+        if not val:
+            return ""
+        try:
+            if hasattr(val, "strftime"):
+                return val.strftime("%Y-%m-%d %H:%M:%S")
+            dt = datetime.fromisoformat(str(val).replace("Z", "+00:00"))
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            return str(val)
+
+    for r in records:
+        monthly_limit = r.get("monthly_query_limit")
+        monthly_display = "Unlimited" if monthly_limit is not None and monthly_limit >= 999999 else monthly_limit
+        ws.append([
+            r.get("name", ""),
+            r.get("email", ""),
+            _fmt_ts(r.get("first_seen")),
+            _fmt_ts(r.get("last_seen")),
+            r.get("total_queries", 0),
+            "Yes" if r.get("is_admin") else "No",
+            "Yes" if r.get("is_disabled") else "No",
+            r.get("daily_query_limit", 20),
+            r.get("daily_query_count", 0),
+            _fmt_ts(r.get("daily_reset_at")),
+            monthly_display,
+            r.get("monthly_queries_used", 0),
+            _fmt_ts(r.get("quota_reset_date")),
+        ])
+
+    for col_idx in range(1, len(headers) + 1):
+        col_letter = get_column_letter(col_idx)
+        max_len = max(
+            (len(str(ws.cell(row=row, column=col_idx).value or "")) for row in range(1, ws.max_row + 1)),
+            default=10,
+        )
+        ws.column_dimensions[col_letter].width = min(max_len + 4, 80)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"rovr-users-{date.today().isoformat()}.xlsx"
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

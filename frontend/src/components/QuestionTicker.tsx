@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronUp, Pause, Play } from 'lucide-react'
+import { cn } from '@/lib/utils'
 import {
   PRODUCT_PILL_STYLES,
   SOLUTION_PILL_STYLE,
@@ -134,8 +135,7 @@ export function QuestionTicker({ questions, onSelectPrompt }: Props) {
 
   return (
     <div
-      className="w-full max-w-[720px] mx-auto bg-white rounded-xl overflow-hidden"
-      style={{ border: '0.5px solid #e2e8f0' }}
+      className="w-full max-w-[720px] mx-auto bg-white dark:bg-slate-900 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700"
       onMouseEnter={() => setHoverPaused(true)}
       onMouseLeave={() => setHoverPaused(false)}
     >
@@ -145,18 +145,10 @@ export function QuestionTicker({ questions, onSelectPrompt }: Props) {
         style={{ height: WINDOW_HEIGHT }}
       >
         <div
-          className="absolute inset-x-0 top-0 z-[2] pointer-events-none"
-          style={{
-            height: 28,
-            background: 'linear-gradient(to bottom, #ffffff 0%, transparent 100%)',
-          }}
+          className="absolute inset-x-0 top-0 z-[2] pointer-events-none h-7 bg-gradient-to-b from-white dark:from-slate-900 to-transparent"
         />
         <div
-          className="absolute inset-x-0 bottom-0 z-[2] pointer-events-none"
-          style={{
-            height: 28,
-            background: 'linear-gradient(to top, #ffffff 0%, transparent 100%)',
-          }}
+          className="absolute inset-x-0 bottom-0 z-[2] pointer-events-none h-7 bg-gradient-to-t from-white dark:from-slate-900 to-transparent"
         />
 
         <div
@@ -171,29 +163,18 @@ export function QuestionTicker({ questions, onSelectPrompt }: Props) {
               key={`${i}-${q.text}`}
               type="button"
               onClick={() => handleSelect(q.text)}
-              className="w-full text-left transition-colors duration-100 hover:bg-[#f8fafc] focus-visible:outline-none focus-visible:bg-[#f8fafc]"
+              className="w-full text-left transition-colors duration-100 hover:bg-slate-50 dark:hover:bg-slate-800 focus-visible:outline-none focus-visible:bg-slate-50 dark:focus-visible:bg-slate-800 border-b border-slate-200 dark:border-slate-700"
               style={{
                 minHeight: CARD_MIN_HEIGHT,
                 padding: '12px 16px',
-                borderBottom: `${CARD_DIVIDER}px solid #e2e8f0`,
               }}
             >
               <div className="flex items-start gap-3 mb-1">
-                <p
-                  className="flex-1 m-0"
-                  style={{
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                    color: '#1e293b',
-                  }}
-                >
+                <p className="flex-1 m-0 text-[13px] leading-snug text-slate-800 dark:text-slate-100">
                   {q.text}
                 </p>
                 {q.asked > 0 && (
-                  <span
-                    className="flex-shrink-0 whitespace-nowrap"
-                    style={{ fontSize: 11, color: '#94a3b8' }}
-                  >
+                  <span className="flex-shrink-0 whitespace-nowrap text-[11px] text-slate-400 dark:text-slate-500">
                     {q.asked}×
                   </span>
                 )}
@@ -219,10 +200,7 @@ export function QuestionTicker({ questions, onSelectPrompt }: Props) {
       </div>
 
       {/* Controls — bottom of box */}
-      <div
-        className="flex items-center justify-end gap-1 px-2 py-1.5"
-        style={{ borderTop: '0.5px solid #e2e8f0' }}
-      >
+      <div className="flex items-center justify-end gap-1 px-2 py-1.5 border-t border-slate-200 dark:border-slate-700">
         <TickerControlButton label="Previous question" onClick={goPrev}>
           <ChevronUp className="w-3.5 h-3.5" strokeWidth={2.5} />
         </TickerControlButton>
@@ -261,28 +239,13 @@ function TickerControlButton({
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="flex items-center justify-center transition-colors duration-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1D9E75]"
-      style={{
-        width: 26,
-        height: 26,
-        borderRadius: 6,
-        fontSize: 13,
-        border: active ? '0.5px solid #1D9E75' : '0.5px solid #cbd5e1',
-        background: active ? '#E1F5EE' : '#ffffff',
-        color: active ? '#1D9E75' : '#64748b',
-      }}
-      onMouseEnter={(e) => {
-        if (active) return
-        e.currentTarget.style.background = '#f8fafc'
-        e.currentTarget.style.borderColor = '#94a3b8'
-        e.currentTarget.style.color = '#1e293b'
-      }}
-      onMouseLeave={(e) => {
-        if (active) return
-        e.currentTarget.style.background = '#ffffff'
-        e.currentTarget.style.borderColor = '#cbd5e1'
-        e.currentTarget.style.color = '#64748b'
-      }}
+      className={cn(
+        'flex items-center justify-center w-[26px] h-[26px] rounded-md text-[13px] transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1D9E75]',
+        active
+          ? 'border border-emerald-500 bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400'
+          : 'border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-slate-400 dark:hover:border-slate-500 hover:text-slate-800 dark:hover:text-slate-200',
+      )}
     >
       {children}
     </button>

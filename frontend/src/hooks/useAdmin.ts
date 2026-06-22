@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   adminLogin, adminLogout, getAdminStatus, getAdminSettings, getAdminAnalytics,
-  listGoogleUsers, updateGoogleUser, getGoogleUserSummary, getQueryLogs, exportQueriesExcel,
+  listGoogleUsers, updateGoogleUser, getGoogleUserSummary, getQueryLogs,
+  exportQueriesExcel, exportUsersExcel,
   getKillSwitchStatus, setKillSwitch as apiSetKillSwitch,
   setUserDailyLimit, setDefaultDailyLimit, applyDefaultLimitToAll, getDefaultDailyLimit,
   setUserMonthlyLimit, getDefaultMonthlyLimit, setDefaultMonthlyLimit,
-  type GoogleUser, type GoogleUserSummary, type QueryLog, type PaginatedQueryLogs,
+  type GoogleUser, type GoogleUserSummary, type QueryLog,
+  type PaginatedQueryLogs, type PaginatedGoogleUsers,
 } from '@/lib/api'
 
 const TOKEN_KEY = 'el_admin_token'
@@ -44,10 +46,11 @@ export function useAdmin() {
   const [demoStatus, setDemoStatus] = useState<Record<string, unknown> | null>(null)
   const [feedback, setFeedback] = useState<Record<string, unknown> | null>(null)
   const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null)
-  const [googleUsers, setGoogleUsers] = useState<GoogleUser[]>([])
+  const [googleUsers, setGoogleUsers] = useState<PaginatedGoogleUsers | null>(null)
   const [googleUserSummary, setGoogleUserSummary] = useState<GoogleUserSummary | null>(null)
   const [queryLogs, setQueryLogs] = useState<PaginatedQueryLogs | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [exportingUsers, setExportingUsers] = useState(false)
   const [killSwitchEnabled, setKillSwitchEnabled] = useState<boolean>(true)
   const [defaultDailyLimit, setDefaultDailyLimitState] = useState<number>(20)
   const [defaultMonthlyLimit, setDefaultMonthlyLimitState] = useState<number>(20)
@@ -75,7 +78,7 @@ export function useAdmin() {
     setStatus(null)
     setSettings(null)
     setAnalytics(null)
-    setGoogleUsers([])
+    setGoogleUsers(null)
     setGoogleUserSummary(null)
     setQueryLogs(null)
   }, [token])
@@ -84,16 +87,14 @@ export function useAdmin() {
     if (!token) return
     setLoading(true)
     try {
-      const [s, cfg, a, demo, fb, rs, users, summary, logs, ks, defaultLimit, defaultMonthly] = await Promise.all([
+      const [s, cfg, a, demo, fb, rs, summary, ks, defaultLimit, defaultMonthly] = await Promise.all([
         getAdminStatus(token),
         getAdminSettings(token),
         getAdminAnalytics(token),
         adminGetJson('/api/admin/demo/status', token),
         adminGetJson('/api/admin/feedback', token),
         adminGetJson('/api/admin/refresh/status', token),
-        listGoogleUsers(token).catch(() => []),
         getGoogleUserSummary(token).catch(() => null),
-        getQueryLogs(token).catch(() => null),
         getKillSwitchStatus(token).catch(() => ({ enabled: true })),
         getDefaultDailyLimit(token).catch(() => ({ default_daily_limit: 20 })),
         getDefaultMonthlyLimit(token).catch(() => ({ default_monthly_limit: 20 })),
@@ -104,9 +105,9 @@ export function useAdmin() {
       setDemoStatus(demo as Record<string, unknown> | null)
       setFeedback(fb as Record<string, unknown> | null)
       setRefreshStatus(rs as RefreshStatus | null)
-      setGoogleUsers(users)
       setGoogleUserSummary(summary)
-      setQueryLogs(logs)
+      setQueryLogs(null)
+      setGoogleUsers(null)
       setKillSwitchEnabled((ks as { enabled: boolean }).enabled)
       setDefaultDailyLimitState((defaultLimit as { default_daily_limit: number }).default_daily_limit)
       setDefaultMonthlyLimitState((defaultMonthly as { default_monthly_limit: number }).default_monthly_limit)
@@ -117,15 +118,18 @@ export function useAdmin() {
     }
   }, [token, logout])
 
-  const refreshGoogleUsers = useCallback(async () => {
+
+  const fetchUserPage = useCallback(async (
+    page = 1,
+    pageSize = 25,
+    sortBy = 'last_seen',
+    sortOrder = 'desc',
+    search = '',
+  ) => {
     if (!token) return
     try {
-      const [users, summary] = await Promise.all([
-        listGoogleUsers(token),
-        getGoogleUserSummary(token),
-      ])
-      setGoogleUsers(users)
-      setGoogleUserSummary(summary)
+      const data = await listGoogleUsers(token, { page, pageSize, sortBy, sortOrder, search })
+      setGoogleUsers(data)
     } catch { /* silent */ }
   }, [token])
 
@@ -141,6 +145,26 @@ export function useAdmin() {
       setQueryLogs(data)
     } catch { /* silent — don't log out on a pagination call */ }
   }, [token])
+
+  const exportUsers = useCallback(async (search?: string) => {
+    if (!token) return
+    setExportingUsers(true)
+    try {
+      await exportUsersExcel(token, search)
+    } finally {
+      setExportingUsers(false)
+    }
+  }, [token])
+
+  const patchGoogleUserInPage = useCallback((updated: GoogleUser) => {
+    setGoogleUsers((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        data: prev.data.map((u) => (u.user_id === updated.user_id ? updated : u)),
+      }
+    })
+  }, [])
 
   const exportQueries = useCallback(async (dateFrom?: string, dateTo?: string) => {
     if (!token) return
@@ -197,16 +221,16 @@ export function useAdmin() {
   const setGoogleUserAdmin = useCallback(async (userId: string, isAdmin: boolean) => {
     if (!token) throw new Error('Not authenticated')
     const updated = await updateGoogleUser(token, userId, { is_admin: isAdmin })
-    setGoogleUsers((prev) => prev.map((u) => (u.user_id === userId ? updated : u)))
+    patchGoogleUserInPage(updated)
     return updated
-  }, [token])
+  }, [token, patchGoogleUserInPage])
 
   const setUserDisabled = useCallback(async (userId: string, isDisabled: boolean) => {
     if (!token) throw new Error('Not authenticated')
     const updated = await updateGoogleUser(token, userId, { is_disabled: isDisabled })
-    setGoogleUsers((prev) => prev.map((u) => (u.user_id === userId ? updated : u)))
+    patchGoogleUserInPage(updated)
     return updated
-  }, [token])
+  }, [token, patchGoogleUserInPage])
 
   const toggleKillSwitch = useCallback(async (enabled: boolean) => {
     if (!token) throw new Error('Not authenticated')
@@ -218,9 +242,9 @@ export function useAdmin() {
   const updateUserDailyLimit = useCallback(async (userId: string, limit: number) => {
     if (!token) throw new Error('Not authenticated')
     const updated = await setUserDailyLimit(token, userId, limit)
-    setGoogleUsers((prev) => prev.map((u) => (u.user_id === userId ? updated : u)))
+    patchGoogleUserInPage(updated)
     return updated
-  }, [token])
+  }, [token, patchGoogleUserInPage])
 
   const updateDefaultLimit = useCallback(async (limit: number) => {
     if (!token) throw new Error('Not authenticated')
@@ -231,9 +255,9 @@ export function useAdmin() {
   const updateUserMonthlyLimit = useCallback(async (userId: string, limit: number) => {
     if (!token) throw new Error('Not authenticated')
     const updated = await setUserMonthlyLimit(token, userId, limit)
-    setGoogleUsers((prev) => prev.map((u) => (u.user_id === userId ? updated : u)))
+    patchGoogleUserInPage(updated)
     return updated
-  }, [token])
+  }, [token, patchGoogleUserInPage])
 
   const updateDefaultMonthlyLimit = useCallback(async (limit: number) => {
     if (!token) throw new Error('Not authenticated')
@@ -251,8 +275,9 @@ export function useAdmin() {
     login, logout, refresh, resetDemo,
     triggerRefresh, triggerGitHubActions,
     status, settings, analytics, demoStatus, feedback, refreshStatus,
-    googleUsers, googleUserSummary, queryLogs, refreshGoogleUsers,
-    fetchQueryPage, exportQueries, exporting,
+    googleUsers, googleUserSummary, queryLogs,
+    fetchUserPage, fetchQueryPage, exportUsers, exportQueries,
+    exportingUsers, exporting,
     setGoogleUserAdmin, setUserDisabled,
     killSwitchEnabled, toggleKillSwitch,
     defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,

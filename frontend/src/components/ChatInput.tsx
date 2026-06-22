@@ -58,7 +58,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
   return (
     <form
       onSubmit={(e: FormEvent) => { e.preventDefault(); submit() }}
-      className="flex items-end gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-2.5 shadow-sm focus-within:border-[#10B981] focus-within:ring-1 focus-within:ring-[#10B981] transition"
+      className="flex items-end gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl px-4 py-2.5 shadow-sm focus-within:border-[#10B981] focus-within:ring-1 focus-within:ring-[#10B981] transition"
     >
       <textarea
         ref={textareaRef}
@@ -70,7 +70,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
         disabled={disabled}
         placeholder={placeholder}
         className={cn(
-          'flex-1 resize-none bg-transparent text-sm text-slate-800 placeholder:text-slate-400',
+          'flex-1 resize-none bg-transparent text-sm text-slate-800 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500',
           'focus:outline-none leading-relaxed py-0.5',
           disabled && 'opacity-50 cursor-not-allowed',
         )}
@@ -83,7 +83,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
           'flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-colors',
           value.trim() && !disabled
             ? 'bg-[#10B981] text-white hover:bg-[#14532D]'
-            : 'bg-slate-100 text-slate-300 cursor-not-allowed',
+            : 'bg-slate-100 dark:bg-slate-800 text-slate-300 dark:text-slate-600 cursor-not-allowed',
         )}
       >
         <Send className="w-3.5 h-3.5" />
