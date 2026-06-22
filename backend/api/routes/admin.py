@@ -343,9 +343,25 @@ async def export_users_excel(
 # ── Refresh pipeline ──────────────────────────────────────────────────────────
 
 @router.get("/refresh/status")
-async def refresh_status(_: Annotated[str, Depends(get_admin_user)]):
-    from backend.core.refresh_pipeline import get_status
-    return get_status()
+async def refresh_status(request: Request, _: Annotated[str, Depends(get_admin_user)]):
+    from backend.core.knowledge_base_refresh import get_refresh_panel_context
+    from backend.core.refresh_pipeline import enrich_status_for_admin, get_status
+
+    status = get_status()
+    chroma_count: int | None = None
+    try:
+        chroma_count = get_retriever(request).document_count()
+    except Exception:
+        pass
+    ctx = get_refresh_panel_context()
+    return enrich_status_for_admin(
+        status,
+        chroma_count=chroma_count,
+        kb_last_refreshed=ctx.get("last_refreshed"),
+        kb_source=ctx.get("source"),
+        kb_source_label=ctx.get("source_label"),
+        manifest_files_updated=ctx.get("files_updated"),
+    )
 
 
 @router.post("/refresh/start")
@@ -454,6 +470,7 @@ async def system_status(request: Request, _: Annotated[str, Depends(get_admin_us
     from backend.core.refresh_pipeline import get_status as get_refresh_status
     rs = get_refresh_status()
     kb_refresh = get_knowledge_base_last_refreshed()
+    total_pages = sum(int(row.get("pages") or 0) for row in product_breakdown)
 
     return {
         "components": {
@@ -468,6 +485,7 @@ async def system_status(request: Request, _: Annotated[str, Depends(get_admin_us
         "knowledge_base": {
             "last_refreshed": kb_refresh.get("last_refreshed") or rs.get("last_run"),
             "last_refreshed_source": kb_refresh.get("source"),
+            "total_pages": total_pages,
             "total_chunks": chroma_stats.get("document_count", 0),
             "product_breakdown": product_breakdown,
         },

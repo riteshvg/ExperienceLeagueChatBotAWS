@@ -17,6 +17,9 @@ import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
+
+from backend.core.knowledge_base_refresh import refresh_source_label
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +45,54 @@ def get_status() -> dict:
         "error": None,
         "log": [],
     }
+
+
+def enrich_status_for_admin(
+    status: dict,
+    *,
+    chroma_count: Optional[int] = None,
+    kb_last_refreshed: Optional[str] = None,
+    kb_source: Optional[str] = None,
+    kb_source_label: Optional[str] = None,
+    manifest_files_updated: Optional[int] = None,
+) -> dict:
+    """
+    Fill gaps when production refreshes via GHA/S3 rather than the local pipeline.
+
+    Railway often has no data/refresh_status.json; last_run and chunk count should
+    still reflect the live knowledge base.
+    """
+    enriched = dict(status)
+    if not enriched.get("last_run") and kb_last_refreshed:
+        enriched["last_run"] = kb_last_refreshed
+        enriched["last_run_source"] = kb_source or "knowledge_base"
+    if kb_source_label:
+        enriched["last_run_source_label"] = kb_source_label
+    if not enriched.get("chunks_indexed") and chroma_count:
+        enriched["chunks_indexed"] = chroma_count
+    if not enriched.get("files_updated") and manifest_files_updated is not None:
+        enriched["files_updated"] = manifest_files_updated
+
+    if not enriched.get("log") and kb_last_refreshed:
+        label = kb_source_label or refresh_source_label(kb_source)
+        lines = [
+            f"Completed: {kb_last_refreshed}",
+            f"Source: {label}",
+        ]
+        if chroma_count:
+            lines.append(f"ChromaDB chunks: {chroma_count:,}")
+        if manifest_files_updated is not None:
+            if manifest_files_updated == 0:
+                lines.append("Docs updated in last sync: 0 (no file changes)")
+            else:
+                lines.append(f"Docs updated in last sync: {manifest_files_updated:,}")
+        if enriched.get("last_run_duration_s"):
+            lines.append(f"Duration: {enriched['last_run_duration_s']}s")
+        else:
+            lines.append("Duration: n/a (scheduled GitHub Actions run)")
+        enriched["log"] = lines
+
+    return enriched
 
 
 def _write_status(status: dict) -> None:

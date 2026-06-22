@@ -15,6 +15,7 @@ import {
   isDemoStatus,
   isFeedbackPayload,
   isRecord,
+  refreshSourceLabel,
   SETTINGS_DISPLAY,
   componentDetails,
 } from '@/pages/adminFormat'
@@ -731,6 +732,18 @@ export function AdminPage() {
 
   const rsState = refreshStatus?.state ?? 'idle'
   const rsRunning = rsState === 'running'
+  const kbStatus = status?.knowledge_base as Record<string, unknown> | undefined
+  const refreshLastRun = refreshStatus?.last_run ?? (kbStatus?.last_refreshed as string | undefined)
+  const refreshDbChunks = refreshStatus?.chunks_indexed
+    || Number(kbStatus?.total_chunks)
+    || 0
+  const refreshFilesUpdated = refreshStatus?.files_updated ?? 0
+  const refreshSourceLabelText = refreshStatus?.last_run_source_label
+    ?? refreshSourceLabel(refreshStatus?.last_run_source ?? kbStatus?.last_refreshed_source)
+  const refreshDuration = refreshStatus?.last_run_duration_s
+    ? `${refreshStatus.last_run_duration_s}s`
+    : null
+  const refreshLog = refreshStatus?.log ?? []
 
   const handleTriggerActions = async (force = false) => {
     setActionsTriggered(false)
@@ -1025,8 +1038,14 @@ export function AdminPage() {
                 }))
                 .filter((r) => r.chunks > 0)
               const kb = status.knowledge_base as Record<string, unknown>
+              const totalPages = Number(kb.total_pages) || liveRows.reduce((s, r) => s + r.pages, 0)
+              const totalChunks = Number(kb.total_chunks ?? 0)
               return (
                 <div>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <StatCard label="Total pages" value={totalPages} />
+                    <StatCard label="Total chunks" value={totalChunks} />
+                  </div>
                   <div className="flex items-center justify-between mb-3">
                     <h2 className="text-sm font-semibold text-slate-600 dark:text-slate-300">Knowledge Base</h2>
                     <span className="text-xs text-slate-400 dark:text-slate-500">
@@ -1064,10 +1083,10 @@ export function AdminPage() {
                         <tr className="bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-700">
                           <td className="px-4 py-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Total</td>
                           <td className="px-4 py-2.5 text-right text-xs font-semibold text-slate-600 dark:text-slate-300">
-                            {liveRows.reduce((s, r) => s + r.pages, 0).toLocaleString()}
+                            {totalPages.toLocaleString()}
                           </td>
                           <td className="px-4 py-2.5 text-right text-xs font-semibold text-slate-700 dark:text-slate-200">
-                            {Number(kb.total_chunks ?? 0).toLocaleString()}
+                            {totalChunks.toLocaleString()}
                           </td>
                         </tr>
                       </tfoot>
@@ -1262,10 +1281,10 @@ export function AdminPage() {
           <div className="space-y-5">
             {/* Stats row */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatCard label="DB chunks" value={refreshStatus?.chunks_indexed ?? 0} />
-              <StatCard label="Files updated" value={refreshStatus?.files_updated ?? 0} />
-              <StatCard label="Last run" value={refreshStatus?.last_run ? formatAdminDateShort(refreshStatus.last_run) : 'Never'} />
-              <StatCard label="Duration" value={refreshStatus?.last_run_duration_s ? `${refreshStatus.last_run_duration_s}s` : '—'} />
+              <StatCard label="DB chunks" value={refreshDbChunks} />
+              <StatCard label="Files updated" value={refreshFilesUpdated} />
+              <StatCard label="Last run" value={refreshLastRun ? formatAdminDateShort(refreshLastRun) : 'Never'} />
+              <StatCard label={refreshDuration ? 'Duration' : 'Source'} value={refreshDuration ?? refreshSourceLabelText} />
             </div>
 
             <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 p-5 space-y-4">
@@ -1322,12 +1341,41 @@ export function AdminPage() {
                 </button>
               </div>
             </div>
-            {refreshStatus?.log && refreshStatus.log.length > 0 && (
+            {refreshLastRun && (
               <div>
-                <h2 className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">Last Run Log</h2>
-                <pre className="text-xs bg-slate-900 text-slate-100 rounded-xl p-4 overflow-auto max-h-80 leading-relaxed">
-                  {refreshStatus.log.join('\n')}
-                </pre>
+                <h2 className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-2">Last Run</h2>
+                <div className={cn(ui.card, 'p-4 space-y-3')}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className={ui.statLabel}>Completed</p>
+                      <p className="text-slate-700 dark:text-slate-200 mt-1">{formatAdminDate(refreshLastRun)}</p>
+                    </div>
+                    <div>
+                      <p className={ui.statLabel}>Source</p>
+                      <p className="text-slate-700 dark:text-slate-200 mt-1">{refreshSourceLabelText}</p>
+                    </div>
+                    <div>
+                      <p className={ui.statLabel}>DB chunks</p>
+                      <p className="text-slate-700 dark:text-slate-200 mt-1">{Number(refreshDbChunks).toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <p className={ui.statLabel}>Files updated</p>
+                      <p className="text-slate-700 dark:text-slate-200 mt-1">{Number(refreshFilesUpdated).toLocaleString()}</p>
+                    </div>
+                  </div>
+                  {refreshLog.length > 0 && (
+                    <pre className="text-xs bg-slate-900 text-slate-100 rounded-xl p-4 overflow-auto max-h-48 leading-relaxed">
+                      {refreshLog.join('\n')}
+                    </pre>
+                  )}
+                </div>
+              </div>
+            )}
+            {!refreshLastRun && (
+              <div className={cn(ui.card, 'p-5')}>
+                <p className="text-sm text-slate-500 dark:text-slate-400">
+                  No refresh history yet. Production updates run weekly via GitHub Actions, or use the buttons above to trigger a sync.
+                </p>
               </div>
             )}
           </div>

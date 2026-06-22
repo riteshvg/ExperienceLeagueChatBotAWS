@@ -31,6 +31,8 @@ export interface RefreshStatus {
   last_run_duration_s: number | null
   files_updated: number
   chunks_indexed: number
+  last_run_source?: string
+  last_run_source_label?: string
   error: string | null
   log: string[]
   started_at?: string

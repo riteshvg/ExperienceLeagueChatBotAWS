@@ -72,6 +72,53 @@ def _s3_chroma_metadata() -> tuple[str | None, str]:
     return None, ""
 
 
+def _s3_chroma_metadata_record() -> dict[str, Any]:
+    bucket = os.getenv("AWS_S3_BUCKET", _S3_BUCKET)
+    if not bucket:
+        return {}
+    try:
+        obj = _s3_client().get_object(Bucket=bucket, Key=_CHROMA_META_KEY)
+        data = json.loads(obj["Body"].read().decode("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception as exc:
+        logger.debug("Chroma metadata JSON unavailable: %s", exc)
+        return {}
+
+
+def _s3_sync_manifest_stats() -> dict[str, Any]:
+    bucket = os.getenv("AWS_S3_BUCKET", _S3_BUCKET)
+    if not bucket:
+        return {}
+    try:
+        obj = _s3_client().get_object(Bucket=bucket, Key=_MANIFEST_KEY)
+        data = json.loads(obj["Body"].read().decode("utf-8"))
+        if not isinstance(data, dict):
+            return {}
+        updated = data.get("_last_updated_count")
+        return {
+            "files_updated": int(updated) if updated is not None else None,
+            "last_sync": _parse_iso(data.get("_last_sync")),
+        }
+    except Exception as exc:
+        logger.debug("Sync manifest unavailable: %s", exc)
+        return {}
+
+
+def refresh_source_label(source: str | None) -> str:
+    """Human-readable label for admin refresh panel."""
+    labels = {
+        "s3:chroma_last_refreshed.json": "GitHub Actions",
+        "local:refresh_status.json": "Admin server",
+        "s3:chroma_db/chroma_db.tar.gz": "S3 Chroma backup",
+        "s3:state/sync_manifest.json": "S3 sync manifest",
+        "local:chroma_db_mtime": "Local Chroma volume",
+        "knowledge_base": "GitHub Actions",
+    }
+    if not source:
+        return "Unknown"
+    return labels.get(source, source.replace("s3:", "S3 · ").replace("local:", "Local · "))
+
+
 def _local_refresh_status() -> tuple[str | None, str]:
     from backend.core.refresh_pipeline import get_status
 
@@ -124,3 +171,23 @@ def get_knowledge_base_last_refreshed() -> dict[str, Any]:
         return {"last_refreshed": ts, "source": source}
 
     return {"last_refreshed": None, "source": None}
+
+
+def get_refresh_panel_context() -> dict[str, Any]:
+    """
+    Signals for the admin Data Refresh tab when the local pipeline has not run.
+
+    Reads S3 metadata written by GHA (chroma upload + sync manifest).
+    """
+    kb = get_knowledge_base_last_refreshed()
+    manifest = _s3_sync_manifest_stats()
+    chroma_meta = _s3_chroma_metadata_record()
+    source = kb.get("source")
+    return {
+        "last_refreshed": kb.get("last_refreshed"),
+        "source": source,
+        "source_label": refresh_source_label(source if source else "knowledge_base"),
+        "files_updated": manifest.get("files_updated"),
+        "manifest_last_sync": manifest.get("last_sync"),
+        "metadata_chunk_count": chroma_meta.get("chunk_count"),
+    }

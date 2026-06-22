@@ -43,6 +43,20 @@ export function isFeedbackPayload(value: unknown): value is { summary: Record<st
   return isRecord(value) && isRecord(value.summary) && Array.isArray(value.entries)
 }
 
+export function refreshSourceLabel(source: unknown): string {
+  const labels: Record<string, string> = {
+    's3:chroma_last_refreshed.json': 'GitHub Actions',
+    'local:refresh_status.json': 'Admin server',
+    's3:chroma_db/chroma_db.tar.gz': 'S3 Chroma backup',
+    's3:state/sync_manifest.json': 'S3 sync manifest',
+    'local:chroma_db_mtime': 'Local Chroma volume',
+    knowledge_base: 'GitHub Actions',
+  }
+  if (source === null || source === undefined || source === '') return '—'
+  const key = String(source)
+  return labels[key] ?? key.replace(/^s3:/, 'S3 · ').replace(/^local:/, 'Local · ')
+}
+
 export const SETTINGS_DISPLAY: { key: string; label: string }[] = [
   { key: 'bedrock_model_id', label: 'Bedrock model' },
   { key: 'bedrock_region', label: 'Bedrock region' },
