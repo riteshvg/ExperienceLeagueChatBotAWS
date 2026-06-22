@@ -50,6 +50,38 @@ def _dedupe_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def build_numbered_context(raw_docs: list[dict]) -> tuple[str, list[dict[str, Any]]]:
+    """
+    Build LLM context with consecutive [1]…[k] markers only on chunks that have linkable URLs.
+
+    Unlinkable chunks are still included (unnumbered) for grounding but should not be cited.
+    """
+    parts: list[str] = []
+    index: list[dict[str, Any]] = []
+    num = 0
+    for doc in raw_docs:
+        meta = doc.get("metadata") or {}
+        url = resolve_doc_url(meta, doc.get("content", "")) or meta.get("url", "")
+        content = doc.get("content", "")
+        if is_specific_url(url):
+            num += 1
+            parts.append(f"[{num}] {content}")
+            index.append({
+                "url": url,
+                "title": _clean_title(meta.get("title", "")) or "Documentation",
+                "product": meta.get("product", ""),
+            })
+        elif content.strip():
+            parts.append(content)
+    return "\n\n---\n\n".join(parts), index
+
+
+def build_context_index(raw_docs: list[dict]) -> list[dict[str, Any]]:
+    """Citation index aligned with [1], [2], … markers sent to the LLM."""
+    _, index = build_numbered_context(raw_docs)
+    return index
+
+
 def _evidence_level(top_score: float, source_count: int) -> str:
     if source_count == 0 or top_score < 0.25:
         return "none"
@@ -192,6 +224,7 @@ def build_evidence(
         "failure_reason": failure_reason,
         "banner": banner,
         "sources": sources,
+        "context_index": build_context_index(raw_docs),
     }
     if refinement:
         payload["refinement"] = refinement

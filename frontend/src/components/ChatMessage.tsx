@@ -7,6 +7,12 @@ import { MessageExtras } from './MessageExtras'
 import { ClarificationCard } from './ClarificationCard'
 import { ImageCarousel, type CarouselImage } from './ImageCarousel'
 import { type Message } from '@/lib/api'
+import {
+  getInlineSourceIndex,
+  isCitationLinkLabel,
+  linkifyCitationMarkers,
+} from '@/lib/inlineCitations'
+import { trackCitationClick } from '@/analytics'
 import { useChatStore } from '@/store/chatStore'
 
 interface Props {
@@ -171,11 +177,30 @@ function stripCitationMarkers(text: string): string {
   return text.replace(/\[\d+\](?!\()/g, '')
 }
 
-function stripMdLinks(text: string): string {
+function stripMdLinks(text: string, keepCitationLinks = false): string {
   return text
     .replace(/\[([^\]]+)\]\([^)]*\.md[^)]*\)/g, '$1')
-    // Strip inline EXL/developer.adobe.com doc links — 404-prone; citations panel handles sources
-    .replace(/\[([^\]]+)\]\(https?:\/\/(?:experienceleague|developer)\.adobe\.com[^)]+\)/g, '$1')
+    .replace(
+      /\[([^\]]+)\]\(https?:\/\/(?:experienceleague|developer)\.adobe\.com[^)]+\)/g,
+      (match, label) => (keepCitationLinks && isCitationLinkLabel(label) ? match : label),
+    )
+}
+
+function prepareAssistantContent(
+  raw: string,
+  opts: {
+    streaming: boolean
+    inlineSources: ReturnType<typeof getInlineSourceIndex>
+    evidence?: Message['evidence']
+  },
+): string {
+  const sanitized = sanitizeAdobeMarkup(raw)
+  if (opts.streaming) {
+    // Fast path while tokens arrive — no linkify, hide raw [N] markers.
+    return stripMdLinks(stripCitationMarkers(sanitized))
+  }
+  const linked = linkifyCitationMarkers(sanitized, opts.inlineSources, opts.evidence)
+  return stripMdLinks(linked, true)
 }
 
 function CopyAnswerButton({
@@ -210,9 +235,17 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
     !isUser && message.model === 'clarification' && !!message.clarification
   const [copied, setCopied] = useState(false)
   const [carousel, setCarousel] = useState<{ images: CarouselImage[]; index: number } | null>(null)
-  // Show SSE content as it arrives — typewriter lag caused layout thrash with embedded media.
-  const processedContent = stripMdLinks(
-    stripCitationMarkers(sanitizeAdobeMarkup(message.content || (isClarificationOnly ? '' : ' '))),
+  const inlineSources = useMemo(
+    () => getInlineSourceIndex(message.evidence, message.citations),
+    [message.evidence, message.citations],
+  )
+  const processedContent = useMemo(
+    () => prepareAssistantContent(message.content || (isClarificationOnly ? '' : ' '), {
+      streaming: !!message.streaming,
+      inlineSources,
+      evidence: message.evidence,
+    }),
+    [message.content, message.streaming, message.evidence, isClarificationOnly, inlineSources],
   )
 
   const embedReady = !message.streaming
@@ -242,6 +275,21 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
         )
       },
       a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+        const label = String(children ?? '').trim()
+        if (href && isCitationLinkLabel(label)) {
+          return (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="View source"
+              onClick={() => trackCitationClick(href, label, turnNumber)}
+              className="inline-flex items-center justify-center min-w-[1.05rem] h-[1.05rem] px-0.5 mx-0.5 align-super text-[10px] font-bold leading-none text-emerald-700 dark:text-emerald-200 bg-emerald-50 dark:bg-emerald-900/60 border border-emerald-200/90 dark:border-emerald-700 rounded no-underline hover:bg-emerald-100 dark:hover:bg-emerald-800/80 transition-colors"
+            >
+              {label}
+            </a>
+          )
+        }
         if (href && VIDEO_URL_RE.test(href)) {
           const match = href.match(/video\.tv\.adobe\.com\/v\/([^/?]+)/)
           if (match) {
@@ -265,7 +313,7 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
     }
 
     return { markdownComponents, messageImages }
-  }, [embedReady, processedContent])
+  }, [embedReady, processedContent, turnNumber])
 
   const handleCopy = () => {
     navigator.clipboard.writeText(message.content)

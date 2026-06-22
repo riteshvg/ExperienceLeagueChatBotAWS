@@ -36,6 +36,12 @@ export interface RetrievalSource {
   cited?: boolean
 }
 
+export interface ContextIndexSource {
+  url: string
+  title: string
+  product?: string
+}
+
 export interface RetrievalEvidence {
   source_count: number
   citation_count: number
@@ -49,6 +55,7 @@ export interface RetrievalEvidence {
   failure_reason?: 'no_retrieval' | 'no_direct_match' | 'off_topic' | null
   banner?: string | null
   sources: RetrievalSource[]
+  context_index?: ContextIndexSource[]
 }
 
 export interface ClarificationOption {
