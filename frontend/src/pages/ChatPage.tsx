@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Menu, Ban, Clock, WifiOff, CalendarX } from 'lucide-react';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { useQuotaStore } from '@/store/quotaStore';
@@ -132,16 +133,16 @@ export function ChatPage() {
 
   if (accessDenied) {
     return (
-      <div className="flex w-full h-screen items-center justify-center bg-slate-50 p-6">
+      <div className="flex w-full h-screen items-center justify-center bg-slate-50 dark:bg-slate-950 p-6">
         <div className="flex flex-col items-center gap-4 max-w-sm text-center">
-          <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center">
+          <div className="w-14 h-14 rounded-full bg-red-100 dark:bg-red-950/50 flex items-center justify-center">
             <Ban className="w-7 h-7 text-red-500" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-800 mb-1">
+            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-1">
               Account Disabled
             </h2>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               Your access to Rovr has been disabled. If you believe this is an
               error, please contact the administrator.
             </p>
@@ -159,16 +160,16 @@ export function ChatPage() {
 
   if (rateLimited) {
     return (
-      <div className="flex w-full h-screen items-center justify-center bg-slate-50 p-6">
+      <div className="flex w-full h-screen items-center justify-center bg-slate-50 dark:bg-slate-950 p-6">
         <div className="flex flex-col items-center gap-4 max-w-sm text-center">
-          <div className="w-14 h-14 rounded-full bg-amber-100 flex items-center justify-center">
+          <div className="w-14 h-14 rounded-full bg-amber-100 dark:bg-amber-950/50 flex items-center justify-center">
             <Clock className="w-7 h-7 text-amber-500" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-800 mb-1">
+            <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-1">
               Daily Limit Reached
             </h2>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               {rateLimitMessage ||
                 'Your daily query limit has been reached. Resets at midnight UTC.'}
             </p>
@@ -186,24 +187,25 @@ export function ChatPage() {
         onClose={() => setSidebarOpen(false)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 bg-slate-50">
+      <main className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-950">
         {/* Header */}
-        <header className="flex-shrink-0 h-12 bg-white border-b border-slate-200 flex items-center justify-between px-4">
+        <header className="flex-shrink-0 h-12 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4">
           {/* Hamburger — mobile only */}
           <button
             onClick={() => setSidebarOpen(true)}
-            className="md:hidden p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 mr-2"
+            className="md:hidden p-1.5 rounded-lg text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 mr-2"
           >
             <Menu className="w-4 h-4" />
           </button>
-          <h1 className="text-sm font-semibold text-slate-700">Rovr</h1>
+          <h1 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Rovr</h1>
+          <ThemeToggle />
         </header>
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
           {/* Kill switch banner */}
           {apiDisabled && (
-            <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+            <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200">
               <WifiOff className="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" />
               <p className="text-sm">
                 Rovr is temporarily unavailable. The administrator has disabled
@@ -214,7 +216,7 @@ export function ChatPage() {
 
           {/* Monthly quota exhausted banner */}
           {(isExhausted || monthlyExhausted) && !apiDisabled && (
-            <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-blue-50 border border-blue-200 text-blue-800">
+            <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 text-blue-800 dark:text-blue-200">
               <CalendarX className="w-4 h-4 flex-shrink-0 mt-0.5 text-blue-600" />
               <p className="text-sm">
                 You've used all {monthlyLimit} queries for this month.{' '}
@@ -255,7 +257,7 @@ export function ChatPage() {
           })()}
 
           {error && (
-            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-4 py-2">
+            <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-lg px-4 py-2">
               {error}
             </div>
           )}
@@ -264,11 +266,11 @@ export function ChatPage() {
         </div>
 
         {/* Input */}
-        <div className="flex-shrink-0 px-4 py-3 bg-slate-50 border-t border-slate-200">
+        <div className="flex-shrink-0 px-4 py-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800">
           {knowledgeBankUpdating && !apiDisabled && (
             <div
               role="status"
-              className="flex items-start gap-3 px-4 py-3 mb-3 rounded-xl bg-violet-50 border border-violet-200 text-violet-900"
+              className="flex items-start gap-3 px-4 py-3 mb-3 rounded-xl bg-violet-50 dark:bg-violet-950/40 border border-violet-200 dark:border-violet-900 text-violet-900 dark:text-violet-200"
             >
               <Clock className="w-4 h-4 shrink-0 mt-0.5 text-violet-600" />
               <p className="text-sm leading-relaxed">
@@ -295,7 +297,7 @@ export function ChatPage() {
                   : undefined
             }
           />
-          <p className="mt-2 text-center text-xs text-slate-400">
+          <p className="mt-2 text-center text-xs text-slate-400 dark:text-slate-500">
             <span>Answers are grounded in Adobe Experience League documentation</span>
             <span aria-hidden="true"> · </span>
             <span>AI-generated — please validate answers before sharing or acting on them</span>

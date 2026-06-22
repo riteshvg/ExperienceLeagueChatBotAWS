@@ -7,6 +7,7 @@ import { OAuthCallback } from '@/pages/OAuthCallback'
 import { TermsModal } from '@/components/TermsModal'
 import { useAuthStore } from '@/store/authStore'
 import { usePageView } from '@/analytics'
+import { useTheme } from '@/hooks/useTheme'
 
 const TERMS_KEY = 'rovr_terms_accepted'
 
@@ -36,6 +37,8 @@ function TermsGate() {
 }
 
 export default function App() {
+  useTheme()
+
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
       <div className="w-full min-h-screen flex flex-col">

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAuthStore } from '@/store/authStore'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { PROMPT_LIBRARY } from '@/lib/prompts'
 
 const VALUE_PROPS = [
@@ -97,7 +98,7 @@ function RotatingPromptBox() {
       <p className="text-xs font-medium uppercase tracking-wide text-slate-400 mb-2">
         Ask questions like
       </p>
-      <div className="rounded-xl border border-emerald-200 bg-white px-4 py-2 shadow-sm">
+      <div className="rounded-xl border border-emerald-200 dark:border-emerald-800 bg-white dark:bg-slate-900 px-4 py-2 shadow-sm">
         <div className="relative h-12 overflow-hidden" aria-live="polite">
           <div
             className="will-change-transform"
@@ -106,10 +107,10 @@ function RotatingPromptBox() {
               transition: animated ? `transform ${SLIDE_MS}ms ease-in-out` : 'none',
             }}
           >
-            <p className="h-12 flex items-center text-sm text-slate-700 leading-snug line-clamp-2">
+            <p className="h-12 flex items-center text-sm text-slate-700 dark:text-slate-200 leading-snug line-clamp-2">
               &ldquo;{prompts[index]}&rdquo;
             </p>
-            <p className="h-12 flex items-center text-sm text-slate-700 leading-snug line-clamp-2">
+            <p className="h-12 flex items-center text-sm text-slate-700 dark:text-slate-200 leading-snug line-clamp-2">
               &ldquo;{prompts[upcomingIndex]}&rdquo;
             </p>
           </div>
@@ -134,7 +135,7 @@ export function LoginPage() {
   }, [isAuthenticated])
 
   return (
-    <div className="min-h-screen w-full flex-1 flex flex-col bg-[#F8FAF9]">
+    <div className="min-h-screen w-full flex-1 flex flex-col bg-[#F8FAF9] dark:bg-slate-950">
       <header
         className="flex items-center justify-between gap-4 px-6 h-14 shrink-0 border-b border-[#0F3D24] w-full"
         style={{ backgroundColor: '#14532D' }}
@@ -148,6 +149,7 @@ export function LoginPage() {
           <span className="text-white font-semibold text-sm tracking-wide">Rovr</span>
         </div>
         <div className="flex items-center gap-4 sm:gap-6 shrink-0">
+          <ThemeToggle variant="brand" showLabel={false} />
           <a
             href="https://thelearningproject.in"
             className="text-xs sm:text-sm text-white/80 hover:text-white transition-colors whitespace-nowrap"
@@ -166,7 +168,7 @@ export function LoginPage() {
       <main className="flex-1 w-full flex items-stretch">
         <div className="w-full grid grid-cols-1 md:grid-cols-2 md:min-h-0">
           {/* Sign in — left on desktop */}
-          <section className="order-2 md:order-1 flex flex-col items-center justify-center px-6 py-10 md:px-10 lg:px-16 md:py-12 text-center md:border-r border-emerald-200/80">
+          <section className="order-2 md:order-1 flex flex-col items-center justify-center px-6 py-10 md:px-10 lg:px-16 md:py-12 text-center md:border-r border-emerald-200/80 dark:border-emerald-900/50">
             <div className="w-full max-w-sm mx-auto">
               <img
                 src={`${import.meta.env.BASE_URL}rovrlogo.png`}
@@ -210,12 +212,12 @@ export function LoginPage() {
           </section>
 
           {/* Ask — right on desktop */}
-          <section className="order-1 md:order-2 flex flex-col items-center justify-center px-6 py-10 md:px-10 lg:px-16 md:py-12 text-center border-b md:border-b-0 border-emerald-200/80">
+          <section className="order-1 md:order-2 flex flex-col items-center justify-center px-6 py-10 md:px-10 lg:px-16 md:py-12 text-center border-b md:border-b-0 border-emerald-200/80 dark:border-emerald-900/50">
             <div className="w-full max-w-lg mx-auto">
-            <h1 className="text-3xl lg:text-4xl font-semibold text-[#14532D] tracking-tight">
+            <h1 className="text-3xl lg:text-4xl font-semibold text-[#14532D] dark:text-emerald-300 tracking-tight">
               Ask about Adobe Experience League docs
             </h1>
-            <p className="mt-4 text-sm lg:text-base text-slate-500 leading-relaxed">
+            <p className="mt-4 text-sm lg:text-base text-slate-500 dark:text-slate-400 leading-relaxed">
               Your AI powered guide for questions on Analytics, CJA, Experience
               Platform, Target, and Journey Optimizer.
             </p>
@@ -231,8 +233,8 @@ export function LoginPage() {
                     aria-hidden="true"
                   />
                   <div>
-                    <p className="text-sm font-medium text-slate-700">{title}</p>
-                    <p className="text-sm text-slate-500 leading-relaxed">{body}</p>
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{title}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed">{body}</p>
                   </div>
                 </li>
               ))}
@@ -242,8 +244,8 @@ export function LoginPage() {
         </div>
       </main>
 
-      <footer className="shrink-0 px-6 py-4 text-center border-t border-emerald-100">
-        <p className="text-xs text-slate-400">
+      <footer className="shrink-0 px-6 py-4 text-center border-t border-emerald-100 dark:border-emerald-900/50">
+        <p className="text-xs text-slate-400 dark:text-slate-500">
           Built for learning purposes only. Not affiliated with or endorsed by Adobe.
         </p>
       </footer>

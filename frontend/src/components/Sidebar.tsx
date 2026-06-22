@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut, X, PanelLeftClose, PanelLeftOpen, House, GitBranch } from 'lucide-react'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { Link, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useChatStore, type ChatSession } from '@/store/chatStore'
@@ -74,51 +75,67 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
       'w-72 fixed inset-y-0 left-0',
       isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
     )}>
-      {/* Logo */}
-      <div className={cn('py-4 border-b border-white/10', collapsed ? 'px-3' : 'px-4')}>
-        <div className="flex items-center gap-2 justify-between">
+      {/* Logo + collapse toggle */}
+      <div className={cn('border-b border-white/10', collapsed ? 'md:py-3 md:px-2' : 'py-4 px-4')}>
+        {/* Collapsed rail — desktop only */}
+        {collapsed && (
+          <div className="hidden md:flex flex-col items-center gap-2 py-3 px-2">
+            <img
+              src={`${import.meta.env.BASE_URL}rovrlogo.png`}
+              alt="Rovr"
+              className="h-6 w-auto flex-shrink-0"
+            />
+            <button
+              onClick={() => setCollapsed(false)}
+              className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10 transition-colors"
+              title="Expand sidebar"
+              aria-label="Expand sidebar"
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Expanded header — always on mobile; desktop when sidebar is open */}
+        <div className={cn('flex items-center gap-2 justify-between', collapsed && 'md:hidden')}>
           <button onClick={onClose} className="md:hidden p-1 text-white/60 hover:text-white">
             <X className="w-4 h-4" />
           </button>
-          <img src={`${import.meta.env.BASE_URL}rovrlogo.png`} alt="Rovr" className={cn('flex-shrink-0', collapsed ? 'h-7 w-auto' : 'h-8 w-auto')} />
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <span className="font-semibold text-sm truncate">Rovr</span>
-            </div>
-          )}
-          {/* Collapse toggle — desktop only */}
+          <img src={`${import.meta.env.BASE_URL}rovrlogo.png`} alt="Rovr" className="h-8 w-auto flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <span className="font-semibold text-sm truncate">Rovr</span>
+          </div>
           <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="hidden md:flex p-1 text-white/60 hover:text-white flex-shrink-0"
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            onClick={() => setCollapsed(true)}
+            className="hidden md:flex p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 flex-shrink-0 transition-colors"
+            title="Collapse sidebar"
+            aria-label="Collapse sidebar"
           >
-            {collapsed
-              ? <PanelLeftOpen className="w-4 h-4" />
-              : <PanelLeftClose className="w-4 h-4" />}
+            <PanelLeftClose className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {/* New chat button */}
-      <div className={cn('py-3', collapsed ? 'px-2' : 'px-3')}>
+      <div className={cn('py-3 px-3', collapsed && 'md:px-2')}>
         <button
           onClick={startNewChat}
           disabled={isStreaming}
           title="New chat"
           className={cn(
-            'w-full flex items-center rounded-lg text-sm transition-colors',
-            collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2',
+            'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+            collapsed && 'md:justify-center md:p-2 md:gap-0 md:px-2',
             isStreaming ? 'text-slate-500 cursor-not-allowed' : 'text-white/80 hover:bg-white/10 hover:text-white',
           )}
         >
           <Plus className="w-4 h-4 flex-shrink-0" />
-          {!collapsed && 'New chat'}
+          <span className={cn(collapsed && 'md:hidden')}>New chat</span>
         </button>
       </div>
 
 
       {/* Scrollable content — hidden when collapsed */}
-      <div className={cn('flex-1 overflow-y-auto pb-3 space-y-4', collapsed ? 'hidden md:hidden' : 'px-3')}>
+      <div className={cn('flex-1 overflow-y-auto pb-3 space-y-4 px-3', collapsed && 'md:hidden')}>
 
         {/* Session list */}
         {groups.map((group) => (
@@ -218,26 +235,24 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
           target="_blank"
           rel="noopener noreferrer"
           title="enhancements branch (dev preview)"
-          className="mx-auto mb-2 flex h-8 w-8 items-center justify-center rounded-lg border border-amber-400/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
+          className="hidden md:flex mx-auto mb-2 h-8 w-8 items-center justify-center rounded-lg border border-amber-400/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
         >
           <GitBranch className="w-4 h-4" />
         </a>
       )}
 
       {/* Disclaimer — hidden when collapsed */}
-      {!collapsed && (
-        <div className="px-4 py-3 mx-3 mb-2 rounded-lg bg-black/20 border border-white/10">
-          <p className="text-xs text-white/50 leading-relaxed">
-            Built for learning purposes only. Not affiliated with or endorsed by Adobe. All documentation belongs to Adobe.
-          </p>
-        </div>
-      )}
+      <div className={cn('px-4 py-3 mx-3 mb-2 rounded-lg bg-black/20 border border-white/10', collapsed && 'md:hidden')}>
+        <p className="text-xs text-white/50 leading-relaxed">
+          Built for learning purposes only. Not affiliated with or endorsed by Adobe. All documentation belongs to Adobe.
+        </p>
+      </div>
 
       {/* Footer */}
-      <div className={cn('py-3 border-t border-white/10 space-y-0.5', collapsed ? 'px-2' : 'px-3')}>
+      <div className={cn('py-3 border-t border-white/10 space-y-0.5', collapsed ? 'md:px-2 md:space-y-1' : 'px-3')}>
         {/* User avatar + name */}
-        {session && !collapsed && (
-          <div className="flex items-center gap-2 px-3 py-2 mb-1">
+        {session && (
+          <div className={cn('flex items-center gap-2 px-3 py-2 mb-1', collapsed && 'md:hidden')}>
             {session.picture ? (
               <img
                 src={session.picture}
@@ -255,14 +270,22 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
             <span className="text-xs text-white/80 truncate">{session.name || session.email}</span>
           </div>
         )}
-        {session && collapsed && session.picture && (
-          <div className="flex justify-center mb-1">
-            <img
-              src={session.picture}
-              alt={session.name}
-              className="w-7 h-7 rounded-full"
-              referrerPolicy="no-referrer"
-            />
+        {session && collapsed && (
+          <div className="hidden md:flex justify-center mb-1">
+            {session.picture ? (
+              <img
+                src={session.picture}
+                alt={session.name}
+                className="w-7 h-7 rounded-full"
+                referrerPolicy="no-referrer"
+              />
+            ) : (
+              <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center">
+                <span className="text-xs font-medium text-white/80">
+                  {session.name.charAt(0).toUpperCase()}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -272,12 +295,12 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
           rel="noopener noreferrer"
           title="Back to homepage"
           className={cn(
-            'flex items-center rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-white transition-colors no-underline',
-            collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
+            'flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-white transition-colors no-underline',
+            collapsed && 'md:justify-center md:p-2 md:gap-0 md:px-2',
           )}
         >
           <House className="w-4 h-4 flex-shrink-0" />
-          {!collapsed && 'Back to homepage'}
+          <span className={cn(collapsed && 'md:hidden')}>Back to homepage</span>
         </a>
 
         {session?.is_admin && (
@@ -285,24 +308,25 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
             to="/admin"
             title="Admin"
             className={cn(
-              'flex items-center rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-white transition-colors no-underline',
-              collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
+              'flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-white transition-colors no-underline',
+              collapsed && 'md:justify-center md:p-2 md:gap-0 md:px-2',
             )}
           >
             <Settings className="w-4 h-4 flex-shrink-0" />
-            {!collapsed && 'Admin'}
+            <span className={cn(collapsed && 'md:hidden')}>Admin</span>
           </Link>
         )}
+        <ThemeToggle variant="sidebar" showLabel={!collapsed} className={cn(collapsed && 'md:justify-center md:p-2')} />
         <button
           onClick={handleLogout}
           title="Sign out"
           className={cn(
-            'w-full flex items-center rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-red-400 transition-colors',
-            collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2'
+            'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-red-400 transition-colors',
+            collapsed && 'md:justify-center md:p-2 md:gap-0 md:px-2',
           )}
         >
           <LogOut className="w-4 h-4 flex-shrink-0" />
-          {!collapsed && 'Sign out'}
+          <span className={cn(collapsed && 'md:hidden')}>Sign out</span>
         </button>
       </div>
     </aside>

@@ -53,8 +53,8 @@ function SimilarityIndicator({ score, strength }: { score: number; strength: str
 /** Renders disambiguation options when retrieval cannot match the user's wording. */
 export function ClarificationCard({ clarification, onSelect, disabled }: Props) {
   return (
-    <div className="rounded-xl border border-violet-200/90 bg-violet-50/80 p-4 shadow-sm">
-      <p className="text-sm text-violet-900/85 whitespace-pre-line mb-3">
+    <div className="rounded-xl border border-violet-200/90 dark:border-violet-800 bg-violet-50/80 dark:bg-violet-950/40 p-4 shadow-sm">
+      <p className="text-sm text-violet-900/85 dark:text-violet-200 whitespace-pre-line mb-3">
         <GenesisText text={clarification.genesis} />
       </p>
       {clarification.intent_summary && (
@@ -72,8 +72,8 @@ export function ClarificationCard({ clarification, onSelect, disabled }: Props) 
               disabled={disabled}
               onClick={() => onSelect(option)}
               className={cn(
-                'text-left rounded-lg border border-violet-200 bg-white px-3 py-2.5 text-sm transition-colors',
-                'text-violet-950 hover:border-violet-400 hover:bg-violet-50/50',
+                'text-left rounded-lg border border-violet-200 dark:border-violet-700 bg-white dark:bg-slate-900 px-3 py-2.5 text-sm transition-colors',
+                'text-violet-950 dark:text-violet-100 hover:border-violet-400 dark:hover:border-violet-500 hover:bg-violet-50/50 dark:hover:bg-violet-950/60',
                 'disabled:opacity-50 disabled:cursor-not-allowed',
               )}
             >

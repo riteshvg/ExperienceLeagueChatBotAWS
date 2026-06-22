@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { RotateCcw, ChevronDown, ChevronUp, ChevronRight, Pencil, Check, X, Download, Moon, Sun } from 'lucide-react'
+import { RotateCcw, ChevronDown, ChevronUp, ChevronRight, Pencil, Check, X, Download } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, RefreshCw } from 'lucide-react'
 import { useAdmin, type GoogleUser, type GoogleUserSummary } from '@/hooks/useAdmin'
-import { useAdminTheme } from '@/hooks/useAdminTheme'
-import type { PaginatedQueryLogs } from '@/lib/api'
+import { ThemeToggle } from '@/components/ThemeToggle'
+import type { PaginatedQueryLogs, PaginatedGoogleUsers, Pagination } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { adminUi as ui } from '@/pages/adminUi'
 import {
@@ -21,66 +21,208 @@ import {
 
 type Tab = 'status' | 'settings' | 'analytics' | 'feedback' | 'users' | 'queries' | 'refresh'
 
+const ADMIN_TABLE_MAX_H = 'max-h-[min(70vh,720px)]'
+
+function adminPageNums(pg: Pagination): (number | '…')[] {
+  const t = pg.total_pages
+  const c = pg.page
+  if (t <= 7) return Array.from({ length: t }, (_, i) => i + 1)
+  if (c <= 3) return [1, 2, 3, 4, '…', t]
+  if (c >= t - 2) return [1, '…', t - 3, t - 2, t - 1, t]
+  return [1, '…', c - 1, c, c + 1, '…', t]
+}
+
+function AdminPageSizePicker({ pageSize, onChange }: { pageSize: number; onChange: (n: number) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-slate-500 dark:text-slate-400">Rows per page:</span>
+      {[25, 50, 100].map((s) => (
+        <button
+          key={s}
+          onClick={() => onChange(s)}
+          className={cn(
+            'px-2.5 py-1 rounded text-xs font-medium transition-colors',
+            pageSize === s ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200',
+          )}
+        >{s}</button>
+      ))}
+    </div>
+  )
+}
+
+function AdminPaginationFooter({
+  pg,
+  fetching,
+  onPageChange,
+}: {
+  pg: Pagination
+  fetching: boolean
+  onPageChange: (page: number) => void
+}) {
+  return (
+    <div className="flex items-center justify-between flex-wrap gap-3">
+      <span className="text-xs text-slate-500 dark:text-slate-400">
+        Showing {((pg.page - 1) * pg.page_size + 1).toLocaleString()}–{Math.min(pg.page * pg.page_size, pg.total_records).toLocaleString()} of {pg.total_records.toLocaleString()} records
+      </span>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onPageChange(pg.page - 1)}
+          disabled={!pg.has_prev || fetching}
+          className="px-2.5 py-1 rounded text-xs text-slate-600 border border-slate-200 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+        >← Prev</button>
+        {adminPageNums(pg).map((n, i) =>
+          n === '…'
+            ? <span key={`ellipsis-${i}`} className="px-1.5 text-xs text-slate-400 dark:text-slate-500">…</span>
+            : <button
+                key={n}
+                onClick={() => onPageChange(n as number)}
+                disabled={fetching}
+                className={cn(
+                  'w-7 h-7 rounded text-xs font-medium transition-colors',
+                  n === pg.page ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:bg-slate-800',
+                )}
+              >{n}</button>
+        )}
+        <button
+          onClick={() => onPageChange(pg.page + 1)}
+          disabled={!pg.has_next || fetching}
+          className="px-2.5 py-1 rounded text-xs text-slate-600 border border-slate-200 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+        >Next →</button>
+      </div>
+    </div>
+  )
+}
+
+function AdminExportButton({
+  onClick,
+  exporting,
+  label,
+  hint,
+  error,
+}: {
+  onClick: () => void
+  exporting: boolean
+  label: string
+  hint: string
+  error?: boolean
+}) {
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <button
+        onClick={onClick}
+        disabled={exporting}
+        className={cn(
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+          exporting
+            ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+            : 'bg-emerald-600 text-white hover:bg-emerald-700',
+        )}
+      >
+        {exporting
+          ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Exporting…</>
+          : <><Download className="w-3.5 h-3.5" /> {label}</>}
+      </button>
+      <span className="text-[10px] text-slate-400">{hint}</span>
+      {error && <span className="text-[10px] text-red-500">Export failed. Please try again.</span>}
+    </div>
+  )
+}
+
 // ── Google users tab ──────────────────────────────────────────────────────────
 
-type SortField = 'last_seen' | 'total_queries'
+type UserSortField = 'last_seen' | 'total_queries' | 'name' | 'email' | 'first_seen'
 
 interface GoogleUsersTabProps {
-  users: GoogleUser[]
+  paginatedData: PaginatedGoogleUsers | null
   summary: GoogleUserSummary | null
-  onRefresh: () => void
+  onFetchPage: (page: number, pageSize: number, sortBy: string, sortOrder: string, search: string) => Promise<void>
+  onExport: (search: string) => Promise<void>
+  exporting: boolean
   onSetAdmin: (userId: string, isAdmin: boolean) => Promise<unknown>
   onSetDisabled: (userId: string, isDisabled: boolean) => Promise<unknown>
   onSetLimit: (userId: string, limit: number) => Promise<unknown>
   onSetMonthlyLimit: (userId: string, limit: number) => Promise<unknown>
 }
 
-function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, onSetLimit, onSetMonthlyLimit }: GoogleUsersTabProps) {
+function GoogleUsersTab({
+  paginatedData,
+  summary,
+  onFetchPage,
+  onExport,
+  exporting,
+  onSetAdmin,
+  onSetDisabled,
+  onSetLimit,
+  onSetMonthlyLimit,
+}: GoogleUsersTabProps) {
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [sortBy, setSortBy] = useState<UserSortField>('last_seen')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [search, setSearch] = useState('')
-  const [sortField, setSortField] = useState<SortField>('last_seen')
-  const [sortAsc, setSortAsc] = useState(false)
-  // Daily limit edit state
+  const [searchInput, setSearchInput] = useState('')
+  const [fetching, setFetching] = useState(false)
+  const [exportError, setExportError] = useState(false)
   const [editingUserId, setEditingUserId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState<number>(0)
   const [savingUserId, setSavingUserId] = useState<string | null>(null)
   const [savedUserId, setSavedUserId] = useState<string | null>(null)
-  // Monthly limit edit state
   const [editingMonthlyUserId, setEditingMonthlyUserId] = useState<string | null>(null)
   const [editMonthlyValue, setEditMonthlyValue] = useState<number>(0)
   const [savingMonthlyUserId, setSavingMonthlyUserId] = useState<string | null>(null)
   const [savedMonthlyUserId, setSavedMonthlyUserId] = useState<string | null>(null)
 
-  const toggleSort = (field: SortField) => {
-    if (sortField === field) setSortAsc((v) => !v)
-    else { setSortField(field); setSortAsc(false) }
+  const loadPage = (p: number, ps: number, sb: string, so: string, q: string) => {
+    setFetching(true)
+    onFetchPage(p, ps, sb, so, q).finally(() => setFetching(false))
   }
 
-  const filtered = users
-    .filter((u) => !search || u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      let diff = 0
-      if (sortField === 'last_seen') {
-        diff = (a.last_seen ?? '').localeCompare(b.last_seen ?? '')
-      } else {
-        diff = a.total_queries - b.total_queries
-      }
-      return sortAsc ? diff : -diff
-    })
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput)
+      setPage(1)
+    }, 300)
+    return () => clearTimeout(t)
+  }, [searchInput])
 
-  const SortIcon = ({ field }: { field: SortField }) => (
-    sortField === field
-      ? sortAsc ? <ChevronUp className="w-3 h-3 inline ml-0.5" /> : <ChevronDown className="w-3 h-3 inline ml-0.5" />
-      : null
-  )
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadPage(page, pageSize, sortBy, sortOrder, search) }, [page, pageSize, sortBy, sortOrder, search])
+
+  const handleSort = (field: UserSortField) => {
+    if (field === sortBy) {
+      setSortOrder((v) => (v === 'desc' ? 'asc' : 'desc'))
+    } else {
+      setSortBy(field)
+      setSortOrder('desc')
+    }
+    setPage(1)
+  }
+
+  const handlePageSize = (ps: number) => { setPageSize(ps); setPage(1) }
+
+  const handleExport = async () => {
+    setExportError(false)
+    try {
+      await onExport(search)
+    } catch {
+      setExportError(true)
+      setTimeout(() => setExportError(false), 4000)
+    }
+  }
+
+  const SortIcon = ({ field }: { field: UserSortField }) => {
+    if (field !== sortBy) return null
+    return sortOrder === 'desc'
+      ? <ChevronDown className="w-3 h-3 inline ml-0.5" />
+      : <ChevronUp className="w-3 h-3 inline ml-0.5" />
+  }
 
   const startEdit = (user: GoogleUser) => {
     setEditingUserId(user.user_id)
     setEditValue(user.daily_query_limit ?? 20)
   }
 
-  const cancelEdit = () => {
-    setEditingUserId(null)
-  }
+  const cancelEdit = () => setEditingUserId(null)
 
   const saveLimit = async (userId: string) => {
     setSavingUserId(userId)
@@ -117,9 +259,11 @@ function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, 
     }
   }
 
+  const users = paginatedData?.data ?? []
+  const pg = paginatedData?.pagination
+
   return (
     <div className="space-y-4">
-      {/* Summary row */}
       {summary && (
         <div className="grid grid-cols-2 gap-3">
           <div className={cn(ui.card, 'p-4')}>
@@ -133,209 +277,171 @@ function GoogleUsersTab({ users, summary, onRefresh, onSetAdmin, onSetDisabled, 
         </div>
       )}
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 justify-between">
-        <input
-          type="text"
-          placeholder="Search name or email…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className={cn(ui.input, 'w-52 focus:border-blue-400 dark:focus:border-blue-500')}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
+          <input
+            type="text"
+            placeholder="Search name or email…"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            className={cn(ui.input, 'w-52 focus:border-blue-400 dark:focus:border-blue-500')}
+          />
+          <AdminPageSizePicker pageSize={pageSize} onChange={handlePageSize} />
+        </div>
+        <AdminExportButton
+          onClick={handleExport}
+          exporting={exporting}
+          label="Export to Excel"
+          hint={search ? 'Exports matching users only' : 'Exports all user records'}
+          error={exportError}
         />
-        <button
-          onClick={onRefresh}
-          className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-colors', ui.headerBtn)}
-        >
-          <RefreshCw className="w-3.5 h-3.5" /> Refresh
-        </button>
       </div>
 
-      {/* Table — full width, compact columns so all fields fit without scrolling */}
-      <div className={cn(ui.card, 'overflow-visible')}>
-        <table className="w-full text-xs table-fixed">
-          <thead>
-            <tr className={ui.tableHead}>
-              <th className={cn(ui.th, 'w-[12%]')}>Name</th>
-              <th className={cn(ui.th, 'w-[14%]')}>Email</th>
-              <th className={cn(ui.th, 'w-[7%]')}>First seen</th>
-              <th
-                className={cn(ui.thSort, 'w-[7%]')}
-                onClick={() => toggleSort('last_seen')}
-              >
-                Last seen <SortIcon field="last_seen" />
-              </th>
-              <th
-                className={cn(ui.thSort, 'w-[6%] text-right')}
-                onClick={() => toggleSort('total_queries')}
-              >
-                Queries <SortIcon field="total_queries" />
-              </th>
-              <th className={cn(ui.th, 'w-[5%] text-center')}>Admin</th>
-              <th className={cn(ui.th, 'w-[5%] text-center')}>Disabled</th>
-              <th className={cn(ui.th, 'w-[8%] text-center')}>Daily Limit</th>
-              <th className={cn(ui.th, 'w-[9%] text-center')}>Monthly Limit</th>
-              <th className={cn(ui.th, 'w-[6%] text-center')}>Used Today</th>
-              <th className={cn(ui.th, 'w-[7%] text-center')}>Resets At</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={11} className={ui.empty}>
-                  {users.length === 0 ? 'No users have signed in yet.' : 'No users match your search.'}
-                </td>
+      <div className={cn(ui.card, 'overflow-hidden')}>
+        <div className={cn(ADMIN_TABLE_MAX_H, 'overflow-auto')}>
+          <table className="w-full text-xs table-fixed min-w-[1100px]">
+            <thead className="sticky top-0 z-10">
+              <tr className={ui.tableHead}>
+                <th className={cn(ui.thSort, 'w-[12%]')} onClick={() => handleSort('name')}>Name <SortIcon field="name" /></th>
+                <th className={cn(ui.thSort, 'w-[14%]')} onClick={() => handleSort('email')}>Email <SortIcon field="email" /></th>
+                <th className={cn(ui.thSort, 'w-[7%]')} onClick={() => handleSort('first_seen')}>First seen <SortIcon field="first_seen" /></th>
+                <th className={cn(ui.thSort, 'w-[7%]')} onClick={() => handleSort('last_seen')}>Last seen <SortIcon field="last_seen" /></th>
+                <th className={cn(ui.thSort, 'w-[6%] text-right')} onClick={() => handleSort('total_queries')}>Queries <SortIcon field="total_queries" /></th>
+                <th className={cn(ui.th, 'w-[5%] text-center')}>Admin</th>
+                <th className={cn(ui.th, 'w-[5%] text-center')}>Disabled</th>
+                <th className={cn(ui.th, 'w-[8%] text-center')}>Daily Limit</th>
+                <th className={cn(ui.th, 'w-[9%] text-center')}>Monthly Limit</th>
+                <th className={cn(ui.th, 'w-[6%] text-center')}>Used Today</th>
+                <th className={cn(ui.th, 'w-[7%] text-center')}>Resets At</th>
               </tr>
-            ) : filtered.map((user, i) => (
-              <tr key={user.user_id} className={cn(ui.tr, i === filtered.length - 1 && 'border-0')}>
-                <td className="px-3 py-2.5">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    {user.picture ? (
-                      <img src={user.picture} alt="" className="w-6 h-6 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
+            </thead>
+            <tbody>
+              {fetching && users.length === 0 ? (
+                <tr><td colSpan={11} className={ui.empty}>Loading…</td></tr>
+              ) : users.length === 0 ? (
+                <tr>
+                  <td colSpan={11} className={ui.empty}>
+                    {search ? 'No users match your search.' : 'No users have signed in yet.'}
+                  </td>
+                </tr>
+              ) : users.map((user, i) => (
+                <tr key={user.user_id} className={cn(ui.tr, i === users.length - 1 && 'border-0')}>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      {user.picture ? (
+                        <img src={user.picture} alt="" className="w-6 h-6 rounded-full flex-shrink-0" referrerPolicy="no-referrer" />
+                      ) : (
+                        <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
+                          <span className="text-[10px] font-medium text-slate-500 dark:text-slate-300">{user.name.charAt(0).toUpperCase()}</span>
+                        </div>
+                      )}
+                      <span className="font-medium text-slate-800 dark:text-slate-100 text-xs truncate">{user.name || '—'}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400 text-xs truncate" title={user.email}>{user.email}</td>
+                  <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500 text-xs whitespace-nowrap">{formatAdminDateShort(user.first_seen)}</td>
+                  <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500 text-xs whitespace-nowrap">{formatAdminDateShort(user.last_seen)}</td>
+                  <td className="px-3 py-2.5 text-right font-semibold text-slate-700 dark:text-slate-200">{user.total_queries.toLocaleString()}</td>
+                  <td className="px-3 py-2.5 text-center">
+                    <button
+                      onClick={() => onSetAdmin(user.user_id, !user.is_admin)}
+                      title={user.is_admin ? 'Remove admin' : 'Grant admin'}
+                      className={cn(
+                        'relative w-9 h-5 rounded-full transition-colors flex-shrink-0',
+                        user.is_admin ? 'bg-violet-500' : 'bg-slate-300 dark:bg-slate-600',
+                      )}
+                    >
+                      <span className={cn(
+                        'absolute top-0.5 left-0 w-4 h-4 rounded-full bg-white shadow transition-transform',
+                        user.is_admin ? 'translate-x-4' : 'translate-x-0.5',
+                      )} />
+                    </button>
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    <button
+                      onClick={() => onSetDisabled(user.user_id, !user.is_disabled)}
+                      title={user.is_disabled ? 'Re-enable access' : 'Disable access'}
+                      className={cn(
+                        'relative w-9 h-5 rounded-full transition-colors flex-shrink-0',
+                        user.is_disabled ? 'bg-red-500' : 'bg-slate-300 dark:bg-slate-600',
+                      )}
+                    >
+                      <span className={cn(
+                        'absolute top-0.5 left-0 w-4 h-4 rounded-full bg-white shadow transition-transform',
+                        user.is_disabled ? 'translate-x-4' : 'translate-x-0.5',
+                      )} />
+                    </button>
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    {editingUserId === user.user_id ? (
+                      <div className="flex items-center justify-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={999}
+                          value={editValue}
+                          onChange={(e) => setEditValue(Number(e.target.value))}
+                          className="w-14 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs text-center focus:outline-none focus:border-blue-400 dark:focus:border-blue-500"
+                          autoFocus
+                        />
+                        <button onClick={() => saveLimit(user.user_id)} disabled={savingUserId === user.user_id} title="Save" className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50">
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={cancelEdit} title="Cancel" className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     ) : (
-                      <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center flex-shrink-0">
-                        <span className="text-[10px] font-medium text-slate-500 dark:text-slate-300">{user.name.charAt(0).toUpperCase()}</span>
+                      <div className={cn('flex items-center justify-center gap-1 group', savedUserId === user.user_id && 'text-emerald-600 dark:text-emerald-400')}>
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-200">{user.daily_query_limit ?? 20}</span>
+                        <button onClick={() => startEdit(user)} title="Edit limit" className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 transition-opacity">
+                          <Pencil className="w-3 h-3" />
+                        </button>
                       </div>
                     )}
-                    <span className="font-medium text-slate-800 dark:text-slate-100 text-xs truncate">{user.name || '—'}</span>
-                  </div>
-                </td>
-                <td className="px-3 py-2.5 text-slate-500 dark:text-slate-400 text-xs truncate" title={user.email}>{user.email}</td>
-                <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500 text-xs whitespace-nowrap">
-                  {formatAdminDateShort(user.first_seen)}
-                </td>
-                <td className="px-3 py-2.5 text-slate-400 dark:text-slate-500 text-xs whitespace-nowrap">
-                  {formatAdminDateShort(user.last_seen)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-semibold text-slate-700 dark:text-slate-200">{user.total_queries.toLocaleString()}</td>
-                <td className="px-3 py-2.5 text-center">
-                  <button
-                    onClick={() => onSetAdmin(user.user_id, !user.is_admin)}
-                    title={user.is_admin ? 'Remove admin' : 'Grant admin'}
-                    className={cn(
-                      'relative w-9 h-5 rounded-full transition-colors flex-shrink-0',
-                      user.is_admin ? 'bg-violet-500' : 'bg-slate-300 dark:bg-slate-600',
+                  </td>
+                  <td className="px-3 py-2.5 text-center">
+                    {editingMonthlyUserId === user.user_id ? (
+                      <div className="flex items-center justify-center gap-1">
+                        <input
+                          type="number"
+                          min={0}
+                          max={999999}
+                          value={editMonthlyValue}
+                          onChange={(e) => setEditMonthlyValue(Number(e.target.value))}
+                          className="w-16 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs text-center focus:outline-none focus:border-blue-400 dark:focus:border-blue-500"
+                          autoFocus
+                        />
+                        <button onClick={() => saveMonthlyLimit(user.user_id)} disabled={savingMonthlyUserId === user.user_id} title="Save" className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50">
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button onClick={cancelEditMonthly} title="Cancel" className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className={cn('flex items-center justify-center gap-1 group', savedMonthlyUserId === user.user_id && 'text-emerald-600 dark:text-emerald-400')}>
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                          {(user.monthly_query_limit ?? 999999) >= 999999 ? '∞' : user.monthly_query_limit}
+                        </span>
+                        <button onClick={() => startEditMonthly(user)} title="Edit monthly limit" className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 transition-opacity">
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      </div>
                     )}
-                  >
-                    <span className={cn(
-                      'absolute top-0.5 left-0 w-4 h-4 rounded-full bg-white shadow transition-transform',
-                      user.is_admin ? 'translate-x-4' : 'translate-x-0.5',
-                    )} />
-                  </button>
-                </td>
-                <td className="px-3 py-2.5 text-center">
-                  <button
-                    onClick={() => onSetDisabled(user.user_id, !user.is_disabled)}
-                    title={user.is_disabled ? 'Re-enable access' : 'Disable access'}
-                    className={cn(
-                      'relative w-9 h-5 rounded-full transition-colors flex-shrink-0',
-                      user.is_disabled ? 'bg-red-500' : 'bg-slate-300 dark:bg-slate-600',
-                    )}
-                  >
-                    <span className={cn(
-                      'absolute top-0.5 left-0 w-4 h-4 rounded-full bg-white shadow transition-transform',
-                      user.is_disabled ? 'translate-x-4' : 'translate-x-0.5',
-                    )} />
-                  </button>
-                </td>
-                {/* Daily Limit — inline editable */}
-                <td className="px-3 py-2.5 text-center">
-                  {editingUserId === user.user_id ? (
-                    <div className="flex items-center justify-center gap-1">
-                      <input
-                        type="number"
-                        min={0}
-                        max={999}
-                        value={editValue}
-                        onChange={(e) => setEditValue(Number(e.target.value))}
-                        className="w-14 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs text-center focus:outline-none focus:border-blue-400 dark:focus:border-blue-500"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => saveLimit(user.user_id)}
-                        disabled={savingUserId === user.user_id}
-                        title="Save"
-                        className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-                      <button onClick={cancelEdit} title="Cancel" className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className={cn(
-                      'flex items-center justify-center gap-1 group',
-                      savedUserId === user.user_id && 'text-emerald-600 dark:text-emerald-400',
-                    )}>
-                      <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
-                        {user.daily_query_limit ?? 20}
-                      </span>
-                      <button
-                        onClick={() => startEdit(user)}
-                        title="Edit limit"
-                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 transition-opacity"
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                    </div>
-                  )}
-                </td>
-                {/* Monthly Limit — inline editable */}
-                <td className="px-3 py-2.5 text-center">
-                  {editingMonthlyUserId === user.user_id ? (
-                    <div className="flex items-center justify-center gap-1">
-                      <input
-                        type="number"
-                        min={0}
-                        max={999999}
-                        value={editMonthlyValue}
-                        onChange={(e) => setEditMonthlyValue(Number(e.target.value))}
-                        className="w-16 px-1 py-0.5 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs text-center focus:outline-none focus:border-blue-400 dark:focus:border-blue-500"
-                        autoFocus
-                      />
-                      <button
-                        onClick={() => saveMonthlyLimit(user.user_id)}
-                        disabled={savingMonthlyUserId === user.user_id}
-                        title="Save"
-                        className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                      </button>
-                      <button onClick={cancelEditMonthly} title="Cancel" className="text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300">
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className={cn(
-                      'flex items-center justify-center gap-1 group',
-                      savedMonthlyUserId === user.user_id && 'text-emerald-600 dark:text-emerald-400',
-                    )}>
-                      <span className="text-xs font-medium text-slate-700 dark:text-slate-200">
-                        {(user.monthly_query_limit ?? 999999) >= 999999 ? '∞' : user.monthly_query_limit}
-                      </span>
-                      <button
-                        onClick={() => startEditMonthly(user)}
-                        title="Edit monthly limit"
-                        className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-blue-500 dark:hover:text-blue-400 transition-opacity"
-                      >
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                    </div>
-                  )}
-                </td>
-                {/* Used Today */}
-                <td className="px-3 py-2.5 text-center text-xs text-slate-600 dark:text-slate-300">
-                  {user.daily_query_count ?? 0}
-                </td>
-                {/* Resets At */}
-                <td className="px-3 py-2.5 text-center text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">
-                  {formatAdminTime(user.daily_reset_at)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                  </td>
+                  <td className="px-3 py-2.5 text-center text-xs text-slate-600 dark:text-slate-300">{user.daily_query_count ?? 0}</td>
+                  <td className="px-3 py-2.5 text-center text-xs text-slate-400 dark:text-slate-500 whitespace-nowrap">{formatAdminTime(user.daily_reset_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
+
+      {pg && (
+        <AdminPaginationFooter pg={pg} fetching={fetching} onPageChange={setPage} />
+      )}
     </div>
   )
 }
@@ -419,16 +525,6 @@ function QueryLogsTab({ paginatedData, onFetchPage, onExport, exporting }: Query
   const pg = paginatedData?.pagination
   const totalCost = logs.reduce((s, l) => s + l.cost_usd, 0)
 
-  // Page number list with ellipsis
-  const pageNums = (): (number | '…')[] => {
-    if (!pg) return []
-    const t = pg.total_pages, c = pg.page
-    if (t <= 7) return Array.from({ length: t }, (_, i) => i + 1)
-    if (c <= 3) return [1, 2, 3, 4, '…', t]
-    if (c >= t - 2) return [1, '…', t - 3, t - 2, t - 1, t]
-    return [1, '…', c - 1, c, c + 1, '…', t]
-  }
-
   return (
     <div className="space-y-4">
       {/* Summary cards */}
@@ -449,47 +545,21 @@ function QueryLogsTab({ paginatedData, onFetchPage, onExport, exporting }: Query
 
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        {/* Page size */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500 dark:text-slate-400">Rows per page:</span>
-          {[25, 50, 100].map((s) => (
-            <button
-              key={s}
-              onClick={() => handlePageSize(s)}
-              className={cn(
-                'px-2.5 py-1 rounded text-xs font-medium transition-colors',
-                pageSize === s ? 'bg-blue-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 hover:bg-slate-200',
-              )}
-            >{s}</button>
-          ))}
-        </div>
-
-        {/* Export */}
-        <div className="flex flex-col items-end gap-0.5">
-          <button
-            onClick={handleExport}
-            disabled={exporting}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
-              exporting
-                ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                : 'bg-emerald-600 text-white hover:bg-emerald-700',
-            )}
-          >
-            {exporting
-              ? <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Exporting…</>
-              : <><Download className="w-3.5 h-3.5" /> Export to Excel</>}
-          </button>
-          <span className="text-[10px] text-slate-400">Exports all query records</span>
-          {exportError && <span className="text-[10px] text-red-500">Export failed. Please try again.</span>}
-        </div>
+        <AdminPageSizePicker pageSize={pageSize} onChange={handlePageSize} />
+        <AdminExportButton
+          onClick={handleExport}
+          exporting={exporting}
+          label="Export to Excel"
+          hint="Exports all query records"
+          error={exportError}
+        />
       </div>
 
-      {/* Table */}
-      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80">
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div className={cn(ADMIN_TABLE_MAX_H, 'overflow-auto')}>
+          <table className="w-full text-sm min-w-[900px]">
+            <thead className="sticky top-0 z-10">
+              <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80">
               <th className="w-8 px-3 py-2.5" />
               {thSort('created_at', 'Time')}
               {thSort('email', 'User')}
@@ -572,40 +642,11 @@ function QueryLogsTab({ paginatedData, onFetchPage, onExport, exporting }: Query
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
-      {/* Pagination footer */}
-      {pg && pg.total_pages > 1 && (
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <span className="text-xs text-slate-500 dark:text-slate-400">
-            Showing {((pg.page - 1) * pg.page_size + 1).toLocaleString()}–{Math.min(pg.page * pg.page_size, pg.total_records).toLocaleString()} of {pg.total_records.toLocaleString()} records
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPage(pg.page - 1)}
-              disabled={!pg.has_prev || fetching}
-              className="px-2.5 py-1 rounded text-xs text-slate-600 border border-slate-200 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-            >← Prev</button>
-            {pageNums().map((n, i) =>
-              n === '…'
-                ? <span key={`ellipsis-${i}`} className="px-1.5 text-xs text-slate-400 dark:text-slate-500">…</span>
-                : <button
-                    key={n}
-                    onClick={() => setPage(n as number)}
-                    disabled={fetching}
-                    className={cn(
-                      'w-7 h-7 rounded text-xs font-medium transition-colors',
-                      n === pg.page ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800 dark:bg-slate-800',
-                    )}
-                  >{n}</button>
-            )}
-            <button
-              onClick={() => setPage(pg.page + 1)}
-              disabled={!pg.has_next || fetching}
-              className="px-2.5 py-1 rounded text-xs text-slate-600 border border-slate-200 disabled:opacity-40 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-            >Next →</button>
-          </div>
-        </div>
+      {pg && (
+        <AdminPaginationFooter pg={pg} fetching={fetching} onPageChange={setPage} />
       )}
     </div>
   )
@@ -620,34 +661,20 @@ function StatCard({ label, value }: { label: string; value: string | number | un
   )
 }
 
-function ThemeToggle({ isDark, onToggle }: { isDark: boolean; onToggle: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-      className={cn('flex items-center gap-1.5', ui.headerBtn)}
-    >
-      {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-      {isDark ? 'Light' : 'Dark'}
-    </button>
-  )
-}
-
 export function AdminPage() {
   const {
     isAuthenticated, login, logout, refresh, resetDemo,
     triggerRefresh, triggerGitHubActions,
     status, settings, analytics, demoStatus, feedback, refreshStatus,
-    googleUsers, googleUserSummary, queryLogs, refreshGoogleUsers,
-    fetchQueryPage, exportQueries, exporting,
+    googleUsers, googleUserSummary, queryLogs,
+    fetchUserPage, fetchQueryPage, exportUsers, exportQueries,
+    exportingUsers, exporting,
     setGoogleUserAdmin, setUserDisabled,
     killSwitchEnabled, toggleKillSwitch,
     defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,
     defaultMonthlyLimit, updateUserMonthlyLimit, updateDefaultMonthlyLimit,
     loading, error,
   } = useAdmin()
-  const { isDark, toggleTheme } = useAdminTheme()
   const [refreshing, setRefreshing] = useState(false)
   const [actionsTriggered, setActionsTriggered] = useState(false)
   const [killSwitchConfirm, setKillSwitchConfirm] = useState(false)
@@ -685,7 +712,6 @@ export function AdminPage() {
       setBulkApplyResult(`Updated ${result.users_updated} users to ${result.applied_limit} queries/day.`)
       setTimeout(() => setBulkApplyResult(null), 5000)
       setShowBulkConfirm(false)
-      await refreshGoogleUsers()
     } catch { /* ignore */ }
     setApplyingBulk(false)
   }
@@ -726,7 +752,7 @@ export function AdminPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className={cn(ui.page, 'flex items-center justify-center p-4', isDark && 'dark')}>
+      <div className={cn(ui.page, 'flex items-center justify-center p-4')}>
         <div className={ui.loginCard}>
           <div className="flex items-center justify-between gap-2 mb-6">
             <div className="flex items-center gap-2">
@@ -735,7 +761,7 @@ export function AdminPage() {
               </div>
               <h1 className={cn('font-semibold', ui.headerTitle)}>Admin Panel</h1>
             </div>
-            <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
+            <ThemeToggle variant="admin" className={ui.headerBtn} />
           </div>
 
           {error && (
@@ -783,7 +809,7 @@ export function AdminPage() {
   ]
 
   return (
-    <div className={cn(ui.page, isDark && 'dark')}>
+    <div className={cn(ui.page)}>
       <div className={ui.shell}>
       {/* Header */}
       <header className={cn(ui.header, 'w-full px-4 sm:px-6 py-3 flex items-center justify-between')}>
@@ -794,7 +820,7 @@ export function AdminPage() {
           <h1 className={ui.headerTitle}>Admin Panel</h1>
         </div>
         <div className="flex items-center gap-2">
-          <ThemeToggle isDark={isDark} onToggle={toggleTheme} />
+          <ThemeToggle variant="admin" className={ui.headerBtn} />
           <button
             onClick={refresh}
             disabled={loading}
@@ -1309,9 +1335,11 @@ export function AdminPage() {
 
         {tab === 'users' && (
           <GoogleUsersTab
-            users={googleUsers}
+            paginatedData={googleUsers}
             summary={googleUserSummary}
-            onRefresh={refreshGoogleUsers}
+            onFetchPage={fetchUserPage}
+            onExport={exportUsers}
+            exporting={exportingUsers}
             onSetAdmin={setGoogleUserAdmin}
             onSetDisabled={setUserDisabled}
             onSetLimit={updateUserDailyLimit}

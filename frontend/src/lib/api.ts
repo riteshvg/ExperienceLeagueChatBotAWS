@@ -342,6 +342,11 @@ export interface PaginatedQueryLogs {
   pagination: Pagination
 }
 
+export interface PaginatedGoogleUsers {
+  data: GoogleUser[]
+  pagination: Pagination
+}
+
 export interface GoogleUserSummary {
   total_users: number
   total_queries_all_time: number
@@ -364,8 +369,26 @@ async function adminMutate(path: string, token: string, method: string, body?: u
   return res.json()
 }
 
-export const listGoogleUsers = (token: string): Promise<GoogleUser[]> =>
-  adminFetch('/api/admin/users', token)
+export const listGoogleUsers = (
+  token: string,
+  params: {
+    page?: number
+    pageSize?: number
+    sortBy?: string
+    sortOrder?: string
+    search?: string
+  } = {},
+): Promise<PaginatedGoogleUsers> => {
+  const { page = 1, pageSize = 25, sortBy = 'last_seen', sortOrder = 'desc', search = '' } = params
+  const q = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+    sort_by: sortBy,
+    sort_order: sortOrder,
+  })
+  if (search.trim()) q.set('search', search.trim())
+  return adminFetch(`/api/admin/users?${q}`, token)
+}
 
 export const updateGoogleUser = (
   token: string,
@@ -408,6 +431,28 @@ export async function exportQueriesExcel(
   const cd = res.headers.get('Content-Disposition') ?? ''
   const m = cd.match(/filename=([^;]+)/)
   a.download = m ? m[1] : `rovr-queries-${new Date().toISOString().slice(0, 10)}.xlsx`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+export async function exportUsersExcel(
+  token: string,
+  search?: string,
+): Promise<void> {
+  const q = search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : ''
+  const res = await fetch(`${API_BASE}/api/admin/export/users/excel${q}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const m = cd.match(/filename=([^;]+)/)
+  a.download = m ? m[1] : `rovr-users-${new Date().toISOString().slice(0, 10)}.xlsx`
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)

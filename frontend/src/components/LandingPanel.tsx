@@ -68,20 +68,20 @@ export function LandingPanel({
         alt="Rovr"
         className="h-12 w-auto mb-3"
       />
-      <h2 className="text-lg font-semibold text-slate-700 mb-1 text-center">
+      <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-1 text-center">
         Ask about Adobe Experience League docs
       </h2>
       {source === 'postgres' && (
-        <p className="text-xs text-slate-400 mb-3 text-center">
+        <p className="text-xs text-slate-400 dark:text-slate-500 mb-3 text-center">
           Popular questions from other Rovr users — pick one to get started
         </p>
       )}
       {source !== 'postgres' && <div className="mb-3" />}
 
       {isNewUser && monthlyRemaining > 0 && !welcomeDismissed && monthlyLimit < 9999 && (
-        <div className="w-full max-w-md mb-5 px-5 py-4 rounded-xl bg-emerald-50 border border-emerald-200 text-left">
-          <h3 className="text-sm font-semibold text-emerald-800 mb-1">Welcome to Rovr</h3>
-          <p className="text-xs text-emerald-700 leading-relaxed">
+        <div className="w-full max-w-md mb-5 px-5 py-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-left">
+          <h3 className="text-sm font-semibold text-emerald-800 dark:text-emerald-200 mb-1">Welcome to Rovr</h3>
+          <p className="text-xs text-emerald-700 dark:text-emerald-300 leading-relaxed">
             You have {monthlyLimit} free queries this month to explore Adobe Experience Cloud
             documentation. Your quota resets on the 1st of each month. An administrator can adjust
             your limit if you need more.
@@ -96,7 +96,7 @@ export function LandingPanel({
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 text-sm text-slate-400 py-8">
+        <div className="flex items-center gap-2 text-sm text-slate-400 dark:text-slate-500 py-8">
           <Loader2 className="w-4 h-4 animate-spin" />
           Loading questions…
         </div>

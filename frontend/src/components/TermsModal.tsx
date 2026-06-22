@@ -95,7 +95,7 @@ export function TermsModal({ onAccept }: Props) {
           role="dialog"
           aria-modal="true"
           aria-labelledby="terms-heading"
-          className="w-full max-w-[520px] max-h-[calc(100dvh-2rem)] flex flex-col bg-white rounded-2xl overflow-hidden shadow-xl"
+          className="w-full max-w-[520px] max-h-[calc(100dvh-2rem)] flex flex-col bg-white dark:bg-slate-900 rounded-2xl overflow-hidden shadow-xl"
           onPointerDown={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -115,7 +115,7 @@ export function TermsModal({ onAccept }: Props) {
           <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-6">
             <h2
               id="terms-heading"
-              className="text-lg font-semibold text-slate-800 mb-5"
+              className="text-lg font-semibold text-slate-800 dark:text-slate-100 mb-5"
             >
               Before you begin
             </h2>
@@ -130,8 +130,8 @@ export function TermsModal({ onAccept }: Props) {
                       aria-hidden="true"
                     />
                     <div>
-                      <p className="text-sm font-semibold text-slate-700 mb-1">{title}</p>
-                      <p className="text-sm leading-relaxed" style={{ color: '#374151' }}>
+                      <p className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-1">{title}</p>
+                      <p className="text-sm leading-relaxed text-slate-600 dark:text-slate-300">
                         {body}
                       </p>
                     </div>
@@ -146,7 +146,7 @@ export function TermsModal({ onAccept }: Props) {
 
           {/* Footer — always visible: checkbox + submit */}
           <div
-            className="flex-shrink-0 px-6 py-4 border-t bg-white"
+            className="flex-shrink-0 px-6 py-4 border-t border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
             style={{ borderColor: '#A7F3D0' }}
           >
             <label
@@ -162,7 +162,7 @@ export function TermsModal({ onAccept }: Props) {
                 className="mt-0.5 h-4 w-4 flex-shrink-0 rounded"
                 style={{ accentColor: '#10B981' }}
               />
-              <span className="text-sm text-slate-700 leading-relaxed select-none">
+              <span className="text-sm text-slate-700 dark:text-slate-200 leading-relaxed select-none">
                 I have read and understood the above. I agree to use Rovr responsibly.
               </span>
             </label>

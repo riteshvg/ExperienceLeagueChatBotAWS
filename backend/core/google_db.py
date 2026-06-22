@@ -325,6 +325,94 @@ def list_users() -> list[dict]:
         conn.close()
 
 
+_USER_SORT_ALLOWLIST = {"last_seen", "first_seen", "total_queries", "name", "email"}
+
+
+def _user_search_clause(search: str) -> tuple[str, list]:
+    """Build WHERE clause and params for name/email search."""
+    term = (search or "").strip().lower()
+    if not term:
+        return "", []
+    pattern = f"%{term}%"
+    return "WHERE (LOWER(name) LIKE %s OR LOWER(email) LIKE %s)", [pattern, pattern]
+
+
+def list_users_paginated(
+    page: int = 1,
+    page_size: int = 25,
+    sort_by: str = "last_seen",
+    sort_order: str = "desc",
+    search: str = "",
+) -> dict:
+    """Return paginated users with total count metadata."""
+    if sort_by not in _USER_SORT_ALLOWLIST:
+        sort_by = "last_seen"
+    direction = "ASC" if sort_order.lower() == "asc" else "DESC"
+    offset = (page - 1) * page_size
+    where, params = _user_search_clause(search)
+
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM exl_users {where}", params or None)
+            total = cur.fetchone()["count"]
+            cur.execute(
+                f"""
+                SELECT * FROM exl_users
+                {where}
+                ORDER BY {sort_by} {direction} NULLS LAST
+                LIMIT %s OFFSET %s
+                """,
+                (*params, page_size, offset) if params else (page_size, offset),
+            )
+            rows = cur.fetchall()
+        total_pages = max(1, -(-total // page_size))
+        return {
+            "data": [dict(r) for r in rows],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total_records": total,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1,
+            },
+        }
+    finally:
+        conn.close()
+
+
+def export_all_users(search: str = "") -> list[dict]:
+    """Return all users for Excel export, optionally filtered by name/email search."""
+    where, params = _user_search_clause(search)
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT user_id, email, name, first_seen, last_seen, total_queries,
+                       is_admin, is_disabled, daily_query_limit, daily_query_count,
+                       daily_reset_at, monthly_query_limit, monthly_queries_used,
+                       quota_reset_date
+                FROM exl_users
+                {where}
+                ORDER BY last_seen DESC NULLS LAST
+                """,
+                params or None,
+            )
+            rows = cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            for key in ("first_seen", "last_seen", "daily_reset_at", "quota_reset_date"):
+                if hasattr(d.get(key), "isoformat"):
+                    d[key] = d[key].isoformat()
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
 def set_admin(user_id: str, is_admin: bool) -> Optional[dict]:
     """Set is_admin flag on a user. Returns updated row or None if not found."""
     conn = _connect()
