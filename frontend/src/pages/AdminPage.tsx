@@ -664,7 +664,7 @@ function StatCard({ label, value }: { label: string; value: string | number | un
 
 export function AdminPage() {
   const {
-    isAuthenticated, login, logout, refresh, resetDemo,
+    isAuthenticated, login, logout, refresh, refreshAnalytics, resetDemo,
     triggerRefresh, triggerGitHubActions,
     status, settings, analytics, demoStatus, feedback, refreshStatus,
     googleUsers, googleUserSummary, queryLogs,
@@ -674,7 +674,7 @@ export function AdminPage() {
     killSwitchEnabled, toggleKillSwitch,
     defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,
     defaultMonthlyLimit, updateUserMonthlyLimit, updateDefaultMonthlyLimit,
-    loading, error,
+    loading, analyticsLoading, error,
   } = useAdmin()
   const [refreshing, setRefreshing] = useState(false)
   const [actionsTriggered, setActionsTriggered] = useState(false)
@@ -762,6 +762,13 @@ export function AdminPage() {
   }
   const [password, setPassword] = useState('')
   const [tab, setTab] = useState<Tab>('status')
+
+  useEffect(() => {
+    if (!isAuthenticated || tab !== 'analytics') return
+    refreshAnalytics()
+    const id = window.setInterval(refreshAnalytics, 30_000)
+    return () => window.clearInterval(id)
+  }, [isAuthenticated, tab, refreshAnalytics])
 
   if (!isAuthenticated) {
     return (
@@ -1178,14 +1185,24 @@ export function AdminPage() {
           </div>
         )}
 
+        {tab === 'analytics' && !analytics && analyticsLoading && (
+          <p className="text-sm text-slate-500 dark:text-slate-400">Loading analytics…</p>
+        )}
+
         {tab === 'analytics' && analytics && (() => {
           const rateLimits = isRecord(analytics.rate_limits) ? analytics.rate_limits : null
           const topUser = rateLimits?.highest_usage_email
             ? `${rateLimits.highest_usage_email} (${formatAdminValue(rateLimits.highest_usage_count)})`
             : '—'
+          const usageMetrics = [
+            { label: 'Queries today', value: rateLimits?.queries_today ?? '—' },
+            { label: 'Active users today', value: rateLimits?.active_users_today ?? '—' },
+            { label: 'Total users', value: analytics.total_users ?? rateLimits?.total_users ?? '—' },
+            { label: 'Queries all time', value: analytics.total_queries_all_time ?? '—' },
+          ]
           const sessionMetrics = [
-            { label: 'Active sessions', value: analytics.active_sessions },
-            { label: 'Total turns', value: analytics.total_turns },
+            { label: 'Live sessions (this server)', value: analytics.active_sessions },
+            { label: 'Live turns (this server)', value: analytics.total_turns },
           ]
           const limitMetrics = rateLimits ? [
             { label: 'Users at daily limit', value: rateLimits.users_at_limit },
@@ -1198,8 +1215,33 @@ export function AdminPage() {
             },
             { label: 'Highest usage today', value: topUser },
           ] : []
+          const fetchedAt = typeof analytics.fetched_at === 'string'
+            ? formatAdminDate(analytics.fetched_at)
+            : null
           return (
           <div className="space-y-6">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {fetchedAt ? `Updated ${fetchedAt}` : 'Usage stats refresh when you open this tab'}
+              </p>
+              <button
+                type="button"
+                onClick={refreshAnalytics}
+                disabled={analyticsLoading}
+                className={cn('flex items-center gap-1.5', ui.headerBtn)}
+              >
+                <RefreshCw className={cn('w-3.5 h-3.5', analyticsLoading && 'animate-spin')} />
+                Refresh
+              </button>
+            </div>
+            <div>
+              <h2 className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-3">Usage (database)</h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {usageMetrics.map(({ label, value }) => (
+                  <StatCard key={label} label={label} value={value} />
+                ))}
+              </div>
+            </div>
             <div>
               <h2 className="text-sm font-semibold text-slate-600 dark:text-slate-300 mb-3">Sessions</h2>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">

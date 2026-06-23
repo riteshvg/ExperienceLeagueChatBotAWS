@@ -57,6 +57,7 @@ export function useAdmin() {
   const [defaultDailyLimit, setDefaultDailyLimitState] = useState<number>(20)
   const [defaultMonthlyLimit, setDefaultMonthlyLimitState] = useState<number>(20)
   const [loading, setLoading] = useState(false)
+  const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const login = useCallback(async (password: string) => {
@@ -120,6 +121,18 @@ export function useAdmin() {
     }
   }, [token, logout])
 
+  const refreshAnalytics = useCallback(async () => {
+    if (!token) return
+    setAnalyticsLoading(true)
+    try {
+      const a = await getAdminAnalytics(token)
+      setAnalytics(a)
+    } catch {
+      /* keep last snapshot — tab refresh should not log out */
+    } finally {
+      setAnalyticsLoading(false)
+    }
+  }, [token])
 
   const fetchUserPage = useCallback(async (
     page = 1,
@@ -274,7 +287,7 @@ export function useAdmin() {
 
   return {
     isAuthenticated: !!token,
-    login, logout, refresh, resetDemo,
+    login, logout, refresh, refreshAnalytics, resetDemo,
     triggerRefresh, triggerGitHubActions,
     status, settings, analytics, demoStatus, feedback, refreshStatus,
     googleUsers, googleUserSummary, queryLogs,
@@ -284,6 +297,6 @@ export function useAdmin() {
     killSwitchEnabled, toggleKillSwitch,
     defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,
     defaultMonthlyLimit, updateUserMonthlyLimit, updateDefaultMonthlyLimit,
-    loading, error,
+    loading, analyticsLoading, error,
   }
 }

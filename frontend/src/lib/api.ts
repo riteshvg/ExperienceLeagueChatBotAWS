@@ -276,7 +276,14 @@ async function adminFetch(path: string, token: string) {
 
 export const getAdminStatus = (token: string) => adminFetch('/api/admin/status', token)
 export const getAdminSettings = (token: string) => adminFetch('/api/admin/settings', token)
-export const getAdminAnalytics = (token: string) => adminFetch('/api/admin/analytics', token)
+export const getAdminAnalytics = (token: string) =>
+  fetch(`${API_BASE}/api/admin/analytics`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: 'no-store',
+  }).then((res) => {
+    if (!res.ok) throw new Error(`Admin request failed: ${res.status}`)
+    return res.json()
+  })
 
 export async function adminLogout(token: string): Promise<void> {
   await fetch(`${API_BASE}/api/admin/logout`, {

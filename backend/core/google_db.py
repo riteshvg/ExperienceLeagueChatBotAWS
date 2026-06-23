@@ -599,6 +599,9 @@ def get_rate_limit_analytics() -> dict:
             cur.execute(
                 """
                 SELECT
+                    COUNT(*) AS total_users,
+                    COUNT(*) FILTER (WHERE daily_query_count > 0) AS active_users_today,
+                    COALESCE(SUM(daily_query_count), 0) AS queries_today,
                     COUNT(*) FILTER (WHERE daily_query_count >= daily_query_limit) AS users_at_limit,
                     COUNT(*) FILTER (WHERE daily_query_count >= daily_query_limit * 0.75
                                      AND daily_query_count < daily_query_limit) AS users_above_75pct,
@@ -614,6 +617,9 @@ def get_rate_limit_analytics() -> dict:
             top = cur.fetchone()
 
         return {
+            "total_users": int(row["total_users"]),
+            "active_users_today": int(row["active_users_today"]),
+            "queries_today": int(row["queries_today"]),
             "users_at_limit": int(row["users_at_limit"]),
             "users_above_75pct": int(row["users_above_75pct"]),
             "avg_queries_active_users": float(row["avg_queries_active"]),

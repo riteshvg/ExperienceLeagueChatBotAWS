@@ -565,18 +565,28 @@ async def update_default_monthly_limit(body: DefaultMonthlyLimitRequest, _: Anno
 
 @router.get("/analytics")
 async def analytics(request: Request, _: Annotated[str, Depends(get_admin_user)]):
+    from datetime import datetime, timezone
+
     sessions = request.app.state.session_store.list_sessions()
     total_turns = sum(
         len(request.app.state.session_store.get_history(s)) // 2
         for s in sessions
     )
     rate_limits: dict = {}
+    usage_summary: dict = {}
     try:
         rate_limits = _google_db.get_rate_limit_analytics()
     except Exception:
         pass
+    try:
+        usage_summary = _google_db.get_summary()
+    except Exception:
+        pass
     return {
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
         "active_sessions": len(sessions),
         "total_turns": total_turns,
         "rate_limits": rate_limits,
+        "total_users": usage_summary.get("total_users"),
+        "total_queries_all_time": usage_summary.get("total_queries_all_time"),
     }
