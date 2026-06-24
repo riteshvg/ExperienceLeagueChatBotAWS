@@ -13,7 +13,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 # ── Project root on sys.path ─────────────────────────────────────────────────
 _ROOT = Path(__file__).parent.parent
@@ -59,6 +59,18 @@ def _set_chroma_dir(path: Path) -> None:
 
 
 _CHROMA_DIR = _refresh_chroma_dir()
+
+# Legacy Railway custom domain — browser traffic should land on the Hugo-hosted Rovr app.
+_LEGACY_CHATBOT_HOSTS = frozenset({
+    "chatbot.thelearningproject.in",
+    "www.chatbot.thelearningproject.in",
+})
+_LEGACY_REDIRECT_SKIP_PREFIXES = (
+    "/api/",
+    "/mcp/",
+    "/oauth/",
+    "/.well-known/",
+)
 
 
 def _env_truthy(name: str) -> bool:
@@ -355,6 +367,22 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def legacy_chatbot_host_redirect(request: Request, call_next):
+    """Send legacy chatbot subdomain visitors to the Rovr SPA on the main site."""
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    if host not in _LEGACY_CHATBOT_HOSTS:
+        return await call_next(request)
+    path = request.url.path
+    if any(path.startswith(prefix) for prefix in _LEGACY_REDIRECT_SKIP_PREFIXES):
+        return await call_next(request)
+    if request.method not in ("GET", "HEAD"):
+        return await call_next(request)
+    target = get_settings().frontend_url.rstrip("/") + "/"
+    return RedirectResponse(url=target, status_code=301)
+
 
 # Kill switch must be registered BEFORE CORSMiddleware.
 # Starlette inserts each new middleware at the outermost position, so the last
