@@ -8,6 +8,7 @@ Usage tracking via google_db (total_queries counter on exl_users).
 import json
 import logging
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Optional
@@ -19,7 +20,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from backend.api.deps import get_pipeline, get_session_store, get_site_user
 from backend.core import google_db
-from backend.core.landing_questions import build_landing_payload
+from backend.core.landing_questions import build_landing_payload, classify_solution
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 
@@ -106,15 +107,34 @@ class ChatRequest(BaseModel):
     message_id: Optional[str] = None
 
 
+def _valid_uuid(value: Optional[str]) -> Optional[str]:
+    """Normalize a client-supplied session id, or None if it isn't a real UUID.
+
+    Older clients persisted non-UUID placeholder ids (e.g. a random base36
+    string) before session identity moved server-side. chat_sessions.id is a
+    Postgres UUID column, so those must be replaced with a freshly minted UUID
+    rather than passed straight through.
+    """
+    if not value:
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 @router.post("/chat")
 async def chat(
     body: ChatRequest,
     pipeline: Annotated[RAGPipeline, Depends(get_pipeline)],
-    session_store: Annotated[SessionStore, Depends(get_session_store)],
     user: Annotated[dict, Depends(get_site_user)],
 ):
     uid: Optional[str] = user.get("uid")
-    session_id = body.session_id or session_store.new_session()
+    # Lazy, server-side session identity: minted here on first turn, or reused
+    # from the client on follow-up turns. Nothing is written to Postgres until
+    # the turn actually completes (see the persistence block below), so a
+    # visitor who never sends a message never creates an orphan session row.
+    session_id = _valid_uuid(body.session_id) or str(uuid.uuid4())
 
     # Check daily rate limit BEFORE starting the SSE stream
     if uid:
@@ -177,6 +197,8 @@ async def chat(
     async def event_generator():
         full_response = ""
         last_done: Optional[dict] = None
+        last_citations: list = []
+        last_evidence: Optional[dict] = None
 
         async for event in pipeline.stream(
             query=body.query,
@@ -185,6 +207,10 @@ async def chat(
         ):
             if event["type"] == "token":
                 full_response += event.get("content", "")
+            elif event["type"] == "citations":
+                last_citations = event.get("citations", [])
+            elif event["type"] == "evidence":
+                last_evidence = {k: v for k, v in event.items() if k != "type"}
             elif event["type"] == "done":
                 # Buffer the done event — augment it with usage info before yielding
                 last_done = event
@@ -227,6 +253,30 @@ async def chat(
             except Exception as e:
                 logger.warning(f"Usage tracking failed (non-fatal): {e}")
 
+            try:
+                model = last_done.get("model")
+                google_db.ensure_chat_session(session_id, user_id=uid)
+                google_db.append_chat_message(session_id, "user", body.query)
+                # Publish a landing-page slug only for answered, on-topic queries —
+                # same quality bar as the aggregated /chat/landing-questions feed.
+                slug = (
+                    google_db.make_slug(body.query)
+                    if model and model != "none" and classify_solution(body.query)
+                    else None
+                )
+                google_db.append_chat_message(
+                    session_id,
+                    "assistant",
+                    full_response,
+                    message_id=body.message_id or "",
+                    slug=slug,
+                    is_published=bool(slug),
+                    citations=last_citations,
+                    evidence=last_evidence,
+                )
+            except Exception as e:
+                logger.warning(f"Chat session persistence failed (non-fatal): {e}")
+
     return EventSourceResponse(event_generator())
 
 
@@ -258,11 +308,13 @@ async def clear_history(
     return {"session_id": session_id, "cleared": True}
 
 
-@router.post("/chat/session")
-async def new_session(
-    session_store: Annotated[SessionStore, Depends(get_session_store)],
-):
-    return {"session_id": session_store.new_session()}
+@router.get("/landing/{slug}")
+async def get_landing(slug: str):
+    """Public, unauthenticated SEO landing page for a single recorded query+answer."""
+    result = google_db.get_landing_by_slug(slug)
+    if not result:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Not found")
+    return result
 
 
 class FollowUpsRequest(BaseModel):

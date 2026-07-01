@@ -179,3 +179,6 @@ frontend/dist/
 
 # Test scripts
 test_bedrock.py
+
+# Claude Code local state (settings, agent worktrees) — never part of the project
+.claude/

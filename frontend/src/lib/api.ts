@@ -103,7 +103,7 @@ function formatFallbackCheckBack(minutes: number): { message: string; checkBackA
 
 export async function* streamChat(
   query: string,
-  sessionId: string,
+  sessionId: string | undefined,
   haikuOnly = false,
   messageId?: string,
 ): AsyncGenerator<SSEEvent> {
@@ -112,7 +112,7 @@ export async function* streamChat(
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify({
       query,
-      session_id: sessionId,
+      session_id: sessionId ?? null,
       haiku_only: haikuOnly,
       message_id: messageId,
     }),
@@ -211,10 +211,20 @@ export async function submitFeedback(
   })
 }
 
-export async function newSession(): Promise<string> {
-  const res = await fetch(`${API_BASE}/api/chat/session`, { method: 'POST' })
-  const data = await res.json()
-  return data.session_id as string
+export interface LandingBySlug {
+  slug: string
+  query: string
+  answer: string
+  citations: Citation[]
+  evidence: RetrievalEvidence | null
+  created_at: string
+}
+
+/** Public, unauthenticated fetch for a single recorded query's SEO landing page. */
+export async function getLandingBySlug(slug: string): Promise<LandingBySlug | null> {
+  const res = await fetch(`${API_BASE}/api/landing/${encodeURIComponent(slug)}`)
+  if (!res.ok) return null
+  return res.json()
 }
 
 export async function clearHistory(sessionId: string): Promise<void> {

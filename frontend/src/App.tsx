@@ -5,6 +5,7 @@ import { AdminPage } from '@/pages/AdminPage'
 import { AboutPage } from '@/pages/AboutPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { OAuthCallback } from '@/pages/OAuthCallback'
+import { QueryLandingPage } from '@/pages/QueryLandingPage'
 import { TermsModal } from '@/components/TermsModal'
 import { useAuthStore } from '@/store/authStore'
 import { usePageView } from '@/analytics'
@@ -48,6 +49,7 @@ export default function App() {
         <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/callback" element={<OAuthCallback />} />
+        <Route path="/q/:slug" element={<QueryLandingPage />} />
         <Route path="/" element={
           <ProtectedRoute><ChatPage /></ProtectedRoute>
         } />

@@ -7,6 +7,7 @@ for the frontend without changing retrieval thresholds or routing.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -23,8 +24,15 @@ def _clean_title(raw: str) -> str:
 def _source_from_doc(doc: dict, cited: bool, topical_score: float | None = None) -> dict[str, Any] | None:
     meta = doc.get("metadata", {})
     url = resolve_doc_url(meta, doc.get("content", "")) or meta.get("url", "")
+    video_url = (meta.get("video_url") or "").strip()
     if not is_specific_url(url):
-        return None
+        # No standalone documentation page (common for video-stub docs — frontmatter
+        # + a video embed + a couple sentences). Cite the video itself instead of
+        # dropping the chunk; video.tv.adobe.com URLs don't fit is_specific_url's
+        # experienceleague/developer.adobe.com path shape so it isn't reused here.
+        if not video_url:
+            return None
+        url = video_url
     src: dict[str, Any] = {
         "url": url,
         "repo_path": meta.get("repo_path", ""),
@@ -33,6 +41,15 @@ def _source_from_doc(doc: dict, cited: bool, topical_score: float | None = None)
         "score": round(float(doc.get("score", 0.0)), 3),
         "cited": cited,
     }
+    if video_url:
+        src["video_url"] = video_url
+    if meta.get("thumbnail_url"):
+        src["thumbnail_url"] = meta["thumbnail_url"]
+    if meta.get("image_urls"):
+        try:
+            src["image_urls"] = json.loads(meta["image_urls"])
+        except Exception:
+            pass
     if topical_score is not None:
         src["topical_score"] = round(topical_score, 3)
     return src

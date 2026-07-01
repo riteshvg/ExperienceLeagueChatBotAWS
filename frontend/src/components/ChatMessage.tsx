@@ -12,6 +12,8 @@ interface Props {
   message: Message
   onFollowUpClick: (text: string) => void
   turnNumber?: number
+  /** Hide the thumbs up/down affordance — e.g. on public, unauthenticated pages. */
+  hideFeedback?: boolean
 }
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
@@ -201,7 +203,7 @@ function CopyAnswerButton({
   )
 }
 
-export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props) {
+export function ChatMessage({ message, onFollowUpClick, turnNumber = 0, hideFeedback = false }: Props) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
   const [carousel, setCarousel] = useState<{ images: CarouselImage[]; index: number } | null>(null)
@@ -340,6 +342,7 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
             turnNumber={turnNumber}
             messageId={message.id}
             feedback={message.feedback}
+            hideFeedback={hideFeedback}
           />
         )}
 
