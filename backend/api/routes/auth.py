@@ -1,8 +1,10 @@
 """
-Google OAuth endpoints.
+OAuth endpoints.
 
 GET    /api/auth/google           — redirect browser to Google consent screen
 GET    /api/auth/google/callback  — exchange auth code, create session, redirect to frontend
+GET    /api/auth/github           — redirect browser to GitHub consent screen
+GET    /api/auth/github/callback  — exchange auth code, create session, redirect to frontend
 DELETE /api/auth/session          — invalidate session (logout)
 """
 
@@ -30,6 +32,10 @@ router = APIRouter(prefix="/auth")
 _GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo"
+_GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize"
+_GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
+_GITHUB_USER_URL = "https://api.github.com/user"
+_GITHUB_EMAILS_URL = "https://api.github.com/user/emails"
 
 
 def _s():
@@ -38,6 +44,34 @@ def _s():
 
 def _error_redirect(frontend_url: str, reason: str) -> RedirectResponse:
     return RedirectResponse(f"{frontend_url}/callback?error={reason}")
+
+
+def _session_redirect(
+    frontend_url: str,
+    user_id: str,
+    email: str,
+    name: str,
+    picture: str,
+) -> RedirectResponse:
+    try:
+        user_row = google_db.upsert_user(user_id, email, name, picture)
+        canonical_user_id = user_row.get("user_id", user_id)
+        session_token, expires_at = google_db.create_session(canonical_user_id, email, name, picture)
+    except Exception as exc:
+        logger.error(f"DB error during session creation: {exc}")
+        return _error_redirect(frontend_url, "db_error")
+
+    is_admin = bool(user_row.get("is_admin", False))
+    params = urlencode({
+        "token": session_token,
+        "user_id": canonical_user_id,
+        "email": email,
+        "name": name,
+        "picture": picture,
+        "expires_at": expires_at,
+        "is_admin": "1" if is_admin else "0",
+    })
+    return RedirectResponse(f"{frontend_url}/callback?{params}")
 
 
 @router.get("/google")
@@ -128,27 +162,110 @@ async def google_callback(
     if not user_id or not email:
         return _error_redirect(frontend, "missing_user_info")
 
-    # Persist user + create session
+    return _session_redirect(frontend, user_id, email, name, picture)
+
+
+@router.get("/github")
+async def github_login(request: Request):
+    """Redirect to GitHub OAuth consent screen."""
+    s = _s()
+    if not s.github_client_id or not s.github_oauth_redirect_uri:
+        raise HTTPException(status_code=503, detail="GitHub OAuth not configured on this server.")
+
+    ip = request.headers.get("x-forwarded-for", request.client.host or "unknown").split(",")[0].strip()
     try:
-        user_row = google_db.upsert_user(user_id, email, name, picture)
-        session_token, expires_at = google_db.create_session(user_id, email, name, picture)
-    except Exception as exc:
-        logger.error(f"DB error during session creation: {exc}")
-        return _error_redirect(frontend, "db_error")
+        if not google_db.check_and_update_ratelimit(ip):
+            raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again in a minute.")
+    except RuntimeError:
+        pass
 
-    is_admin = bool(user_row.get("is_admin", False))
-
-    # Redirect to frontend /callback with session data as query params
     params = urlencode({
-        "token": session_token,
-        "user_id": user_id,
-        "email": email,
-        "name": name,
-        "picture": picture,
-        "expires_at": expires_at,
-        "is_admin": "1" if is_admin else "0",
+        "client_id": s.github_client_id,
+        "redirect_uri": s.github_oauth_redirect_uri,
+        "scope": "read:user user:email",
     })
-    return RedirectResponse(f"{frontend}/callback?{params}")
+    return RedirectResponse(f"{_GITHUB_AUTH_URL}?{params}")
+
+
+@router.get("/github/callback")
+async def github_callback(
+    request: Request,
+    code: str = None,
+    error: str = None,
+):
+    """Exchange GitHub auth code for tokens, upsert user, create session, redirect to frontend."""
+    s = _s()
+    frontend = s.frontend_url
+
+    if error or not code:
+        logger.warning(f"GitHub OAuth denied or missing code: error={error}")
+        return _error_redirect(frontend, "oauth_denied")
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            token_resp = await client.post(
+                _GITHUB_TOKEN_URL,
+                data={
+                    "code": code,
+                    "client_id": s.github_client_id,
+                    "client_secret": s.github_client_secret,
+                    "redirect_uri": s.github_oauth_redirect_uri,
+                },
+                headers={"Accept": "application/json"},
+            )
+    except Exception as exc:
+        logger.error(f"GitHub token exchange network error: {exc}")
+        return _error_redirect(frontend, "token_exchange_failed")
+
+    if token_resp.status_code != 200:
+        logger.error(f"GitHub token exchange failed: {token_resp.status_code} {token_resp.text}")
+        return _error_redirect(frontend, "token_exchange_failed")
+
+    access_token = token_resp.json().get("access_token")
+    if not access_token:
+        return _error_redirect(frontend, "no_access_token")
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            user_resp = await client.get(_GITHUB_USER_URL, headers=headers)
+            emails_resp = await client.get(_GITHUB_EMAILS_URL, headers=headers)
+    except Exception as exc:
+        logger.error(f"GitHub userinfo fetch error: {exc}")
+        return _error_redirect(frontend, "userinfo_failed")
+
+    if user_resp.status_code != 200:
+        logger.error(f"GitHub userinfo failed: {user_resp.status_code} {user_resp.text}")
+        return _error_redirect(frontend, "userinfo_failed")
+
+    info = user_resp.json()
+    github_id = str(info.get("id") or "")
+    email = info.get("email") or ""
+
+    if not email and emails_resp.status_code == 200:
+        emails = emails_resp.json()
+        primary = next(
+            (
+                row for row in emails
+                if row.get("primary") and row.get("verified") and row.get("email")
+            ),
+            None,
+        )
+        if primary:
+            email = primary["email"]
+
+    name = info.get("name") or info.get("login") or email
+    picture = info.get("avatar_url") or ""
+
+    if not github_id or not email:
+        return _error_redirect(frontend, "missing_user_info")
+
+    return _session_redirect(frontend, f"github:{github_id}", email, name, picture)
 
 
 @router.get("/me")

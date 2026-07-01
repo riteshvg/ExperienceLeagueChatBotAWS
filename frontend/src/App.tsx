@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { BrowserRouter, Route, Routes, Navigate } from 'react-router-dom'
 import { ChatPage } from '@/pages/ChatPage'
 import { AdminPage } from '@/pages/AdminPage'
+import { AboutPage } from '@/pages/AboutPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { OAuthCallback } from '@/pages/OAuthCallback'
 import { TermsModal } from '@/components/TermsModal'
@@ -49,6 +50,9 @@ export default function App() {
         <Route path="/callback" element={<OAuthCallback />} />
         <Route path="/" element={
           <ProtectedRoute><ChatPage /></ProtectedRoute>
+        } />
+        <Route path="/about" element={
+          <ProtectedRoute><AboutPage /></ProtectedRoute>
         } />
         <Route path="/admin" element={
           <ProtectedRoute><AdminPage /></ProtectedRoute>

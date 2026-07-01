@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     google_client_secret: Optional[str] = Field(None, env="GOOGLE_CLIENT_SECRET")
     # Full callback URL that Google redirects to (Railway backend)
     oauth_redirect_uri: Optional[str] = Field(None, env="OAUTH_REDIRECT_URI")
+
+    # GitHub OAuth
+    github_client_id: Optional[str] = Field(None, env="GITHUB_CLIENT_ID")
+    github_client_secret: Optional[str] = Field(None, env="GITHUB_CLIENT_SECRET")
+    github_oauth_redirect_uri: Optional[str] = Field(None, env="GITHUB_OAUTH_REDIRECT_URI")
+
     # Frontend base URL for post-auth redirect (Cloudflare Pages)
     frontend_url: str = Field(
         default="http://localhost:5173",

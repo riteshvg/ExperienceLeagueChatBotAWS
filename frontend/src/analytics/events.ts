@@ -43,7 +43,9 @@ export function trackPageView(pageName: string): void {
  * @example
  *   trackSessionStart('new_chat_button')
  */
-export function trackSessionStart(trigger: 'new_chat_button' | 'page_load'): void {
+export function trackSessionStart(
+  trigger: 'first_query' | 'resume_chat' | 'new_chat_button' | 'page_load',
+): void {
   newAnalyticsSession()
   pushEvent({
     ...makeBase(),
@@ -72,6 +74,30 @@ export function trackSessionEnd(totalTurns: number, sessionDurationMs?: number):
 // ─── Query ────────────────────────────────────────────────────────────────────
 
 /**
+ * Fire chatbot:question_asked when the user asks a question.
+ * This is the business-facing question event; chatbot:query_sent remains the
+ * lower-level API dispatch event.
+ *
+ * @example
+ *   trackQuestionAsked('How do I create a segment?', 1, 'Analytics')
+ */
+export function trackQuestionAsked(
+  queryText: string,
+  turnNumber: number,
+  queryCategory: string,
+  promptSource?: 'center_popular_questions' | 'sidebar_prompt_library' | 'followup_question',
+): void {
+  pushEvent({
+    ...makeBase(),
+    event: 'chatbot:question_asked',
+    queryText: sanitizeQuery(queryText),
+    turnNumber,
+    queryCategory,
+    ...(promptSource !== undefined ? { promptSource } : {}),
+  })
+}
+
+/**
  * Fire chatbot:query_sent for every query (turn 1 = first in session, 2+ = follow-up).
  * Model routing may not be known at send time; pass 'unknown' and Adobe Tags
  * can enrich it from the data layer state when the done event arrives.
@@ -84,6 +110,7 @@ export function trackQuerySent(
   turnNumber: number,
   modelRouting: 'haiku' | 'sonnet' | 'unknown',
   queryCategory: string,
+  promptSource?: 'center_popular_questions' | 'sidebar_prompt_library' | 'followup_question',
 ): void {
   pushEvent({
     ...makeBase(),
@@ -92,6 +119,7 @@ export function trackQuerySent(
     turnNumber,
     modelRouting,
     queryCategory,
+    ...(promptSource !== undefined ? { promptSource } : {}),
   })
 }
 
@@ -111,6 +139,53 @@ export function trackFollowupQuery(queryText: string, turnNumber: number): void 
     queryText: sanitizeQuery(queryText),
     turnNumber,
     sessionId: base.sessionId,
+  })
+}
+
+/**
+ * Fire chatbot:response_received when the backend completes a successful answer.
+ * This is the terminal success event for a question.
+ *
+ * @example
+ *   trackResponseReceived('How do I create a segment?', 1, 'sonnet', 4)
+ */
+export function trackResponseReceived(
+  queryText: string,
+  turnNumber: number,
+  modelRouting: string,
+  citationCount: number,
+): void {
+  pushEvent({
+    ...makeBase(),
+    event: 'chatbot:response_received',
+    queryText: sanitizeQuery(queryText),
+    turnNumber,
+    modelRouting,
+    citationCount,
+  })
+}
+
+export function trackSuggestedPromptClick({
+  promptText,
+  promptSource,
+  promptTitle,
+  promptCategory,
+  timesAsked,
+}: {
+  promptText: string
+  promptSource: 'center_popular_questions' | 'sidebar_prompt_library' | 'followup_question'
+  promptTitle?: string
+  promptCategory?: string
+  timesAsked?: number
+}): void {
+  pushEvent({
+    ...makeBase(),
+    event: 'chatbot:suggested_prompt_click',
+    promptText: sanitizeQuery(promptText),
+    promptSource,
+    ...(promptTitle !== undefined ? { promptTitle: sanitizeQuery(promptTitle) } : {}),
+    ...(promptCategory !== undefined ? { promptCategory } : {}),
+    ...(timesAsked !== undefined ? { timesAsked } : {}),
   })
 }
 
@@ -172,6 +247,68 @@ export function trackCitationClick(
     citationUrl,
     citationTitle,
     turnNumber,
+  })
+}
+
+// ─── Image gallery ────────────────────────────────────────────────────────────
+
+export function trackImageOpen({
+  imageUrl,
+  imageAlt,
+  imageIndex,
+  imageCount,
+  turnNumber,
+  messageId,
+}: {
+  imageUrl: string
+  imageAlt: string
+  imageIndex: number
+  imageCount: number
+  turnNumber: number
+  messageId: string
+}): void {
+  pushEvent({
+    ...makeBase(),
+    event: 'chatbot:image_open',
+    imageUrl,
+    imageAlt: sanitizeQuery(imageAlt),
+    imageIndex,
+    imageCount,
+    turnNumber,
+    messageId,
+  })
+}
+
+export function trackImageCarouselNavigate({
+  imageUrl,
+  imageAlt,
+  imageIndex,
+  previousImageIndex,
+  imageCount,
+  direction,
+  turnNumber,
+  messageId,
+}: {
+  imageUrl: string
+  imageAlt: string
+  imageIndex: number
+  previousImageIndex: number
+  imageCount: number
+  direction: 'previous' | 'next' | 'jump'
+  turnNumber: number
+  messageId: string
+}): void {
+  pushEvent({
+    ...makeBase(),
+    event: 'chatbot:image_carousel_navigate',
+    imageUrl,
+    imageAlt: sanitizeQuery(imageAlt),
+    imageIndex,
+    previousImageIndex,
+    imageCount,
+    direction,
+    turnNumber,
+    messageId,
   })
 }
 

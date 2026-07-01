@@ -2,8 +2,11 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation, type RetrievalEvidence, type ClarificationOption, type ClarificationSelection, type ClarificationPayload } from '@/lib/api'
 import {
+  hasAnalyticsSession,
+  trackQuestionAsked,
   trackQuerySent,
   trackFollowupQuery,
+  trackResponseReceived,
   trackSessionStart,
   trackSessionEnd,
   trackFeedbackPositive,
@@ -143,6 +146,9 @@ export const useChatStore = create<ChatState>()(
 
         switchSession: (id) => {
           if (get().isStreaming) return
+          const targetMessages = get().sessions[id]?.messages ?? []
+          const hasTurns = targetMessages.some((m) => m.role === 'user')
+          if (hasTurns && !hasAnalyticsSession()) trackSessionStart('resume_chat')
           set({ activeSessionId: id, error: null })
         },
 
@@ -174,7 +180,6 @@ export const useChatStore = create<ChatState>()(
           trackSessionEnd(totalTurns)
           clearHistory(activeSessionId).catch(() => {})
           const fresh = createSession()
-          trackSessionStart('new_chat_button')
           set((s) => ({
             sessions: { ...s.sessions, [fresh.id]: fresh },
             activeSessionId: fresh.id,
@@ -187,6 +192,13 @@ export const useChatStore = create<ChatState>()(
         },
 
         selectClarification: async (option: ClarificationOption, originalQuery: string) => {
+          const { activeSessionId, sessions } = get()
+          const existingMsgs = sessions[activeSessionId]?.messages ?? []
+          const turnNumber = existingMsgs.filter((m) => m.role === 'user').length + 1
+          if (!hasAnalyticsSession()) trackSessionStart('first_query')
+          trackQuestionAsked(option.query, turnNumber, 'uncategorised')
+          trackQuerySent(option.query, turnNumber, 'unknown', 'uncategorised')
+
           const clarification: ClarificationSelection = {
             option_id: option.id,
             resolved_query: option.query,
@@ -207,7 +219,6 @@ export const useChatStore = create<ChatState>()(
           const turnNumber = existingMsgs.filter((m) => m.role === 'user').length + 1
 
           // Fire analytics before the API call (clarification follow-ups count as queries)
-          trackQuerySent(query, turnNumber, 'unknown', 'uncategorised')
           if (turnNumber >= 2) trackFollowupQuery(query, turnNumber)
 
           const userMsg: Message = { id: makeId(), role: 'user', content: query }
@@ -273,6 +284,8 @@ export const useChatStore = create<ChatState>()(
                   } else {
                     trackNoAnswer(query, turnNumber, 'no_retrieval')
                   }
+                } else {
+                  trackResponseReceived(query, turnNumber, event.model, currentMsg?.citations?.length ?? 0)
                 }
 
                 set((s) => ({

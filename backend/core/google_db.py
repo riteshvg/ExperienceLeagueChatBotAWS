@@ -174,7 +174,12 @@ def init_tables() -> None:
 
 
 def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
-    """Insert or update a Google user. Updates last_seen on every login."""
+    """Insert or update an OAuth user. Updates last_seen on every login.
+
+    Email is the account identity in Rovr. If the same person signs in with a
+    second OAuth provider, keep the original row so quotas/admin flags/history
+    remain attached to one account.
+    """
     admin_email = os.getenv(_ADMIN_EMAIL_ENV, "").strip().lower()
     is_admin_value = email.strip().lower() == admin_email if admin_email else False
 
@@ -204,9 +209,8 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
                     """
                     INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, is_admin, daily_query_limit, monthly_query_limit)
                     VALUES (%s, %s, %s, %s, NOW(), NOW(), TRUE, %s, %s)
-                    ON CONFLICT (user_id) DO UPDATE
-                        SET email     = EXCLUDED.email,
-                            name      = EXCLUDED.name,
+                    ON CONFLICT (email) DO UPDATE
+                        SET name      = EXCLUDED.name,
                             picture   = EXCLUDED.picture,
                             last_seen = NOW(),
                             is_admin  = TRUE
@@ -219,9 +223,8 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
                     """
                     INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, daily_query_limit, monthly_query_limit)
                     VALUES (%s, %s, %s, %s, NOW(), NOW(), %s, %s)
-                    ON CONFLICT (user_id) DO UPDATE
-                        SET email     = EXCLUDED.email,
-                            name      = EXCLUDED.name,
+                    ON CONFLICT (email) DO UPDATE
+                        SET name      = EXCLUDED.name,
                             picture   = EXCLUDED.picture,
                             last_seen = NOW()
                     RETURNING *

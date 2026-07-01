@@ -16,6 +16,8 @@ import { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
 import { trackPageView } from './events'
 
+let lastPageViewKey = ''
+
 /** Map a React Router pathname to a human-readable Adobe Analytics page name. */
 function toPageName(pathname: string): string {
   const clean = pathname.replace(/\/$/, '') || '/'
@@ -35,7 +37,10 @@ export function usePageView(): void {
   const location = useLocation()
 
   useEffect(() => {
-    trackPageView(toPageName(location.pathname))
+    const key = location.pathname
+    if (lastPageViewKey === key) return
+    lastPageViewKey = key
+    trackPageView(toPageName(key))
     // Only re-fire on actual path changes, not hash/search changes
   }, [location.pathname]) // eslint-disable-line react-hooks/exhaustive-deps
 }

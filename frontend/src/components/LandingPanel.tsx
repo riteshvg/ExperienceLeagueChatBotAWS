@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { fetchLandingQuestions } from '@/lib/api'
-import { mergeTickerQuestions } from '@/config/questions'
+import { mergeTickerQuestions, type TickerQuestion } from '@/config/questions'
 import { QuestionTicker } from '@/components/QuestionTicker'
 
 interface Props {
   sessionId: string
-  onSelectPrompt: (text: string) => void
+  onSelectPrompt: (question: TickerQuestion) => void
   isNewUser: boolean
   monthlyRemaining: number
   monthlyLimit: number
@@ -71,12 +71,11 @@ export function LandingPanel({
       <h2 className="text-lg font-semibold text-slate-700 dark:text-slate-200 mb-1 text-center">
         Ask about Adobe Experience League docs
       </h2>
-      {source === 'postgres' && (
-        <p className="text-xs text-slate-400 dark:text-slate-500 mb-3 text-center">
-          Popular questions from other Rovr users — pick one to get started
-        </p>
-      )}
-      {source !== 'postgres' && <div className="mb-3" />}
+      <p className="text-xs text-slate-400 dark:text-slate-500 mb-3 text-center">
+        {source === 'postgres'
+          ? 'What people ask Rovr — real questions from other users'
+          : 'What people ask Rovr — examples to spark your own question'}
+      </p>
 
       {isNewUser && monthlyRemaining > 0 && !welcomeDismissed && monthlyLimit < 9999 && (
         <div className="w-full max-w-md mb-5 px-5 py-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-left">
