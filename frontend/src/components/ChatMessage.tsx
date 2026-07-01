@@ -8,6 +8,7 @@ import { ClarificationCard } from './ClarificationCard'
 import { ImageCarousel, type CarouselImage } from './ImageCarousel'
 import { type Message } from '@/lib/api'
 import { useChatStore } from '@/store/chatStore'
+import { trackImageCarouselNavigate, trackImageOpen } from '@/analytics'
 
 interface Props {
   message: Message
@@ -233,10 +234,10 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
             src={src}
             alt={altText}
             onOpen={() =>
-              setCarousel({
-                images: messageImages,
-                index: resolveImageIndex(messageImages, index, src, altText),
-              })
+              openCarousel(
+                messageImages,
+                resolveImageIndex(messageImages, index, src, altText),
+              )
             }
           />
         )
@@ -271,6 +272,39 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
     navigator.clipboard.writeText(message.content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const openCarousel = (images: CarouselImage[], index: number) => {
+    const image = images[index]
+    if (!image) return
+    trackImageOpen({
+      imageUrl: image.src,
+      imageAlt: image.alt || '',
+      imageIndex: index,
+      imageCount: images.length,
+      turnNumber,
+      messageId: message.id,
+    })
+    setCarousel({ images, index })
+  }
+
+  const handleCarouselIndexChange = (nextIndex: number) => {
+    setCarousel((prev) => {
+      if (!prev || nextIndex === prev.index) return prev
+      const image = prev.images[nextIndex]
+      if (!image) return prev
+      trackImageCarouselNavigate({
+        imageUrl: image.src,
+        imageAlt: image.alt || '',
+        imageIndex: nextIndex,
+        previousImageIndex: prev.index,
+        imageCount: prev.images.length,
+        direction: nextIndex > prev.index ? 'next' : nextIndex < prev.index ? 'previous' : 'jump',
+        turnNumber,
+        messageId: message.id,
+      })
+      return { ...prev, index: nextIndex }
+    })
   }
 
   return (
@@ -335,7 +369,7 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
           images={carousel.images}
           index={carousel.index}
           onClose={() => setCarousel(null)}
-          onIndexChange={(index) => setCarousel((prev) => (prev ? { ...prev, index } : null))}
+          onIndexChange={handleCarouselIndexChange}
         />
       )}
     </div>

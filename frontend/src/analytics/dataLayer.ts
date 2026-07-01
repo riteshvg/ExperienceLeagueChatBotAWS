@@ -37,9 +37,17 @@ const ROVR_SESSION_START_KEY = 'rovr_session_start_ms'
 
 function getSessionId(): string {
   try {
-    return sessionStorage.getItem(ROVR_SESSION_KEY) ?? ''
+    return sessionStorage.getItem(ROVR_SESSION_KEY) ?? 'no_chat_session'
   } catch {
-    return ''
+    return 'no_chat_session'
+  }
+}
+
+export function hasAnalyticsSession(): boolean {
+  try {
+    return !!sessionStorage.getItem(ROVR_SESSION_KEY)
+  } catch {
+    return false
   }
 }
 
@@ -146,7 +154,7 @@ export interface PageViewEvent extends BaseEvent {
 
 export interface SessionStartEvent extends BaseEvent {
   readonly event: 'chatbot:session_start'
-  readonly trigger: 'new_chat_button' | 'page_load'
+  readonly trigger: 'first_query' | 'resume_chat' | 'new_chat_button' | 'page_load'
 }
 
 export interface QuerySentEvent extends BaseEvent {
@@ -155,6 +163,15 @@ export interface QuerySentEvent extends BaseEvent {
   readonly turnNumber: number
   readonly modelRouting: 'haiku' | 'sonnet' | 'unknown'
   readonly queryCategory: string
+  readonly promptSource?: 'center_popular_questions' | 'sidebar_prompt_library' | 'followup_question'
+}
+
+export interface QuestionAskedEvent extends BaseEvent {
+  readonly event: 'chatbot:question_asked'
+  readonly queryText: string
+  readonly turnNumber: number
+  readonly queryCategory: string
+  readonly promptSource?: 'center_popular_questions' | 'sidebar_prompt_library' | 'followup_question'
 }
 
 export interface FollowupQueryEvent extends BaseEvent {
@@ -162,6 +179,23 @@ export interface FollowupQueryEvent extends BaseEvent {
   readonly queryText: string
   readonly turnNumber: number
   readonly sessionId: string
+}
+
+export interface ResponseReceivedEvent extends BaseEvent {
+  readonly event: 'chatbot:response_received'
+  readonly queryText: string
+  readonly turnNumber: number
+  readonly modelRouting: string
+  readonly citationCount: number
+}
+
+export interface SuggestedPromptClickEvent extends BaseEvent {
+  readonly event: 'chatbot:suggested_prompt_click'
+  readonly promptText: string
+  readonly promptSource: 'center_popular_questions' | 'sidebar_prompt_library' | 'followup_question'
+  readonly promptTitle?: string
+  readonly promptCategory?: string
+  readonly timesAsked?: number
 }
 
 export interface SessionEndEvent extends BaseEvent {
@@ -190,6 +224,28 @@ export interface CitationClickEvent extends BaseEvent {
   readonly turnNumber: number
 }
 
+export interface ImageOpenEvent extends BaseEvent {
+  readonly event: 'chatbot:image_open'
+  readonly imageUrl: string
+  readonly imageAlt: string
+  readonly imageIndex: number
+  readonly imageCount: number
+  readonly turnNumber: number
+  readonly messageId: string
+}
+
+export interface ImageCarouselNavigateEvent extends BaseEvent {
+  readonly event: 'chatbot:image_carousel_navigate'
+  readonly imageUrl: string
+  readonly imageAlt: string
+  readonly imageIndex: number
+  readonly previousImageIndex: number
+  readonly imageCount: number
+  readonly direction: 'previous' | 'next' | 'jump'
+  readonly turnNumber: number
+  readonly messageId: string
+}
+
 export interface NoAnswerEvent extends BaseEvent {
   readonly event: 'chatbot:no_answer'
   readonly queryText: string
@@ -206,11 +262,16 @@ export type RovrEvent =
   | PageViewEvent
   | SessionStartEvent
   | QuerySentEvent
+  | QuestionAskedEvent
   | FollowupQueryEvent
+  | ResponseReceivedEvent
+  | SuggestedPromptClickEvent
   | SessionEndEvent
   | FeedbackPositiveEvent
   | FeedbackNegativeEvent
   | CitationClickEvent
+  | ImageOpenEvent
+  | ImageCarouselNavigateEvent
   | NoAnswerEvent
   | TermsAcceptedEvent
 

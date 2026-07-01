@@ -1,28 +1,45 @@
-import { forwardRef, useImperativeHandle, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { forwardRef, useImperativeHandle, useRef, useState, type ChangeEvent, type FocusEvent, type FormEvent, type KeyboardEvent } from 'react'
 import { Send } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+type PromptSource = 'center_popular_questions' | 'sidebar_prompt_library' | 'followup_question'
+
 interface Props {
   onSend: (query: string) => void
+  onQuestionAsked?: (query: string, promptSource?: PromptSource) => void
+  onSubmitQuery?: (query: string, promptSource?: PromptSource) => void
   disabled?: boolean
   placeholder?: string
 }
 
 export interface ChatInputHandle {
-  fill: (text: string) => void
+  fill: (text: string, promptSource?: PromptSource) => void
   focus: () => void
 }
 
 export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
-  { onSend, disabled, placeholder = 'Ask about Adobe Analytics, CJA, AEP, Target, or Journey Optimizer…' },
+  {
+    onSend,
+    onQuestionAsked,
+    onSubmitQuery,
+    disabled,
+    placeholder = 'Ask about Adobe Analytics, CJA, AEP, Target, or Journey Optimizer…',
+  },
   ref,
 ) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const trackedDraftRef = useRef(false)
+  const promptSourceRef = useRef<PromptSource | undefined>(undefined)
 
   useImperativeHandle(ref, () => ({
-    fill: (text: string) => {
+    fill: (text: string, promptSource?: PromptSource) => {
       setValue(text)
+      promptSourceRef.current = promptSource
+      if (text.trim() && !trackedDraftRef.current) {
+        trackedDraftRef.current = true
+        onQuestionAsked?.(text, promptSource)
+      }
       textareaRef.current?.focus()
       // Reset height to fit new content
       if (textareaRef.current) {
@@ -36,9 +53,34 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
   const submit = () => {
     const q = value.trim()
     if (!q || disabled) return
+    if (!trackedDraftRef.current) {
+      trackedDraftRef.current = true
+      onQuestionAsked?.(q, promptSourceRef.current)
+    }
+    onSubmitQuery?.(q, promptSourceRef.current)
     onSend(q)
     setValue('')
+    trackedDraftRef.current = false
+    promptSourceRef.current = undefined
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
+  }
+
+  const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    const nextValue = e.target.value
+    setValue(nextValue)
+    if (!nextValue.trim()) {
+      trackedDraftRef.current = false
+      promptSourceRef.current = undefined
+    } else {
+      promptSourceRef.current = undefined
+    }
+  }
+
+  const handleBlur = (e: FocusEvent<HTMLTextAreaElement>) => {
+    const q = e.target.value.trim()
+    if (!q || trackedDraftRef.current) return
+    trackedDraftRef.current = true
+    onQuestionAsked?.(q, promptSourceRef.current)
   }
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -64,7 +106,8 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput(
         ref={textareaRef}
         rows={1}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={handleChange}
+        onBlur={handleBlur}
         onKeyDown={handleKeyDown}
         onInput={handleInput}
         disabled={disabled}

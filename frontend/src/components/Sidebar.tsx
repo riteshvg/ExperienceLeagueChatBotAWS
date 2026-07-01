@@ -1,14 +1,13 @@
 import { useState } from 'react'
-import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, LogOut, X, PanelLeftClose, PanelLeftOpen, House, GitBranch } from 'lucide-react'
-import { ThemeToggle } from '@/components/ThemeToggle'
-import { Link, useNavigate } from 'react-router-dom'
+import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, X, PanelLeftClose, PanelLeftOpen, House, GitBranch, Info } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useChatStore, type ChatSession } from '@/store/chatStore'
 import { useAuthStore } from '@/store/authStore'
 import { PROMPT_LIBRARY } from '@/lib/prompts'
 
 interface Props {
-  onSelectPrompt: (text: string) => void
+  onSelectPrompt: (text: string, meta?: { title?: string; category?: string }) => void
   isOpen: boolean
   onClose: () => void
 }
@@ -36,16 +35,10 @@ function groupByDate(sessions: ChatSession[]): { label: string; items: ChatSessi
 
 export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
   const { sessions, activeSessionId, isStreaming, startNewChat, switchSession, deleteSession } = useChatStore()
-  const { logout, session } = useAuthStore()
-  const navigate = useNavigate()
+  const { session } = useAuthStore()
   const [showPrompts, setShowPrompts] = useState(false)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
   const [collapsed, setCollapsed] = useState(false)
-
-  const handleLogout = async () => {
-    await logout()
-    navigate('/login')
-  }
 
   const sorted = Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt)
   const groups = groupByDate(sorted)
@@ -199,7 +192,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
                       {cat.prompts.map((p) => (
                         <button
                           key={p.id}
-                          onClick={() => onSelectPrompt(p.text)}
+                          onClick={() => onSelectPrompt(p.text, { title: p.title, category: cat.category })}
                           className="w-full text-left px-2 py-1.5 rounded-md text-xs text-white/60 hover:bg-white/10 hover:text-white transition-colors truncate"
                           title={p.text}
                         >
@@ -241,54 +234,8 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
         </a>
       )}
 
-      {/* Disclaimer — hidden when collapsed */}
-      <div className={cn('px-4 py-3 mx-3 mb-2 rounded-lg bg-black/20 border border-white/10', collapsed && 'md:hidden')}>
-        <p className="text-xs text-white/50 leading-relaxed">
-          Built for learning purposes only. Not affiliated with or endorsed by Adobe. All documentation belongs to Adobe.
-        </p>
-      </div>
-
       {/* Footer */}
       <div className={cn('py-3 border-t border-white/10 space-y-0.5', collapsed ? 'md:px-2 md:space-y-1' : 'px-3')}>
-        {/* User avatar + name */}
-        {session && (
-          <div className={cn('flex items-center gap-2 px-3 py-2 mb-1', collapsed && 'md:hidden')}>
-            {session.picture ? (
-              <img
-                src={session.picture}
-                alt={session.name}
-                className="w-7 h-7 rounded-full flex-shrink-0"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0">
-                <span className="text-xs font-medium text-white/80">
-                  {session.name.charAt(0).toUpperCase()}
-                </span>
-              </div>
-            )}
-            <span className="text-xs text-white/80 truncate">{session.name || session.email}</span>
-          </div>
-        )}
-        {session && collapsed && (
-          <div className="hidden md:flex justify-center mb-1">
-            {session.picture ? (
-              <img
-                src={session.picture}
-                alt={session.name}
-                className="w-7 h-7 rounded-full"
-                referrerPolicy="no-referrer"
-              />
-            ) : (
-              <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center">
-                <span className="text-xs font-medium text-white/80">
-                  {session.name.charAt(0).toUpperCase()}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-
         <a
           href="https://thelearningproject.in"
           target="_blank"
@@ -303,6 +250,18 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
           <span className={cn(collapsed && 'md:hidden')}>Back to homepage</span>
         </a>
 
+        <Link
+          to="/about"
+          title="About Rovr"
+          className={cn(
+            'flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-white transition-colors no-underline',
+            collapsed && 'md:justify-center md:p-2 md:gap-0 md:px-2',
+          )}
+        >
+          <Info className="w-4 h-4 flex-shrink-0" />
+          <span className={cn(collapsed && 'md:hidden')}>About Rovr</span>
+        </Link>
+
         {session?.is_admin && (
           <Link
             to="/admin"
@@ -316,18 +275,6 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
             <span className={cn(collapsed && 'md:hidden')}>Admin</span>
           </Link>
         )}
-        <ThemeToggle variant="sidebar" showLabel={!collapsed} className={cn(collapsed && 'md:justify-center md:p-2')} />
-        <button
-          onClick={handleLogout}
-          title="Sign out"
-          className={cn(
-            'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/60 hover:bg-white/10 hover:text-red-400 transition-colors',
-            collapsed && 'md:justify-center md:p-2 md:gap-0 md:px-2',
-          )}
-        >
-          <LogOut className="w-4 h-4 flex-shrink-0" />
-          <span className={cn(collapsed && 'md:hidden')}>Sign out</span>
-        </button>
       </div>
     </aside>
     </>

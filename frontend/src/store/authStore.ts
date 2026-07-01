@@ -18,10 +18,12 @@ interface AuthState {
   session: SessionData | null
   isAuthenticated: boolean
 
-  /** Called by OAuthCallback after Google redirects back. */
+  /** Called by OAuthCallback after an OAuth provider redirects back. */
   setSession: (data: SessionData) => void
   /** Redirects browser to the Google OAuth consent screen via the backend. */
   initiateGoogleLogin: () => void
+  /** Redirects browser to the GitHub OAuth consent screen via the backend. */
+  initiateGitHubLogin: () => void
   /** Invalidates the server session and clears local state. */
   logout: () => Promise<void>
 }
@@ -61,6 +63,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
   initiateGoogleLogin() {
     window.location.href = `${API_BASE}/api/auth/google`
+  },
+
+  initiateGitHubLogin() {
+    window.location.href = `${API_BASE}/api/auth/github`
   },
 
   async logout() {

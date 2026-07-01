@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Menu, Ban, Clock, WifiOff, CalendarX } from 'lucide-react';
+import { CalendarX, ChevronDown, Clock, LogOut, Menu, Ban, Plus, WifiOff } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
@@ -10,7 +10,15 @@ import { Sidebar } from '@/components/Sidebar';
 import { LandingPanel } from '@/components/LandingPanel';
 import { getMe, fetchMaintenanceStatus, isApiDisabled } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { trackSessionStart, trackSessionEnd } from '@/analytics';
+import { PRODUCT_PILL_STYLES, type TickerQuestion } from '@/config/questions';
+import {
+  hasAnalyticsSession,
+  trackQuestionAsked,
+  trackQuerySent,
+  trackSessionEnd,
+  trackSessionStart,
+  trackSuggestedPromptClick,
+} from '@/analytics';
 
 const WELCOME_KEY = 'rovr_welcome_dismissed';
 
@@ -36,8 +44,9 @@ export function ChatPage() {
     setUsage,
     setApiDisabled,
     setKnowledgeBankMaintenance,
+    startNewChat,
   } = useChatStore();
-  const { logout } = useAuthStore();
+  const { logout, session } = useAuthStore();
   const {
     monthlyLimit,
     monthlyUsed,
@@ -48,11 +57,13 @@ export function ChatPage() {
     fetchQuota,
   } = useQuotaStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [userPanelOpen, setUserPanelOpen] = useState(false);
   const [welcomeDismissed, setWelcomeDismissed] = useState(
     () => !!localStorage.getItem(WELCOME_KEY),
   );
   const messages = sessions[activeSessionId]?.messages ?? [];
   const isLanding = messages.length === 0;
+  const canStartNewChat = !isStreaming && messages.length > 0;
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
@@ -95,18 +106,23 @@ export function ChatPage() {
     if (!isStreaming && messages.length > 0) fetchQuota();
   }, [isStreaming]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Analytics: fire session_start on page load for fresh sessions
   useEffect(() => {
-    if (messages.length === 0) {
-      trackSessionStart('page_load');
+    if (messages.some((m) => m.role === 'user') && !hasAnalyticsSession()) {
+      trackSessionStart('resume_chat');
     }
-    // Register beforeunload to track session_end when the tab closes
-    const handleUnload = () => {
-      const totalTurns = messages.filter((m) => m.role === 'user').length;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Analytics: best-effort session_end when the tab closes.
+  useEffect(() => {
+    const handlePageHide = () => {
+      const state = useChatStore.getState();
+      const currentMessages = state.sessions[state.activeSessionId]?.messages ?? [];
+      const totalTurns = currentMessages.filter((m) => m.role === 'user').length;
+      if (totalTurns === 0) return;
       trackSessionEnd(totalTurns);
     };
-    window.addEventListener('beforeunload', handleUnload);
-    return () => window.removeEventListener('beforeunload', handleUnload);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => window.removeEventListener('pagehide', handlePageHide);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -122,13 +138,79 @@ export function ChatPage() {
     }
   }, [isStreaming, messages.length]);
 
-  const handleSelectPrompt = (text: string) => {
-    inputRef.current?.fill(text);
+  useEffect(() => {
+    if (!userPanelOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setUserPanelOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [userPanelOpen]);
+
+  type PromptSource = 'center_popular_questions' | 'sidebar_prompt_library' | 'followup_question';
+
+  const handleSelectPrompt = (text: string, promptSource?: PromptSource) => {
+    inputRef.current?.fill(text, promptSource);
+  };
+
+  const handleSidebarPromptSelect = (
+    text: string,
+    meta?: { title?: string; category?: string },
+  ) => {
+    trackSuggestedPromptClick({
+      promptText: text,
+      promptSource: 'sidebar_prompt_library',
+      promptTitle: meta?.title,
+      promptCategory: meta?.category,
+    });
+    handleSelectPrompt(text, 'sidebar_prompt_library');
+  };
+
+  const handlePopularQuestionSelect = (question: TickerQuestion) => {
+    trackSuggestedPromptClick({
+      promptText: question.text,
+      promptSource: 'center_popular_questions',
+      promptCategory: PRODUCT_PILL_STYLES[question.product].label,
+      timesAsked: question.asked,
+    });
+    handleSelectPrompt(question.text, 'center_popular_questions');
+  };
+
+  const handleFollowUpPromptSelect = (text: string) => {
+    trackSuggestedPromptClick({
+      promptText: text,
+      promptSource: 'followup_question',
+    });
+    handleSelectPrompt(text, 'followup_question');
+  };
+
+  const getNextTurnNumber = () =>
+    messages.filter((m) => m.role === 'user').length + 1;
+
+  const ensureChatSessionStarted = () => {
+    if (!hasAnalyticsSession()) trackSessionStart('first_query');
+  };
+
+  const handleQuestionAsked = (query: string, promptSource?: PromptSource) => {
+    ensureChatSessionStarted();
+    trackQuestionAsked(query, getNextTurnNumber(), 'uncategorised', promptSource);
+  };
+
+  const handleSubmitQuery = (query: string, promptSource?: PromptSource) => {
+    ensureChatSessionStarted();
+    trackQuerySent(query, getNextTurnNumber(), 'unknown', 'uncategorised', promptSource);
   };
 
   const dismissWelcome = () => {
     localStorage.setItem(WELCOME_KEY, 'true');
     setWelcomeDismissed(true);
+  };
+
+  const handleLogout = async () => {
+    setUserPanelOpen(false);
+    await logout();
   };
 
   if (accessDenied) {
@@ -182,7 +264,7 @@ export function ChatPage() {
   return (
     <div className="flex w-full h-screen overflow-hidden">
       <Sidebar
-        onSelectPrompt={handleSelectPrompt}
+        onSelectPrompt={handleSidebarPromptSelect}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
@@ -198,7 +280,103 @@ export function ChatPage() {
             <Menu className="w-4 h-4" />
           </button>
           <h1 className="text-sm font-semibold text-slate-700 dark:text-slate-200">Rovr</h1>
-          <ThemeToggle />
+          <div className="relative ml-auto">
+            <button
+              type="button"
+              onClick={() => setUserPanelOpen((open) => !open)}
+              className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700 transition-colors hover:border-emerald-300 hover:text-[#14532D] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-emerald-700 dark:hover:text-emerald-300"
+              aria-expanded={userPanelOpen}
+              aria-haspopup="menu"
+            >
+              {session?.picture ? (
+                <img
+                  src={session.picture}
+                  alt={session.name || session.email}
+                  className="h-6 w-6 rounded-full"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 text-xs font-semibold text-[#14532D] dark:bg-emerald-950 dark:text-emerald-300">
+                  {(session?.name || session?.email || 'U').charAt(0).toUpperCase()}
+                </span>
+              )}
+              <span className="hidden max-w-36 truncate sm:inline">{session?.name || session?.email || 'Account'}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+            </button>
+
+            {userPanelOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 top-full z-40 mt-2 w-72 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
+              >
+                <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+                  <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+                    {session?.name || 'Rovr user'}
+                  </p>
+                  <p className="truncate text-xs text-slate-500 dark:text-slate-400">{session?.email}</p>
+                </div>
+
+                {monthlyLimit < 9999 ? (
+                  <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="font-medium text-slate-600 dark:text-slate-300">Questions remaining</span>
+                      <span
+                        className={cn(
+                          'font-semibold',
+                          isExhausted || monthlyExhausted
+                            ? 'text-red-500'
+                            : monthlyRemaining <= 5
+                              ? 'text-amber-500'
+                              : 'text-emerald-600 dark:text-emerald-400',
+                        )}
+                      >
+                        {isExhausted || monthlyExhausted ? 0 : monthlyRemaining}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {monthlyUsed} of {monthlyLimit} used this month
+                    </p>
+                  </div>
+                ) : queriesRemaining !== null ? (
+                  <div className="border-b border-slate-100 px-4 py-3 dark:border-slate-800">
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="font-medium text-slate-600 dark:text-slate-300">Questions remaining</span>
+                      <span
+                        className={cn(
+                          'font-semibold',
+                          queriesRemaining === 0
+                            ? 'text-red-500'
+                            : queriesRemaining <= queriesLimit * 0.25
+                              ? 'text-amber-500'
+                              : 'text-emerald-600 dark:text-emerald-400',
+                        )}
+                      >
+                        {queriesRemaining}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      {queriesUsed} of {queriesLimit} used this month
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className="p-2">
+                  <ThemeToggle
+                    showLabel
+                    className="w-full justify-start px-2.5 py-2 text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="mt-1 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-red-50 hover:text-red-600 dark:text-slate-300 dark:hover:bg-red-950/30 dark:hover:text-red-300"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Sign out
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </header>
 
         {/* Messages */}
@@ -231,7 +409,7 @@ export function ChatPage() {
           {isLanding && (
             <LandingPanel
               sessionId={activeSessionId}
-              onSelectPrompt={handleSelectPrompt}
+              onSelectPrompt={handlePopularQuestionSelect}
               isNewUser={isNewUser}
               monthlyRemaining={monthlyRemaining}
               monthlyLimit={monthlyLimit}
@@ -249,7 +427,7 @@ export function ChatPage() {
                 <ChatMessage
                   key={msg.id}
                   message={msg}
-                  onFollowUpClick={handleSelectPrompt}
+                  onFollowUpClick={handleFollowUpPromptSelect}
                   turnNumber={turn}
                 />
               );
@@ -282,6 +460,8 @@ export function ChatPage() {
           <ChatInput
             ref={inputRef}
             onSend={sendMessage}
+            onQuestionAsked={handleQuestionAsked}
+            onSubmitQuery={handleSubmitQuery}
             disabled={
               isStreaming ||
               apiDisabled ||
@@ -301,41 +481,25 @@ export function ChatPage() {
             <span>Answers are grounded in Adobe Experience League documentation</span>
             <span aria-hidden="true"> · </span>
             <span>AI-generated — please validate answers before sharing or acting on them</span>
-            {monthlyLimit < 9999 ? (
-              <>
-                <span aria-hidden="true"> · </span>
-                <span
-                  className={cn(
-                    isExhausted || monthlyExhausted
-                      ? 'text-red-500 font-medium'
-                      : monthlyRemaining <= 5
-                        ? 'text-amber-500'
-                        : undefined,
-                  )}
-                >
-                  {isExhausted || monthlyExhausted ? monthlyLimit : monthlyUsed} / {monthlyLimit} queries
-                  used this month · {isExhausted || monthlyExhausted ? 0 : monthlyRemaining} remaining
-                </span>
-              </>
-            ) : queriesRemaining !== null ? (
-              <>
-                <span aria-hidden="true"> · </span>
-                <span
-                  className={cn(
-                    queriesRemaining === 0
-                      ? 'text-red-500 font-medium'
-                      : queriesRemaining <= queriesLimit * 0.25
-                        ? 'text-amber-500'
-                        : undefined,
-                  )}
-                >
-                  {queriesUsed} / {queriesLimit} queries used this month · {queriesRemaining} remaining
-                </span>
-              </>
-            ) : null}
           </p>
         </div>
       </main>
+
+      <button
+        type="button"
+        onClick={startNewChat}
+        disabled={!canStartNewChat}
+        title="New chat"
+        aria-label="New chat"
+        className={cn(
+          'fixed bottom-28 right-5 z-30 flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all md:right-7',
+          canStartNewChat
+            ? 'bg-[#14532D] text-white hover:bg-[#10B981] hover:shadow-xl'
+            : 'cursor-not-allowed bg-slate-200 text-slate-400 opacity-80 shadow-sm dark:bg-slate-800 dark:text-slate-600',
+        )}
+      >
+        <Plus className="h-5 w-5" />
+      </button>
 
       {/* Feedback thank-you toast */}
       <div
