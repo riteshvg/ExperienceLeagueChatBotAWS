@@ -10,7 +10,7 @@ from backend.core.topical_relevance import (
 )
 
 
-def _doc(title: str, url: str, product: str, content: str = "", score: float = 0.5):
+def _doc(title: str, url: str, product: str, content: str = "", score: float = 0.5, **extra_meta):
     return {
         "content": content,
         "score": score,
@@ -20,6 +20,7 @@ def _doc(title: str, url: str, product: str, content: str = "", score: float = 0
             "product": product,
             "repo_path": f"help/{title.lower().replace(' ', '-')}.md",
             "s3_key": f"adobe-docs/experience-platform/help/{title.lower().replace(' ', '-')}.md",
+            **extra_meta,
         },
     }
 
@@ -143,3 +144,58 @@ class TestEvidenceScoring:
             refinement={"refinement_applied": True, "refinement_neighbors": ["Some neighbor"]},
         )
         assert "documentation-aligned search" not in (evidence["banner"] or "")
+
+
+class TestVideoOnlySourceFallback:
+    """Video-stub docs (frontmatter + video embed, no standalone article) commonly
+    have a blank url/exl_url. Regression coverage for the corpus finding that ~91%
+    of CJA's video chunks (and 100% of Analytics/Target/AJO's) were silently dropped
+    as citations rather than falling back to their video_url."""
+
+    def test_video_only_doc_falls_back_to_video_url_as_source(self):
+        doc = _doc(
+            "Create an annotation",
+            "",  # no documentation page — matches real CJA video-stub metadata
+            "Customer Journey Analytics",
+            score=0.75,
+            video_url="https://video.tv.adobe.com/v/343742/?quality=12&learn=on",
+        )
+        evidence = build_evidence([doc])
+        assert evidence["source_count"] == 1
+        src = evidence["sources"][0]
+        assert src["url"] == "https://video.tv.adobe.com/v/343742/?quality=12&learn=on"
+        assert src["video_url"] == "https://video.tv.adobe.com/v/343742/?quality=12&learn=on"
+
+    def test_doc_without_url_or_video_is_still_dropped(self):
+        doc = _doc("Leverage context data", "", "Adobe Journey Optimizer", score=0.71)
+        evidence = build_evidence([doc])
+        assert evidence["source_count"] == 0
+
+    def test_video_fallback_preserves_thumbnail_and_images(self):
+        doc = _doc(
+            "Add components to the freeform panel",
+            "",
+            "Customer Journey Analytics",
+            score=0.8,
+            video_url="https://video.tv.adobe.com/v/3458210/?learn=on",
+            thumbnail_url="https://example.com/thumb.png",
+            image_urls='["https://example.com/img1.png"]',
+        )
+        evidence = build_evidence([doc])
+        src = evidence["sources"][0]
+        assert src["thumbnail_url"] == "https://example.com/thumb.png"
+        assert src["image_urls"] == ["https://example.com/img1.png"]
+
+    def test_real_documentation_url_takes_priority_over_video(self):
+        """When a real page exists, cite the page — the video fallback is last-resort only."""
+        doc = _doc(
+            "Guardrails for Data Ingestion",
+            "https://experienceleague.adobe.com/en/docs/experience-platform/ingestion/guardrails",
+            "Adobe Experience Platform",
+            score=0.62,
+            video_url="https://video.tv.adobe.com/v/999999",
+        )
+        evidence = build_evidence([doc])
+        src = evidence["sources"][0]
+        assert src["url"] == "https://experienceleague.adobe.com/en/docs/experience-platform/ingestion/guardrails"
+        assert src["video_url"] == "https://video.tv.adobe.com/v/999999"

@@ -7,7 +7,9 @@ Tables created on first startup:
   exl_ratelimits — per-IP rate limiting for the auth endpoint
 """
 
+import hashlib
 import os
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -119,6 +121,27 @@ def init_tables() -> None:
                     value      TEXT NOT NULL DEFAULT '',
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
+
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id              UUID PRIMARY KEY,
+                    user_id         TEXT NOT NULL DEFAULT '',
+                    title           TEXT NOT NULL DEFAULT '',
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id           BIGSERIAL PRIMARY KEY,
+                    session_id   UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+                    message_id   TEXT NOT NULL DEFAULT '',
+                    role         TEXT NOT NULL,
+                    content      TEXT NOT NULL,
+                    slug         TEXT,
+                    is_published BOOLEAN NOT NULL DEFAULT FALSE,
+                    citations    JSONB,
+                    evidence     JSONB,
+                    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
             """)
             # Safe migrations for existing deployments
             cur.execute(
@@ -167,6 +190,18 @@ def init_tables() -> None:
             )
             cur.execute(
                 "INSERT INTO system_config (key, value) VALUES ('default_monthly_limit', '20') ON CONFLICT (key) DO NOTHING"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chat_messages_session_id ON chat_messages (session_id)"
+            )
+            cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_messages_slug ON chat_messages (slug) WHERE slug IS NOT NULL"
+            )
+            cur.execute(
+                "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS citations JSONB"
+            )
+            cur.execute(
+                "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS evidence JSONB"
             )
         conn.commit()
     finally:
@@ -655,6 +690,101 @@ def log_query(
                 (message_id, user_id, email, query_text, llm_model, input_tokens, output_tokens, cost),
             )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def ensure_chat_session(session_id: str, user_id: str = "", title: str = "") -> None:
+    """Create a chat session row on first use; otherwise just bump last_message_at."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO chat_sessions (id, user_id, title)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (id) DO UPDATE SET last_message_at = NOW()
+                """,
+                (session_id, user_id, title),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def append_chat_message(
+    session_id: str,
+    role: str,
+    content: str,
+    message_id: str = "",
+    slug: Optional[str] = None,
+    is_published: bool = False,
+    citations: Optional[list] = None,
+    evidence: Optional[dict] = None,
+) -> None:
+    """Append one durable message row (user or assistant turn) to a chat session."""
+    from psycopg2.extras import Json
+
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO chat_messages (session_id, message_id, role, content, slug, is_published, citations, evidence)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    session_id, message_id, role, content, slug, is_published,
+                    Json(citations) if citations is not None else None,
+                    Json(evidence) if evidence is not None else None,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def make_slug(text: str) -> str:
+    """URL-safe, human-legible slug for a query, deduplicated via a content hash suffix."""
+    base = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60].rstrip("-")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:6]
+    return f"{base}-{digest}" if base else digest
+
+
+def get_landing_by_slug(slug: str) -> Optional[dict]:
+    """Return a published query+answer pair for a public SEO landing page, or None."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT session_id, content AS answer, citations, evidence, created_at
+                FROM chat_messages
+                WHERE slug = %s AND is_published = TRUE AND role = 'assistant'
+                """,
+                (slug,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute(
+                """
+                SELECT content FROM chat_messages
+                WHERE session_id = %s AND role = 'user' AND created_at <= %s
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (row["session_id"], row["created_at"]),
+            )
+            q = cur.fetchone()
+        created_at = row["created_at"]
+        return {
+            "slug": slug,
+            "query": q["content"] if q else "",
+            "answer": row["answer"],
+            "citations": row["citations"] or [],
+            "evidence": row["evidence"],
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+        }
     finally:
         conn.close()
 

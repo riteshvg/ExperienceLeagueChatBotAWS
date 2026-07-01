@@ -256,12 +256,27 @@ export const useChatStore = create<ChatState>()(
                   trackResponseReceived(query, turnNumber, event.model, currentMsg?.citations?.length ?? 0)
                 }
 
-                set((s) => ({
-                  ...updatesFromDone,
-                  sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
-                    msgs.map((m) => (m.id === assistantId ? { ...m, streaming: false, model: event.model } : m))
-                  ),
-                }))
+                set((s) => {
+                  // The server is the source of truth for session identity — it mints
+                  // a fresh UUID on a session's first persisted turn (and replaces any
+                  // legacy non-UUID client id). Rekey the local entry to match so this
+                  // session persists/resumes under the id the server actually recorded.
+                  let sessions = s.sessions
+                  let activeSessionId = s.activeSessionId
+                  const serverId = event.session_id
+                  if (serverId && serverId !== activeSessionId && sessions[activeSessionId]) {
+                    const { [activeSessionId]: moved, ...rest } = sessions
+                    sessions = { ...rest, [serverId]: { ...moved, id: serverId } }
+                    activeSessionId = serverId
+                  }
+                  return {
+                    ...updatesFromDone,
+                    activeSessionId,
+                    sessions: patchActiveMessages(sessions, activeSessionId, (msgs) =>
+                      msgs.map((m) => (m.id === assistantId ? { ...m, streaming: false, model: event.model } : m))
+                    ),
+                  }
+                })
               } else if (event.type === 'error') {
                 trackNoAnswer(query, turnNumber, 'error')
                 set((s) => ({
