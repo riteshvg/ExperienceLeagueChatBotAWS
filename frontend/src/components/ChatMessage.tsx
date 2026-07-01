@@ -4,10 +4,8 @@ import remarkGfm from 'remark-gfm'
 import { Play, Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MessageExtras } from './MessageExtras'
-import { ClarificationCard } from './ClarificationCard'
 import { ImageCarousel, type CarouselImage } from './ImageCarousel'
 import { type Message } from '@/lib/api'
-import { useChatStore } from '@/store/chatStore'
 import { trackImageCarouselNavigate, trackImageOpen } from '@/analytics'
 
 interface Props {
@@ -204,16 +202,12 @@ function CopyAnswerButton({
 }
 
 export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props) {
-  const selectClarification = useChatStore((s) => s.selectClarification)
-  const isStreaming = useChatStore((s) => s.isStreaming)
   const isUser = message.role === 'user'
-  const isClarificationOnly =
-    !isUser && message.model === 'clarification' && !!message.clarification
   const [copied, setCopied] = useState(false)
   const [carousel, setCarousel] = useState<{ images: CarouselImage[]; index: number } | null>(null)
   // Show SSE content as it arrives — typewriter lag caused layout thrash with embedded media.
   const processedContent = stripMdLinks(
-    stripCitationMarkers(sanitizeAdobeMarkup(message.content || (isClarificationOnly ? '' : ' '))),
+    stripCitationMarkers(sanitizeAdobeMarkup(message.content || ' ')),
   )
 
   const embedReady = !message.streaming
@@ -311,8 +305,6 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
       <div className={cn('max-w-[85%] space-y-2', isUser ? 'items-end' : 'items-start')}>
 
-        {/* Bubble — omitted when the response is clarification-only (no answer text yet) */}
-        {!isClarificationOnly && (
         <div className={cn(
           'relative px-4 py-3 rounded-2xl text-sm leading-relaxed',
           isUser
@@ -337,20 +329,9 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
             </div>
           )}
         </div>
-        )}
-
-        {!isUser && message.clarification && message.model === 'clarification' && (
-          <ClarificationCard
-            clarification={message.clarification}
-            disabled={isStreaming}
-            onSelect={(option) =>
-              selectClarification(option, message.clarification!.original_query)
-            }
-          />
-        )}
 
         {/* Sources + follow-ups (compact expandable row) */}
-        {!isUser && !message.streaming && message.content.trim() && message.model !== 'clarification' && (
+        {!isUser && !message.streaming && message.content.trim() && (
           <MessageExtras
             evidence={message.evidence}
             citations={message.citations}

@@ -51,41 +51,12 @@ export interface RetrievalEvidence {
   sources: RetrievalSource[]
 }
 
-export interface ClarificationOption {
-  id: string
-  label: string
-  query: string
-  product: string
-  doc_title: string
-  preview_url: string
-  doc_anchor_s3_key?: string
-  similarity_score?: number
-  match_strength?: string
-}
-
-export interface ClarificationPayload {
-  genesis: string
-  original_query: string
-  blocked_reason: string
-  intent_summary: string
-  options: ClarificationOption[]
-}
-
-export interface ClarificationSelection {
-  option_id: string
-  resolved_query: string
-  product_override?: string
-  doc_anchor_s3_key?: string
-  original_query?: string
-}
-
 export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   citations?: Citation[]
   evidence?: RetrievalEvidence
-  clarification?: ClarificationPayload
   model?: string
   streaming?: boolean
   follow_ups?: string[]
@@ -96,7 +67,6 @@ export type SSEEvent =
   | { type: 'token'; content: string }
   | { type: 'citations'; citations: Citation[] }
   | ({ type: 'evidence' } & RetrievalEvidence)
-  | ({ type: 'clarification' } & ClarificationPayload)
   | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number }
   | { type: 'error'; message: string }
 
@@ -136,7 +106,6 @@ export async function* streamChat(
   sessionId: string,
   haikuOnly = false,
   messageId?: string,
-  clarification?: ClarificationSelection,
 ): AsyncGenerator<SSEEvent> {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
@@ -146,7 +115,6 @@ export async function* streamChat(
       session_id: sessionId,
       haiku_only: haikuOnly,
       message_id: messageId,
-      clarification: clarification ?? undefined,
     }),
   })
 

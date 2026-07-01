@@ -25,10 +25,6 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from backend.core.chroma_retriever import ChromaRetriever
-from backend.core.clarification_resolver import (
-    build_clarification,
-    clarification_selection_to_routing,
-)
 from backend.core.evidence import build_evidence
 from backend.core.retrieval_refiner import (
     RefinementResult,
@@ -212,31 +208,20 @@ class RAGPipeline:
         query: str,
         session_id: str,
         haiku_only: bool = False,
-        clarification: dict | None = None,
     ) -> AsyncGenerator[dict, None]:
         try:
             settings = get_settings()
             history = self.session_store.get_history(session_id)
 
-            route_query = query
-            if clarification:
-                route_query = clarification_selection_to_routing(clarification).get(
-                    "resolved_query", query
-                ) or query
-
             # Route: haiku_only flag overrides auto-routing
-            routed = "haiku" if haiku_only else classify_query(route_query)
+            routed = "haiku" if haiku_only else classify_query(query)
             logger.info(f"SmartRouter: '{query[:60]}' → {routed}")
 
             if routed == "sonnet":
-                async for event in self._stream_agent(
-                    query, session_id, history, settings, clarification=clarification,
-                ):
+                async for event in self._stream_agent(query, session_id, history, settings):
                     yield event
             else:
-                async for event in self._stream_chain(
-                    query, session_id, history, settings, clarification=clarification,
-                ):
+                async for event in self._stream_chain(query, session_id, history, settings):
                     yield event
 
         except Exception as exc:
@@ -290,8 +275,6 @@ class RAGPipeline:
         settings,
         product_intent,
         where_filter,
-        *,
-        skip_topical_gate: bool = False,
     ):
         """Shared retrieval + refinement + topical gate."""
         raw_docs, refinement = self._retrieve_docs(
@@ -301,17 +284,6 @@ class RAGPipeline:
         relevant_docs = assessment["relevant_docs"]
         product_docs = assessment["product_docs"]
         topical_scores = assessment["topical_scores"]
-
-        if skip_topical_gate:
-            if not raw_docs:
-                related = self._fetch_related_docs(search_query, where_filter)
-                return [], refinement, related, topical_scores, "no_retrieval"
-            pool = product_docs if product_intent and product_docs else raw_docs
-            if not pool:
-                pool = raw_docs
-            if self._is_off_topic(pool, product_intent=product_intent):
-                return pool, refinement, None, topical_scores, "off_topic"
-            return pool[: settings.max_retrieval_results], refinement, None, topical_scores, None
 
         if not raw_docs:
             related = self._fetch_related_docs(search_query, where_filter)
@@ -329,7 +301,7 @@ class RAGPipeline:
             topical_scores = {**topical_scores, **related_scores}
             return [], refinement, related, topical_scores, "no_direct_match"
 
-        # Weak topical alignment — prefer clarification over a low-confidence answer.
+        # Weak topical alignment — treat as no direct match rather than a low-confidence answer.
         best_topical = max(topical_match_score(query, d) for d in relevant_docs)
         if best_topical < 0.22:
             related = sorted(
@@ -354,56 +326,24 @@ class RAGPipeline:
         self,
         query: str,
         history: list[dict],
-        clarification: dict | None,
-    ) -> tuple[str, str, str | None, dict | None, bool]:
-        """Return (query, search_query, product_intent, where_filter, skip_topical_gate)."""
-        routing = clarification_selection_to_routing(clarification) if clarification else None
-        query_to_use = routing["resolved_query"] if routing else query
-        enhanced, _ = self.query_processor.preprocess_query(query_to_use)
+    ) -> tuple[str, str, str | None, dict | None]:
+        """Return (query, search_query, product_intent, where_filter)."""
+        enhanced, _ = self.query_processor.preprocess_query(query)
         search_query = _contextualize_query(enhanced, history)
-
-        if routing:
-            product_intent = routing.get("product_override") or detect_product_intent(query_to_use)
-            skip_topical = bool(routing.get("skip_topical_gate"))
-        else:
-            product_intent = detect_product_intent(query_to_use)
-            skip_topical = False
-
+        product_intent = detect_product_intent(query)
         where_filter = {"product": {"$eq": product_intent}} if product_intent else None
-        return query_to_use, search_query, product_intent, where_filter, skip_topical
+        return query, search_query, product_intent, where_filter
 
-    async def _emit_clarification_or_block(
+    async def _emit_block(
         self,
-        query,
-        search_query,
-        session_id,
         product_intent,
         blocked,
         related,
         refinement,
         topical_scores,
+        session_id,
     ):
-        """Yield clarification options or the hard-block fallback response."""
-        clar = build_clarification(
-            self.retriever,
-            query,
-            search_query,
-            product_intent=product_intent,
-            blocked_reason=blocked,
-            refinement=refinement,
-            related_docs=related,
-        )
-        if clar and clar.has_options:
-            yield clar.to_event_payload()
-            yield {
-                "type": "done",
-                "model": "clarification",
-                "session_id": session_id,
-                "input_tokens": 0,
-                "output_tokens": 0,
-            }
-            return
-
+        """Yield the hard-block fallback response for a blocked retrieval outcome."""
         if blocked == "no_retrieval":
             evidence = await self._emit_evidence(
                 [], product_intent, "no_retrieval", related, refinement, topical_scores,
@@ -422,25 +362,22 @@ class RAGPipeline:
 
     # ── Haiku: single-pass LCEL chain ─────────────────────────────────────────
 
-    async def _stream_chain(self, query, session_id, history, settings, clarification=None):
-        query_to_use, search_query, product_intent, where_filter, skip_topical = (
-            self._resolve_retrieval_inputs(query, history, clarification)
+    async def _stream_chain(self, query, session_id, history, settings):
+        query_to_use, search_query, product_intent, where_filter = (
+            self._resolve_retrieval_inputs(query, history)
         )
 
         raw_docs, refinement, related, topical_scores, blocked = await self._run_retrieval_path(
             query_to_use, search_query, settings, product_intent, where_filter,
-            skip_topical_gate=skip_topical,
         )
         if blocked == "no_retrieval" or blocked == "no_direct_match":
-            async for event in self._emit_clarification_or_block(
-                query if clarification else query_to_use,
-                search_query,
-                session_id,
+            async for event in self._emit_block(
                 product_intent,
                 blocked,
                 related,
                 refinement,
                 topical_scores,
+                session_id,
             ):
                 yield event
             return
@@ -495,25 +432,22 @@ class RAGPipeline:
 
     # ── Sonnet: single-pass LCEL chain ───────────────────────────────────────
 
-    async def _stream_agent(self, query, session_id, history, settings, clarification=None):
-        query_to_use, search_query, product_intent, where_filter, skip_topical = (
-            self._resolve_retrieval_inputs(query, history, clarification)
+    async def _stream_agent(self, query, session_id, history, settings):
+        query_to_use, search_query, product_intent, where_filter = (
+            self._resolve_retrieval_inputs(query, history)
         )
 
         raw_docs, refinement, related, topical_scores, blocked = await self._run_retrieval_path(
             query_to_use, search_query, settings, product_intent, where_filter,
-            skip_topical_gate=skip_topical,
         )
         if blocked == "no_retrieval" or blocked == "no_direct_match":
-            async for event in self._emit_clarification_or_block(
-                query if clarification else query_to_use,
-                search_query,
-                session_id,
+            async for event in self._emit_block(
                 product_intent,
                 blocked,
                 related,
                 refinement,
                 topical_scores,
+                session_id,
             ):
                 yield event
             return
