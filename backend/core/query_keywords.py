@@ -84,6 +84,24 @@ _PHRASE_CAP_RE = re.compile(
 _ACRONYM_PHRASE_RE = re.compile(r"\b([A-Z]{2,})\s+([a-z]{3,}s?)\b")
 _QUOTED_RE = re.compile(r'["\']([^"\']+)["\']')
 
+# Common documentation nouns that carry no topical signal on their own — pairing
+# one of these with a bare product acronym (e.g. "AEP request", "CJA data") produces
+# an embedding probe that matches almost any doc dominated by the product's own name,
+# drowning out genuinely on-topic results. See _has_generic_acronym_pairing().
+_GENERIC_ACRONYM_PAIR_NOUNS = frozenset({
+    "request", "requests", "call", "calls", "data", "event", "events",
+    "response", "responses", "issue", "issues", "problem", "problems",
+    "error", "errors", "report", "reports", "call/dispatch",
+})
+
+
+def _has_generic_acronym_pairing(phrase: str) -> bool:
+    """True when phrase is a bare acronym + a generic noun (e.g. "AEP request")."""
+    match = _ACRONYM_PHRASE_RE.fullmatch(phrase.strip())
+    if not match:
+        return False
+    return match.group(2).lower() in _GENERIC_ACRONYM_PAIR_NOUNS
+
 
 @dataclass
 class QueryKeywords:
@@ -180,7 +198,10 @@ def extract_query_keywords(query: str, product_intent: str | None = None) -> Que
     for phrase in topic_phrases[:3]:
         expanded = _expand_phrase(phrase)
         embedding_queries.append(expanded[0])
-        if product_intent:
+        # Skip "{acronym} {generic noun} {product name}" — e.g. "AEP request Adobe
+        # Experience Platform" — it carries no topical signal beyond the product's
+        # own name and out-ranks genuinely relevant docs in the hybrid merge.
+        if product_intent and not _has_generic_acronym_pairing(phrase):
             embedding_queries.append(f"{expanded[0]} {product_intent}")
         if len(expanded) > 1:
             embedding_queries.append(f"{expanded[0]} {expanded[1]} Adobe Tags implementation")
