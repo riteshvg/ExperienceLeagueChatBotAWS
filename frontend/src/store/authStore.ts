@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { hashUserId, setHashedUserId } from '@/analytics'
 import { useHistoryStore } from './historyStore'
+import { useChatStore } from './chatStore'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 const SESSION_KEY = 'exl_session'
@@ -84,7 +85,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
     localStorage.removeItem(SESSION_KEY)
     set({ session: null, isAuthenticated: false })
-    // Conversation history is per-account — never let it survive into the next login on this browser.
+    // Chat state is per-account — never let it survive into the next login on this browser.
     useHistoryStore.getState().reset()
+    useChatStore.getState().resetLocalState()
   },
 }))

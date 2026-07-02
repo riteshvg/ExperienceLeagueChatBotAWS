@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation, type RetrievalEvidence, type ChatStage } from '@/lib/api'
 import {
   hasAnalyticsSession,
@@ -15,6 +14,16 @@ import {
 
 function makeId() {
   return Math.random().toString(36).slice(2)
+}
+
+// Chat history now lives server-side, keyed to the authenticated user
+// (see historyStore.ts). Browser-local session state used to be persisted
+// here too, which caused stale, per-browser chats to reappear alongside the
+// real account history — one-time cleanup of that legacy cache.
+try {
+  localStorage.removeItem('el-chat-store')
+} catch {
+  /* ignore */
 }
 
 // Watchdog: if a pipeline stage runs this long with no transition and no tokens,
@@ -71,6 +80,7 @@ interface ChatState {
   switchSession: (id: string) => void
   deleteSession: (id: string) => void
   loadHistoricalSession: (conversationId: string, title: string, messages: Message[]) => void
+  resetLocalState: () => void
   clearError: () => void
   setApiDisabled: (disabled: boolean) => void
   setKnowledgeBankMaintenance: (
@@ -101,9 +111,8 @@ function patchActiveMessages(
 }
 
 export const useChatStore = create<ChatState>()(
-  persist(
-    (set, get) => {
-      const initial = createSession()
+  (set, get) => {
+    const initial = createSession()
       return {
         sessions: { [initial.id]: initial },
         activeSessionId: initial.id,
@@ -441,27 +450,22 @@ export const useChatStore = create<ChatState>()(
             })
           }
         },
+
+        // Wipe local session state on logout — otherwise the previous
+        // account's in-memory chat content could still be visible to the
+        // next person who signs in on this browser, even though the
+        // history *list* is already correctly scoped per account.
+        resetLocalState: () => {
+          const fresh = createSession()
+          set({
+            sessions: { [fresh.id]: fresh },
+            activeSessionId: fresh.id,
+            isStreaming: false,
+            currentStage: null,
+            stageStalled: false,
+            error: null,
+          })
+        },
       }
-    },
-    {
-      name: 'el-chat-store',
-      partialize: (s) => ({
-        sessions: s.sessions,
-        activeSessionId: s.activeSessionId,
-      }),
-      migrate: (persisted: any) => {
-        if (persisted && !persisted.sessions) {
-          const session = createSession()
-          return { sessions: { [session.id]: session }, activeSessionId: session.id }
-        }
-        if (persisted?.sessions) {
-          for (const session of Object.values(persisted.sessions) as any[]) {
-            if (session.conversationId === undefined) session.conversationId = null
-          }
-        }
-        return persisted
-      },
-      version: 3,
     }
-  )
 )
