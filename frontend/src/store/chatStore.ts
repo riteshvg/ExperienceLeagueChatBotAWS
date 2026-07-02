@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation, type RetrievalEvidence } from '@/lib/api'
+import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation, type RetrievalEvidence, type ChatStage } from '@/lib/api'
 import {
   hasAnalyticsSession,
   trackFollowupQuery,
@@ -16,6 +16,16 @@ import {
 function makeId() {
   return Math.random().toString(36).slice(2)
 }
+
+// Watchdog: if a pipeline stage runs this long with no transition and no tokens,
+// the status copy switches to a generic "still working" message.
+const STAGE_STALL_MS = 8000
+
+// Minimum time each real pipeline stage stays on screen before the next one can
+// replace it. Retrieval can finish in milliseconds locally, but "Checking Adobe
+// documentation" needs to actually be readable — that disclosure is what makes
+// the pipeline feel trustworthy, so it must never flash by unseen.
+const MIN_STAGE_DISPLAY_MS = 800
 
 function deriveTitle(messages: Message[]): string {
   const first = messages.find((m) => m.role === 'user')
@@ -34,6 +44,8 @@ interface ChatState {
   sessions: Record<string, ChatSession>
   activeSessionId: string
   isStreaming: boolean
+  currentStage: ChatStage | null
+  stageStalled: boolean
   error: string | null
   accessDenied: boolean
   rateLimited: boolean
@@ -92,6 +104,8 @@ export const useChatStore = create<ChatState>()(
         sessions: { [initial.id]: initial },
         activeSessionId: initial.id,
         isStreaming: false,
+        currentStage: null,
+        stageStalled: false,
         error: null,
         accessDenied: false,
         rateLimited: false,
@@ -206,6 +220,7 @@ export const useChatStore = create<ChatState>()(
 
           set((s) => ({
             isStreaming: true,
+            stageStalled: false,
             sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) => [
               ...msgs,
               userMsg,
@@ -213,11 +228,67 @@ export const useChatStore = create<ChatState>()(
             ]),
           }))
 
+          // Watchdog: flips stageStalled if the currently *displayed* stage sits
+          // this long with no transition and no tokens.
+          let staleTimer: ReturnType<typeof setTimeout> | null = null
+          const armStaleTimer = () => {
+            if (staleTimer) clearTimeout(staleTimer)
+            staleTimer = setTimeout(() => set({ stageStalled: true }), STAGE_STALL_MS)
+          }
+          const disarmStaleTimer = () => {
+            if (staleTimer) clearTimeout(staleTimer)
+            staleTimer = null
+          }
+
+          // Stage display queue: each real stage the backend reports is guaranteed
+          // at least MIN_STAGE_DISPLAY_MS on screen before the next one can replace
+          // it, so a fast retrieval can never skip past "Checking Adobe
+          // documentation" before a user has a chance to read it. Tokens always
+          // preempt this immediately (see statusCleared below) — the queue only
+          // paces transitions *between* status stages, never delays real content.
+          let stageQueue: ChatStage[] = []
+          let dwellTimer: ReturnType<typeof setTimeout> | null = null
+          const clearDwellTimer = () => {
+            if (dwellTimer) clearTimeout(dwellTimer)
+            dwellTimer = null
+          }
+          const showNextQueuedStage = () => {
+            const next = stageQueue.shift()
+            if (next === undefined) {
+              dwellTimer = null
+              return
+            }
+            set({ currentStage: next, stageStalled: false })
+            armStaleTimer()
+            dwellTimer = setTimeout(showNextQueuedStage, MIN_STAGE_DISPLAY_MS)
+          }
+          const enqueueStage = (stage: ChatStage) => {
+            const last = stageQueue.length > 0 ? stageQueue[stageQueue.length - 1] : get().currentStage
+            if (last === stage) return
+            stageQueue.push(stage)
+            if (!dwellTimer) showNextQueuedStage()
+          }
+          const resetStageMachinery = () => {
+            stageQueue = []
+            clearDwellTimer()
+            disarmStaleTimer()
+          }
+
+          enqueueStage('understanding')
+          let statusCleared = false
+
           try {
             for await (const event of streamChat(query, activeSessionId, false, assistantId)) {
               if (!get().isStreaming) break
 
-              if (event.type === 'token') {
+              if (event.type === 'status') {
+                enqueueStage(event.stage)
+              } else if (event.type === 'token') {
+                if (!statusCleared) {
+                  statusCleared = true
+                  resetStageMachinery()
+                  set({ currentStage: null, stageStalled: false })
+                }
                 set((s) => ({
                   sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                     msgs.map((m) => (m.id === assistantId ? { ...m, content: m.content + event.content } : m))
@@ -237,7 +308,8 @@ export const useChatStore = create<ChatState>()(
                   ),
                 }))
               } else if (event.type === 'done') {
-                const updatesFromDone: Partial<ChatState> = {}
+                resetStageMachinery()
+                const updatesFromDone: Partial<ChatState> = { currentStage: null, stageStalled: false }
                 if (event.queries_used !== undefined) updatesFromDone.queriesUsed = event.queries_used
                 if (event.queries_remaining !== undefined) updatesFromDone.queriesRemaining = event.queries_remaining
                 if (event.queries_limit !== undefined) updatesFromDone.queriesLimit = event.queries_limit
@@ -263,8 +335,11 @@ export const useChatStore = create<ChatState>()(
                   ),
                 }))
               } else if (event.type === 'error') {
+                resetStageMachinery()
                 trackNoAnswer(query, turnNumber, 'error')
                 set((s) => ({
+                  currentStage: null,
+                  stageStalled: false,
                   error: event.message,
                   sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                     msgs.map((m) =>
@@ -288,7 +363,10 @@ export const useChatStore = create<ChatState>()(
             const rateLimitMsg = isRateLimited ? ((err as any)?.detail?.message ?? msg) : ''
             const suppressContent =
               isDisabled || isApiDisabled || isKnowledgeBankUpdating || isRateLimited || isMonthlyExhausted
+            resetStageMachinery()
             set((s) => ({
+              currentStage: null,
+              stageStalled: false,
               error: suppressContent ? null : msg,
               accessDenied: isDisabled || s.accessDenied,
               rateLimited: isRateLimited || s.rateLimited,
@@ -311,7 +389,8 @@ export const useChatStore = create<ChatState>()(
               ),
             }))
           } finally {
-            set({ isStreaming: false })
+            resetStageMachinery()
+            set({ isStreaming: false, currentStage: null, stageStalled: false })
           }
 
           // After streaming: generate follow-up questions (non-blocking)

@@ -210,6 +210,8 @@ class RAGPipeline:
         haiku_only: bool = False,
     ) -> AsyncGenerator[dict, None]:
         try:
+            yield {"type": "status", "stage": "understanding"}
+
             settings = get_settings()
             history = self.session_store.get_history(session_id)
 
@@ -367,6 +369,8 @@ class RAGPipeline:
             self._resolve_retrieval_inputs(query, history)
         )
 
+        yield {"type": "status", "stage": "searching"}
+
         raw_docs, refinement, related, topical_scores, blocked = await self._run_retrieval_path(
             query_to_use, search_query, settings, product_intent, where_filter,
         )
@@ -414,6 +418,8 @@ class RAGPipeline:
         import asyncio as _asyncio
         validation_task = _asyncio.create_task(filter_valid_citations(raw_citations))
 
+        yield {"type": "status", "stage": "writing"}
+
         full_response = ""
         async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
             full_response += chunk
@@ -436,6 +442,8 @@ class RAGPipeline:
         query_to_use, search_query, product_intent, where_filter = (
             self._resolve_retrieval_inputs(query, history)
         )
+
+        yield {"type": "status", "stage": "searching"}
 
         raw_docs, refinement, related, topical_scores, blocked = await self._run_retrieval_path(
             query_to_use, search_query, settings, product_intent, where_filter,
@@ -481,6 +489,8 @@ class RAGPipeline:
 
         import asyncio as _asyncio
         validation_task = _asyncio.create_task(filter_valid_citations(raw_citations))
+
+        yield {"type": "status", "stage": "writing"}
 
         full_response = ""
         async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
