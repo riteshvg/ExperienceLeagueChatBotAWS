@@ -63,7 +63,10 @@ export interface Message {
   feedback?: 1 | -1
 }
 
+export type ChatStage = 'understanding' | 'searching' | 'writing'
+
 export type SSEEvent =
+  | { type: 'status'; stage: ChatStage }
   | { type: 'token'; content: string }
   | { type: 'citations'; citations: Citation[] }
   | ({ type: 'evidence' } & RetrievalEvidence)

@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/authStore';
 import { useQuotaStore } from '@/store/quotaStore';
 import { ChatInput, type ChatInputHandle } from '@/components/ChatInput';
 import { ChatMessage } from '@/components/ChatMessage';
+import { StatusIndicator } from '@/components/StatusIndicator';
 import { Sidebar } from '@/components/Sidebar';
 import { LandingPanel } from '@/components/LandingPanel';
 import { getMe, fetchMaintenanceStatus, isApiDisabled } from '@/lib/api';
@@ -27,6 +28,8 @@ export function ChatPage() {
     sessions,
     activeSessionId,
     isStreaming,
+    currentStage,
+    stageStalled,
     sendMessage,
     error,
     accessDenied,
@@ -423,6 +426,12 @@ export function ChatPage() {
             return messages.map((msg) => {
               if (msg.role === 'user') userTurn++;
               const turn = userTurn;
+              // Real-time pipeline status replaces the empty streaming bubble;
+              // it steps aside the instant the first token lands (content becomes non-empty)
+              // or the turn ends for any reason (streaming flips false).
+              if (msg.role === 'assistant' && msg.streaming && !msg.content.trim()) {
+                return <StatusIndicator key={msg.id} stage={currentStage} stalled={stageStalled} />;
+              }
               return (
                 <ChatMessage
                   key={msg.id}
