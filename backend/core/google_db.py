@@ -5,10 +5,13 @@ Tables created on first startup:
   exl_users      — one row per Google account (user_id = Google sub)
   exl_sessions   — active sessions with 30-day TTL
   exl_ratelimits — per-IP rate limiting for the auth endpoint
+  conversations  — one row per chat conversation, keyed to exl_users.user_id
+  messages       — full turn-by-turn transcript for a conversation
 """
 
 import os
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -119,6 +122,23 @@ def init_tables() -> None:
                     value      TEXT NOT NULL DEFAULT '',
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
+
+                CREATE TABLE IF NOT EXISTS conversations (
+                    id          UUID PRIMARY KEY,
+                    user_id     TEXT NOT NULL REFERENCES exl_users(user_id) ON DELETE CASCADE,
+                    session_id  TEXT,
+                    title       TEXT NOT NULL DEFAULT '',
+                    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS messages (
+                    id              UUID PRIMARY KEY,
+                    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                    role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                    content         TEXT NOT NULL,
+                    citations       JSONB,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
             """)
             # Safe migrations for existing deployments
             cur.execute(
@@ -167,6 +187,17 @@ def init_tables() -> None:
             )
             cur.execute(
                 "INSERT INTO system_config (key, value) VALUES ('default_monthly_limit', '20') ON CONFLICT (key) DO NOTHING"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversations_user_created ON conversations (user_id, created_at DESC)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages (conversation_id, created_at ASC)"
+            )
+            # session_id is a free-form client-generated id (not guaranteed to be a
+            # UUID) kept only for analytics correlation — TEXT, not UUID.
+            cur.execute(
+                "ALTER TABLE conversations ALTER COLUMN session_id TYPE TEXT"
             )
         conn.commit()
     finally:
@@ -1084,5 +1115,139 @@ def check_and_update_ratelimit(ip: str) -> bool:
             )
         conn.commit()
         return True
+    finally:
+        conn.close()
+
+
+# ── Conversation history (persistent, keyed to the authenticated user) ────────
+#
+# This is a pure storage layer: creating/appending rows here never calls the
+# RAG pipeline, embeddings, or the LLM. session_id is carried along only for
+# analytics correlation with exl_query_logs — history lookups always go
+# through conversation_id + user_id, never session_id.
+
+_TITLE_MAX_LEN = 60
+
+
+def create_conversation(user_id: str, session_id: Optional[str], title: str) -> str:
+    """Create a new conversation row. Returns the new conversation id."""
+    conversation_id = str(uuid.uuid4())
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO conversations (id, user_id, session_id, title)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (conversation_id, user_id, session_id, title.strip()[:_TITLE_MAX_LEN]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    return conversation_id
+
+
+def conversation_belongs_to_user(conversation_id: str, user_id: str) -> bool:
+    """True if conversation_id exists and is owned by user_id. False on any mismatch or bad id."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "SELECT 1 FROM conversations WHERE id = %s AND user_id = %s",
+                    (conversation_id, user_id),
+                )
+            except Exception:
+                return False
+            return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
+def append_conversation_message(
+    conversation_id: str,
+    role: str,
+    content: str,
+    citations: Optional[list] = None,
+) -> None:
+    """Append one message row (user or assistant turn) to a conversation."""
+    from psycopg2.extras import Json
+
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO messages (id, conversation_id, role, content, citations)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (
+                    str(uuid.uuid4()), conversation_id, role, content,
+                    Json(citations) if citations is not None else None,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_conversations(user_id: str) -> list[dict]:
+    """Return id/title/created_at only for a user's conversations, most recent first."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, title, created_at FROM conversations WHERE user_id = %s ORDER BY created_at DESC",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["id"] = str(d["id"])
+            if hasattr(d.get("created_at"), "isoformat"):
+                d["created_at"] = d["created_at"].isoformat()
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def get_conversation_messages(conversation_id: str, user_id: str) -> Optional[list[dict]]:
+    """Return ordered messages for a conversation, or None if it doesn't exist or
+    isn't owned by user_id — callers must treat None as "not found", never leak
+    which case it was.
+    """
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "SELECT 1 FROM conversations WHERE id = %s AND user_id = %s",
+                    (conversation_id, user_id),
+                )
+            except Exception:
+                return None
+            if cur.fetchone() is None:
+                return None
+            cur.execute(
+                """
+                SELECT id, role, content, citations, created_at
+                FROM messages
+                WHERE conversation_id = %s
+                ORDER BY created_at ASC
+                """,
+                (conversation_id,),
+            )
+            rows = cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["id"] = str(d["id"])
+            if hasattr(d.get("created_at"), "isoformat"):
+                d["created_at"] = d["created_at"].isoformat()
+            result.append(d)
+        return result
     finally:
         conn.close()

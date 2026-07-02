@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { MessageSquare, Plus, Settings, Trash2, BookOpen, ChevronDown, ChevronRight, X, PanelLeftClose, PanelLeftOpen, House, GitBranch, Info } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { MessageSquare, Plus, Settings, BookOpen, ChevronDown, ChevronRight, X, PanelLeftClose, PanelLeftOpen, House, GitBranch, Info, Loader2 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
-import { useChatStore, type ChatSession } from '@/store/chatStore'
+import { useChatStore } from '@/store/chatStore'
 import { useAuthStore } from '@/store/authStore'
+import { useHistoryStore, groupConversationsByDate } from '@/store/historyStore'
 import { PROMPT_LIBRARY } from '@/lib/prompts'
 
 interface Props {
@@ -12,36 +13,43 @@ interface Props {
   onClose: () => void
 }
 
-function groupByDate(sessions: ChatSession[]): { label: string; items: ChatSession[] }[] {
-  const now = Date.now()
-  const DAY = 86_400_000
-  const today: ChatSession[] = []
-  const yesterday: ChatSession[] = []
-  const older: ChatSession[] = []
-
-  for (const s of sessions) {
-    const age = now - s.createdAt
-    if (age < DAY) today.push(s)
-    else if (age < 2 * DAY) yesterday.push(s)
-    else older.push(s)
-  }
-
-  return [
-    { label: 'Today', items: today },
-    { label: 'Yesterday', items: yesterday },
-    { label: 'Earlier', items: older },
-  ].filter((g) => g.items.length > 0)
-}
-
 export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
-  const { sessions, activeSessionId, isStreaming, startNewChat, switchSession, deleteSession } = useChatStore()
+  const { sessions, activeSessionId, isStreaming, startNewChat, switchSession } = useChatStore()
   const { session } = useAuthStore()
+  const {
+    conversations,
+    loading: historyLoading,
+    messagesLoading,
+    fetchConversations,
+    loadConversation,
+  } = useHistoryStore()
   const [showPrompts, setShowPrompts] = useState(false)
   const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({})
   const [collapsed, setCollapsed] = useState(false)
 
-  const sorted = Object.values(sessions).sort((a, b) => b.createdAt - a.createdAt)
-  const groups = groupByDate(sorted)
+  // Load once on mount, then refresh whenever a turn finishes — that's when a
+  // brand-new conversation_id (or the first-ever row for this account) can appear.
+  useEffect(() => {
+    fetchConversations()
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!isStreaming) fetchConversations()
+  }, [isStreaming]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const groups = groupConversationsByDate(conversations)
+
+  const handleSelectConversation = (id: string) => {
+    if (isStreaming) return
+    // Already loaded in this tab (either from an earlier click, or it's the
+    // session actively being chatted in) — just switch, no need to re-fetch.
+    if (sessions[id]) {
+      switchSession(id)
+    } else {
+      loadConversation(id)
+    }
+  }
+
   const gitBranch = import.meta.env.VITE_GIT_BRANCH ?? ''
   const showEnhancementsBadge = gitBranch === 'enhancements'
   const enhancementsBranchUrl =
@@ -130,37 +138,38 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
       {/* Scrollable content — hidden when collapsed */}
       <div className={cn('flex-1 overflow-y-auto pb-3 space-y-4 px-3', collapsed && 'md:hidden')}>
 
-        {/* Session list */}
-        {groups.map((group) => (
-          <div key={group.label}>
-            <p className="text-xs text-slate-500 uppercase tracking-wider px-2 mb-1">{group.label}</p>
-            <div className="space-y-0.5">
-              {group.items.map((session) => {
-                const isActive = session.id === activeSessionId
-                return (
-                  <div
-                    key={session.id}
-                    className={cn(
-                      'group flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors',
-                      isActive ? 'bg-white/20 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white',
-                    )}
-                    onClick={() => switchSession(session.id)}
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
-                    <span className="flex-1 text-xs truncate">{session.title}</span>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteSession(session.id) }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-red-400 transition-opacity"
-                      title="Delete chat"
+        {/* Conversation history — persistent, keyed to the signed-in account */}
+        <div className={cn(messagesLoading && 'opacity-60 pointer-events-none')}>
+          {historyLoading && conversations.length === 0 && (
+            <p className="flex items-center gap-2 px-2 py-1 text-xs text-white/40">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Loading history…
+            </p>
+          )}
+          {groups.map((group) => (
+            <div key={group.label}>
+              <p className="text-xs text-slate-500 uppercase tracking-wider px-2 mb-1">{group.label}</p>
+              <div className="space-y-0.5">
+                {group.items.map((conv) => {
+                  const isActive = conv.id === activeSessionId
+                  return (
+                    <div
+                      key={conv.id}
+                      className={cn(
+                        'flex items-center gap-2 px-2 py-2 rounded-lg cursor-pointer transition-colors',
+                        isActive ? 'bg-white/20 text-white' : 'text-white/60 hover:bg-white/10 hover:text-white',
+                      )}
+                      onClick={() => handleSelectConversation(conv.id)}
                     >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                )
-              })}
+                      <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span className="flex-1 text-xs truncate">{conv.title || 'New chat'}</span>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
 
         {/* Prompt Library */}
         <div className="border-t border-white/10 pt-3">

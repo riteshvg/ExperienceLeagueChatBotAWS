@@ -19,7 +19,9 @@ function readStoredTheme(): AppTheme {
   } catch {
     /* ignore */
   }
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  // First-time users always start on light, regardless of OS preference —
+  // dark mode is opt-in via the toggle, not inherited from the system.
+  return 'light'
 }
 
 /** Apply theme class before React mounts to avoid flash of wrong theme. */

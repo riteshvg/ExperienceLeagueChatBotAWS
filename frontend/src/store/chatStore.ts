@@ -38,6 +38,9 @@ export interface ChatSession {
   title: string
   messages: Message[]
   createdAt: number
+  // Backend conversation this session persists to. Null until the first turn
+  // completes; a session loaded from history already has one and reuses it.
+  conversationId: string | null
 }
 
 interface ChatState {
@@ -67,6 +70,7 @@ interface ChatState {
   startNewChat: () => void
   switchSession: (id: string) => void
   deleteSession: (id: string) => void
+  loadHistoricalSession: (conversationId: string, title: string, messages: Message[]) => void
   clearError: () => void
   setApiDisabled: (disabled: boolean) => void
   setKnowledgeBankMaintenance: (
@@ -78,7 +82,7 @@ interface ChatState {
 }
 
 function createSession(): ChatSession {
-  return { id: makeId(), title: 'New chat', messages: [], createdAt: Date.now() }
+  return { id: makeId(), title: 'New chat', messages: [], createdAt: Date.now(), conversationId: null }
 }
 
 // Helper: update only the active session's messages
@@ -161,6 +165,28 @@ export const useChatStore = create<ChatState>()(
           const hasTurns = targetMessages.some((m) => m.role === 'user')
           if (hasTurns && !hasAnalyticsSession()) trackSessionStart('resume_chat')
           set({ activeSessionId: id, error: null })
+        },
+
+        // Pure local state write — the messages already came from a database
+        // read (see historyStore.loadConversation). Never calls the pipeline.
+        loadHistoricalSession: (conversationId, title, messages) => {
+          if (get().isStreaming) return
+          const hasTurns = messages.some((m) => m.role === 'user')
+          if (hasTurns && !hasAnalyticsSession()) trackSessionStart('resume_chat')
+          set((s) => ({
+            sessions: {
+              ...s.sessions,
+              [conversationId]: {
+                id: conversationId,
+                conversationId,
+                title,
+                messages,
+                createdAt: Date.now(),
+              },
+            },
+            activeSessionId: conversationId,
+            error: null,
+          }))
         },
 
         deleteSession: (id) => {
@@ -277,8 +303,10 @@ export const useChatStore = create<ChatState>()(
           enqueueStage('understanding')
           let statusCleared = false
 
+          const conversationId = get().sessions[activeSessionId]?.conversationId ?? null
+
           try {
-            for await (const event of streamChat(query, activeSessionId, false, assistantId)) {
+            for await (const event of streamChat(query, activeSessionId, false, assistantId, conversationId)) {
               if (!get().isStreaming) break
 
               if (event.type === 'status') {
@@ -328,12 +356,17 @@ export const useChatStore = create<ChatState>()(
                   trackResponseReceived(query, turnNumber, event.model, currentMsg?.citations?.length ?? 0)
                 }
 
-                set((s) => ({
-                  ...updatesFromDone,
-                  sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
+                set((s) => {
+                  const patched = patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                     msgs.map((m) => (m.id === assistantId ? { ...m, streaming: false, model: event.model } : m))
-                  ),
-                }))
+                  )
+                  const session = patched[s.activeSessionId]
+                  const sessions =
+                    event.conversation_id && session && !session.conversationId
+                      ? { ...patched, [s.activeSessionId]: { ...session, conversationId: event.conversation_id } }
+                      : patched
+                  return { ...updatesFromDone, sessions }
+                })
               } else if (event.type === 'error') {
                 resetStageMachinery()
                 trackNoAnswer(query, turnNumber, 'error')
@@ -421,9 +454,14 @@ export const useChatStore = create<ChatState>()(
           const session = createSession()
           return { sessions: { [session.id]: session }, activeSessionId: session.id }
         }
+        if (persisted?.sessions) {
+          for (const session of Object.values(persisted.sessions) as any[]) {
+            if (session.conversationId === undefined) session.conversationId = null
+          }
+        }
         return persisted
       },
-      version: 2,
+      version: 3,
     }
   )
 )
