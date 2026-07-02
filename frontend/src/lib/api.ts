@@ -70,7 +70,7 @@ export type SSEEvent =
   | { type: 'token'; content: string }
   | { type: 'citations'; citations: Citation[] }
   | ({ type: 'evidence' } & RetrievalEvidence)
-  | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number }
+  | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number; conversation_id?: string }
   | { type: 'error'; message: string }
 
 export interface KnowledgeBankMaintenance {
@@ -109,6 +109,7 @@ export async function* streamChat(
   sessionId: string,
   haikuOnly = false,
   messageId?: string,
+  conversationId?: string | null,
 ): AsyncGenerator<SSEEvent> {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
@@ -118,6 +119,7 @@ export async function* streamChat(
       session_id: sessionId,
       haiku_only: haikuOnly,
       message_id: messageId,
+      conversation_id: conversationId || undefined,
     }),
   })
 
@@ -222,6 +224,39 @@ export async function newSession(): Promise<string> {
 
 export async function clearHistory(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/chat/history/${sessionId}`, { method: 'DELETE' })
+}
+
+// ── Conversation history (persistent, keyed to the authenticated user) ───────
+// Pure reads — loading a past conversation never touches the RAG pipeline.
+
+export interface ConversationSummary {
+  id: string
+  title: string
+  created_at: string
+}
+
+export interface ConversationMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  citations: Citation[] | null
+  created_at: string
+}
+
+export async function fetchConversations(): Promise<ConversationSummary[]> {
+  const res = await fetch(`${API_BASE}/api/conversations`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Fetching conversations failed: ${res.status}`)
+  const data = await res.json()
+  return data.conversations as ConversationSummary[]
+}
+
+export async function fetchConversationMessages(conversationId: string): Promise<ConversationMessage[]> {
+  const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Fetching conversation failed: ${res.status}`)
+  const data = await res.json()
+  return data.messages as ConversationMessage[]
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────

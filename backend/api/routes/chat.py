@@ -104,6 +104,7 @@ class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     haiku_only: bool = False
     message_id: Optional[str] = None
+    conversation_id: Optional[str] = None
 
 
 @router.post("/chat")
@@ -176,6 +177,7 @@ async def chat(
 
     async def event_generator():
         full_response = ""
+        last_citations: list = []
         last_done: Optional[dict] = None
 
         async for event in pipeline.stream(
@@ -185,6 +187,8 @@ async def chat(
         ):
             if event["type"] == "token":
                 full_response += event.get("content", "")
+            elif event["type"] == "citations":
+                last_citations = event.get("citations", [])
             elif event["type"] == "done":
                 # Buffer the done event — augment it with usage info before yielding
                 last_done = event
@@ -208,6 +212,23 @@ async def chat(
                     google_db.increment_monthly_count(uid)
                 except Exception as e:
                     logger.warning(f"Monthly count increment failed (non-fatal): {e}")
+                # Persist to conversation history — pure DB writes, never touches
+                # the pipeline. Reuse the client's conversation_id only if it's
+                # actually owned by this user; otherwise start a fresh one rather
+                # than erroring the turn out.
+                try:
+                    conversation_id = body.conversation_id
+                    if not conversation_id or not google_db.conversation_belongs_to_user(conversation_id, uid):
+                        conversation_id = google_db.create_conversation(
+                            user_id=uid, session_id=session_id, title=body.query,
+                        )
+                    google_db.append_conversation_message(conversation_id, "user", body.query)
+                    google_db.append_conversation_message(
+                        conversation_id, "assistant", full_response, citations=last_citations,
+                    )
+                    last_done = {**last_done, "conversation_id": conversation_id}
+                except Exception as e:
+                    logger.warning(f"Conversation history persistence failed (non-fatal): {e}")
             yield {"data": json.dumps(last_done)}
 
         # After streaming: track usage + log query

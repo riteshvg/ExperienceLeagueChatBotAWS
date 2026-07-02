@@ -45,25 +45,32 @@ Prerequisites: `gh` CLI installed and authenticated (`gh auth status`).
 4. **Open the PR:**
 
    ```bash
-   gh pr create --base main --head <branch-name> \
-     --title "pushing changes for session id" \
-     --body "$(cat <<'EOF'
-   ## Summary
-   - Session ID generation
-   - Fixing citations with CJA
-
-   ## Test plan
-   - [ ] pytest
-   - [ ] tsc -b / vite build
-   - [ ] manual smoke test
-   EOF
-   )"
+   gh pr create --base main --head feat/status-message \
+   --title "Add real-time pipeline status indicator" \
+   --body "$(cat <<'EOF'
    ```
 
-   If `main` locally is itself ahead of `origin/main` (e.g. earlier work never got
-   pushed), the PR diff will include those commits too — check
-   `git log origin/main..<branch-name> --oneline` before opening the PR so the
-   PR description matches what's actually in it.
+## Summary
+
+- Backend emits SSE status events (understanding/searching/writing) as the RAG pipeline progresses
+- Frontend shows trust-building progress copy ("Reading your question" -> "Checking Adobe documentation" -> "Synthesizing the answer"), with a minimum display time per stage, a cosmetic one-way progression during writing, and an 8s stall fallback
+- Status disappears instantly on first token or error
+
+## Test plan
+
+- [ ] pytest
+- [ ] tsc -b / vite build
+- [ ] manual smoke test
+      EOF
+      )"
+
+  ```
+
+  If `main` locally is itself ahead of `origin/main` (e.g. earlier work never got
+  pushed), the PR diff will include those commits too — check
+  `git log origin/main..<branch-name> --oneline` before opening the PR so the
+  PR description matches what's actually in it.
+  ```
 
 5. **Merge** (this repo merges rather than squashes, per existing history —
    see `git log --oneline` for the "Merge pull request #N" pattern):
