@@ -226,6 +226,22 @@ export async function clearHistory(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/chat/history/${sessionId}`, { method: 'DELETE' })
 }
 
+export interface LandingBySlug {
+  slug: string
+  query: string
+  answer: string
+  citations: Citation[]
+  evidence: RetrievalEvidence | null
+  created_at: string
+}
+
+/** Public, unauthenticated fetch for a single recorded query's SEO landing page. */
+export async function getLandingBySlug(slug: string): Promise<LandingBySlug | null> {
+  const res = await fetch(`${API_BASE}/api/landing/${encodeURIComponent(slug)}`)
+  if (!res.ok) return null
+  return res.json()
+}
+
 // ── Conversation history (persistent, keyed to the authenticated user) ───────
 // Pure reads — loading a past conversation never touches the RAG pipeline.
 
