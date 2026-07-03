@@ -72,6 +72,13 @@ CJA_FOLDER_MAP = {
     "reporting-activity-manager": "cja-admin",
 }
 
+# Both CJA source repos publish into the same EXL URL tree and share the same
+# help/cja-main/ folder layout, so overrides/unpublished-path rules apply to both.
+_CJA_REPOS = frozenset({
+    "AdobeDocs/analytics-platform.en",
+    "AdobeDocs/customer-journey-analytics-learn.en",
+})
+
 # Repo-relative paths that are not published on Experience League (skip citations).
 CJA_UNPUBLISHED_REPO_PATHS = frozenset({
     "code-of-conduct.md",
@@ -295,12 +302,12 @@ def derive_exl_url(s3_key: str) -> str | None:
 
         repo_relative = s3_key[len(s3_prefix):]
 
-        if repo == "AdobeDocs/analytics-platform.en":
+        if repo in _CJA_REPOS:
             override = _load_cja_toc_overrides().get(repo_relative)
             if override:
                 return resolve_canonical_url(override)
 
-        if repo == "AdobeDocs/analytics-platform.en" and _is_cja_unpublished_repo_path(repo_relative):
+        if repo in _CJA_REPOS and _is_cja_unpublished_repo_path(repo_relative):
             return None
 
         # Analytics API docs live under src/pages/, published at developer.adobe.com

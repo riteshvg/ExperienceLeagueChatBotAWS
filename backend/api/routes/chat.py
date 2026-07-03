@@ -19,7 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from backend.api.deps import get_pipeline, get_session_store, get_site_user
 from backend.core import google_db
-from backend.core.landing_questions import build_landing_payload
+from backend.core.landing_questions import build_landing_payload, classify_solution
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 
@@ -178,6 +178,7 @@ async def chat(
     async def event_generator():
         full_response = ""
         last_citations: list = []
+        last_evidence: Optional[dict] = None
         last_done: Optional[dict] = None
 
         async for event in pipeline.stream(
@@ -189,6 +190,8 @@ async def chat(
                 full_response += event.get("content", "")
             elif event["type"] == "citations":
                 last_citations = event.get("citations", [])
+            elif event["type"] == "evidence":
+                last_evidence = {k: v for k, v in event.items() if k != "type"}
             elif event["type"] == "done":
                 # Buffer the done event — augment it with usage info before yielding
                 last_done = event
@@ -223,8 +226,17 @@ async def chat(
                             user_id=uid, session_id=session_id, title=body.query,
                         )
                     google_db.append_conversation_message(conversation_id, "user", body.query)
+                    # Publish a landing-page slug only for answered, on-topic queries —
+                    # same quality bar as the aggregated /chat/landing-questions feed.
+                    model = last_done.get("model")
+                    slug = (
+                        google_db.make_slug(body.query)
+                        if model and model != "none" and classify_solution(body.query)
+                        else None
+                    )
                     google_db.append_conversation_message(
                         conversation_id, "assistant", full_response, citations=last_citations,
+                        slug=slug, is_published=bool(slug), evidence=last_evidence,
                     )
                     last_done = {**last_done, "conversation_id": conversation_id}
                 except Exception as e:
@@ -249,6 +261,15 @@ async def chat(
                 logger.warning(f"Usage tracking failed (non-fatal): {e}")
 
     return EventSourceResponse(event_generator())
+
+
+@router.get("/landing/{slug}")
+async def get_landing(slug: str):
+    """Public, unauthenticated SEO landing page for a single recorded query+answer."""
+    result = google_db.get_landing_by_slug(slug)
+    if not result:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Not found")
+    return result
 
 
 @router.get("/chat/landing-questions")
