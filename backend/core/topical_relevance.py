@@ -167,10 +167,23 @@ def assess_retrieval(
     Assess retrieved docs after optional product filtering.
 
     Returns product_docs, relevant_docs, and diagnostic counts.
+
+    When product_filter is set and fewer than _MIN_SIGNIFICANT_FOR_URL_CHECK
+    significant terms survive (after stripping product names/action verbs),
+    there's nothing meaningful left to lexically gate on — e.g. "step" is the
+    sole survivor of "I'm new to CJA, how do I set it up step by step". Trust
+    the product scope (a real Chroma where-clause) plus the embedding rank
+    instead of rejecting every candidate on that one leftover term. With 2+
+    real significant terms, keep full gating — that's what filters out a
+    same-product-but-wrong-subtopic doc (e.g. an AEP accessibility page
+    surfacing for an "ingestion guardrails" query).
     """
     product_docs = filter_by_product(docs, product_filter)
     pool = product_docs if product_filter else docs
-    relevant_docs = filter_relevant_docs(query, pool)
+    if product_filter and len(significant_terms(query)) < _MIN_SIGNIFICANT_FOR_URL_CHECK:
+        relevant_docs = sorted(pool, key=lambda d: float(d.get("score", 0.0)), reverse=True)
+    else:
+        relevant_docs = filter_relevant_docs(query, pool)
     return {
         "product_docs": product_docs,
         "relevant_docs": relevant_docs,

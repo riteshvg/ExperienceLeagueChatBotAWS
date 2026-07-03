@@ -70,12 +70,12 @@ _PRODUCT_INTENT_MAP = {
     "analysis workspace": "Adobe Analytics",
     "report suite": "Adobe Analytics",
     "customer journey analytics": "Customer Journey Analytics",
-    " cja ": "Customer Journey Analytics",
+    "cja": "Customer Journey Analytics",
     "adobe experience platform": "Adobe Experience Platform",
-    " aep ": "Adobe Experience Platform",
+    "aep": "Adobe Experience Platform",
     "real-time cdp": "Adobe Experience Platform",
     "journey optimizer": "Adobe Journey Optimizer",
-    " adjo ": "Adobe Journey Optimizer",
+    "adjo": "Adobe Journey Optimizer",
     "adobe target": "Adobe Target",
 }
 
@@ -84,13 +84,17 @@ def detect_product_intent(query: str) -> str | None:
     """
     Returns a product name if the query unambiguously targets a single product,
     otherwise None. Used to scope ChromaDB retrieval.
+
+    Matches on word boundaries rather than plain substring — a naive padded-space
+    substring check (`" cja "`) misses real sentences where the acronym is
+    immediately followed by punctuation, e.g. "I'm new to CJA. How do I...".
     """
-    q_lower = f" {query.lower()} "
+    q_lower = query.lower()
     for keyword, product in _API_INTENT_MAP.items():
-        if keyword in q_lower:
+        if re.search(rf"\b{re.escape(keyword)}\b", q_lower):
             return product
     for keyword, product in _PRODUCT_INTENT_MAP.items():
-        if keyword in q_lower:
+        if re.search(rf"\b{re.escape(keyword)}\b", q_lower):
             return product
     return None
 

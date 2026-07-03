@@ -31,7 +31,12 @@ from backend.core.retrieval_refiner import (
     refinement_to_evidence_fields,
     retrieve_with_refinement,
 )
-from backend.core.topical_relevance import assess_retrieval, topical_match_score
+from backend.core.topical_relevance import (
+    _MIN_SIGNIFICANT_FOR_URL_CHECK,
+    assess_retrieval,
+    significant_terms,
+    topical_match_score,
+)
 from backend.core.session_store import SessionStore
 from backend.core.smart_router import classify_query, detect_product_intent
 from backend.core.url_validator import filter_valid_citations
@@ -304,8 +309,12 @@ class RAGPipeline:
             return [], refinement, related, topical_scores, "no_direct_match"
 
         # Weak topical alignment — treat as no direct match rather than a low-confidence answer.
+        # Skipped when product_intent already hard-scoped retrieval (a real Chroma
+        # where-clause) and too few significant terms survive to be a meaningful
+        # lexical signal — same condition as assess_retrieval's gate relaxation.
         best_topical = max(topical_match_score(query, d) for d in relevant_docs)
-        if best_topical < 0.22:
+        thin_significant_terms = len(significant_terms(query)) < _MIN_SIGNIFICANT_FOR_URL_CHECK
+        if best_topical < 0.22 and not (product_intent and thin_significant_terms):
             related = sorted(
                 relevant_docs + (product_docs or []),
                 key=lambda d: float(d.get("score", 0.0)),

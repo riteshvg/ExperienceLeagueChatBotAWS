@@ -34,7 +34,12 @@ def extract_terms(query: str) -> list[str]:
             seen.add(token.lower())
             terms.append(token)
 
-    for word in re.findall(r"[A-Za-z0-9][A-Za-z0-9._-]{2,}", query):
+    for raw_word in re.findall(r"[A-Za-z0-9][A-Za-z0-9._-]{2,}", query):
+        # Strip trailing sentence punctuation (e.g. "CJA." at a clause boundary)
+        # without touching periods/hyphens embedded in identifiers like "v2.0".
+        word = raw_word.rstrip(".,;:!?")
+        if not word:
+            continue
         lower = word.lower()
         if lower in _STOPWORDS or lower in seen:
             continue
