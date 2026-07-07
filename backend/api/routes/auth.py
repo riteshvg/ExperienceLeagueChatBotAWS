@@ -5,10 +5,12 @@ GET    /api/auth/google           — redirect browser to Google consent screen
 GET    /api/auth/google/callback  — exchange auth code, create session, redirect to frontend
 GET    /api/auth/github           — redirect browser to GitHub consent screen
 GET    /api/auth/github/callback  — exchange auth code, create session, redirect to frontend
+POST   /api/auth/demo-login       — owner-only quick-access login, gated by DEMO_LOGIN_ENABLED
 DELETE /api/auth/session          — invalidate session (logout)
 """
 
 import logging
+import secrets
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -17,6 +19,7 @@ from urllib.parse import urlencode
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 
 _ROOT = Path(__file__).parent.parent.parent.parent
 if str(_ROOT) not in sys.path:
@@ -266,6 +269,52 @@ async def github_callback(
         return _error_redirect(frontend, "missing_user_info")
 
     return _session_redirect(frontend, f"github:{github_id}", email, name, picture)
+
+
+class DemoLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@router.post("/demo-login")
+async def demo_login(request: Request, body: DemoLoginRequest):
+    """Owner-only bypass of Google/GitHub OAuth. Disabled unless DEMO_LOGIN_ENABLED=true."""
+    s = _s()
+    if not s.demo_login_enabled or not s.demo_username or not s.demo_login_password:
+        # 404, not 503 — don't reveal this route exists when it's turned off.
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    ip = request.headers.get("x-forwarded-for", request.client.host or "unknown").split(",")[0].strip()
+    try:
+        if not google_db.check_and_update_ratelimit(ip):
+            raise HTTPException(status_code=429, detail="Too many sign-in attempts. Try again in a minute.")
+    except RuntimeError:
+        pass
+
+    user_ok = secrets.compare_digest(body.username, s.demo_username)
+    pass_ok = secrets.compare_digest(body.password, s.demo_login_password)
+    if not (user_ok and pass_ok):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    try:
+        user_row = google_db.upsert_user("demo-owner", "demo@rovr.local", "Demo", "")
+        canonical_user_id = user_row.get("user_id", "demo-owner")
+        session_token, expires_at = google_db.create_session(
+            canonical_user_id, "demo@rovr.local", "Demo", ""
+        )
+    except Exception as exc:
+        logger.error(f"Demo login DB error: {exc}")
+        raise HTTPException(status_code=503, detail="Authentication service unavailable.")
+
+    return {
+        "token": session_token,
+        "user_id": canonical_user_id,
+        "email": "demo@rovr.local",
+        "name": "Demo",
+        "picture": "",
+        "expires_at": expires_at,
+        "is_admin": bool(user_row.get("is_admin", False)),
+    }
 
 
 @router.get("/me")

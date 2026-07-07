@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     # Admin panel password (unchanged — not Google OAuth gated)
     admin_password: Optional[str] = Field(None, env="ADMIN_PASSWORD")
 
+    # Personal quick-access login (bypasses Google/GitHub OAuth). Off by default —
+    # only meant for the owner's own use, never for public sign-up.
+    demo_login_enabled: bool = Field(default=False, env="DEMO_LOGIN_ENABLED")
+    demo_username: Optional[str] = Field(None, env="DEMO_USERNAME")
+    demo_login_password: Optional[str] = Field(None, env="DEMO_LOGIN_PASSWORD")
+
     # If set, only this email can log into the admin panel
     admin_email: Optional[str] = Field(None, env="ADMIN_EMAIL")
 

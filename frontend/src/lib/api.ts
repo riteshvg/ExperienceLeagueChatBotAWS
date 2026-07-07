@@ -275,6 +275,27 @@ export async function fetchConversationMessages(conversationId: string): Promise
   return data.messages as ConversationMessage[]
 }
 
+export interface DemoLoginResponse {
+  token: string
+  user_id: string
+  email: string
+  name: string
+  picture: string
+  expires_at: number
+  is_admin: boolean
+}
+
+/** Owner-only quick-access login — bypasses Google/GitHub OAuth. 404s when disabled server-side. */
+export async function demoLogin(username: string, password: string): Promise<DemoLoginResponse> {
+  const res = await fetch(`${API_BASE}/api/auth/demo-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!res.ok) throw new Error(res.status === 401 ? 'Invalid credentials' : 'Demo login unavailable')
+  return res.json()
+}
+
 // ── Admin ─────────────────────────────────────────────────────────────────────
 
 export async function adminLogin(password: string): Promise<string> {

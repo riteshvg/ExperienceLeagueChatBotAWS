@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PROMPT_LIBRARY } from '@/lib/prompts'
+import { demoLogin } from '@/lib/api'
 
 const VALUE_PROPS = [
   {
@@ -34,6 +35,80 @@ function pickRandomIndex(exclude: number, length: number) {
     next = Math.floor(Math.random() * length)
   }
   return next
+}
+
+/** Owner-only quick-access login. Hidden behind a plain-text toggle — no-ops (404) when
+ * DEMO_LOGIN_ENABLED isn't set on the backend, so it's harmless to ship in the public build. */
+function DemoLoginForm() {
+  const { setSession } = useAuthStore()
+  const [open, setOpen] = useState(false)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      const data = await demoLogin(username, password)
+      setSession({
+        sessionToken: data.token,
+        userId: data.user_id,
+        email: data.email,
+        name: data.name,
+        picture: data.picture,
+        expiresAt: data.expires_at,
+        is_admin: data.is_admin,
+      })
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Demo login unavailable')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-4 text-xs text-slate-400 hover:text-slate-500 dark:text-slate-600 dark:hover:text-slate-500 underline underline-offset-2"
+      >
+        Owner quick access
+      </button>
+    )
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="mt-4 flex flex-col gap-2 w-full max-w-sm mx-auto">
+      <input
+        type="text"
+        autoComplete="username"
+        placeholder="Username"
+        value={username}
+        onChange={(e) => setUsername(e.target.value)}
+        className="px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      />
+      <input
+        type="password"
+        autoComplete="current-password"
+        placeholder="Password"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        className="px-3 py-2 text-sm rounded-lg border border-slate-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+      />
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <button
+        type="submit"
+        disabled={submitting}
+        className="px-3 py-2 text-sm rounded-lg bg-slate-800 text-white hover:bg-slate-700 disabled:opacity-50 dark:bg-slate-700 dark:hover:bg-slate-600"
+      >
+        {submitting ? 'Signing in…' : 'Sign in'}
+      </button>
+    </form>
+  )
 }
 
 function RotatingPromptBox() {
@@ -218,6 +293,8 @@ export function LoginPage() {
                 Sign in with GitHub
               </button>
             </div>
+
+            <DemoLoginForm />
 
             <p className="mt-10 text-xs text-slate-400 leading-relaxed">
               Your profile is used only for authentication. Questions are
