@@ -28,6 +28,8 @@ REPO_TO_EXL_BASE = {
         "https://experienceleague.adobe.com/en/docs/analytics-platform/using",
     "AdobeDocs/analytics-learn.en":
         "https://experienceleague.adobe.com/en/docs/analytics-learn/tutorials",
+    "AdobeDocs/journey-optimizer-learn.en":
+        "https://experienceleague.adobe.com/en/docs/journey-optimizer-learn",
 }
 
 # Data Collection docs live inside experience-platform.en (help/collection,
@@ -59,6 +61,8 @@ S3_PREFIX_TO_REPO = {
         "AdobeDocs/customer-journey-analytics-learn.en",
     "adobe-docs/analytics-learn/":
         "AdobeDocs/analytics-learn.en",
+    "adobe-docs/journey-optimizer-learn/":
+        "AdobeDocs/journey-optimizer-learn.en",
 }
 
 for _prefix, (_repo, _base) in DEVELOPER_ADOBE_S3_MAP.items():
@@ -114,6 +118,38 @@ CJA_PATH_REWRITES = (
     ("cja-main/overview", "cja-workspace/home"),
     ("overview", "cja-workspace/home"),
 )
+
+# AJO Learn: no flat folder-rename pattern (unlike analytics-learn.en) — TOC
+# section titles, not GitHub folder names, determine the EXL publish path, and
+# even filenames get shortened (e.g. create-a-campaign.md -> create-campaign).
+# Resolution is override-only, built by build_ajo_learn_toc_exl_mapping.py.
+_AJO_LEARN_REPOS = frozenset({"AdobeDocs/journey-optimizer-learn.en"})
+
+AJO_LEARN_UNPUBLISHED_REPO_PATHS = frozenset({
+    "README.md",
+    "code-of-conduct.md",
+    "contributing.md",
+})
+
+_AJO_LEARN_OVERRIDES_PATH = (
+    Path(__file__).parent.parent.parent / "config" / "ajo_learn_toc_exl_overrides.json"
+)
+
+
+@lru_cache(maxsize=1)
+def _load_ajo_learn_toc_overrides() -> dict[str, str]:
+    """Repo-relative path -> validated EXL URL (from build_ajo_learn_toc_exl_mapping.py)."""
+    if not _AJO_LEARN_OVERRIDES_PATH.exists():
+        return {}
+    return json.loads(_AJO_LEARN_OVERRIDES_PATH.read_text(encoding="utf-8"))
+
+
+def _is_ajo_learn_unpublished_repo_path(repo_relative: str) -> bool:
+    clean = repo_relative.lstrip("/")
+    if clean in AJO_LEARN_UNPUBLISHED_REPO_PATHS:
+        return True
+    return clean.endswith("/TOC.md")
+
 
 # Analytics: GitHub guide folder names differ from EXL publish slugs.
 ANALYTICS_GUIDE_MAP = {
@@ -312,6 +348,17 @@ def derive_exl_url(s3_key: str) -> str | None:
                 return resolve_canonical_url(override)
 
         if repo in _CJA_REPOS and _is_cja_unpublished_repo_path(repo_relative):
+            return None
+
+        if repo in _AJO_LEARN_REPOS:
+            if _is_ajo_learn_unpublished_repo_path(repo_relative):
+                return None
+            override = _load_ajo_learn_toc_overrides().get(repo_relative)
+            if override:
+                return resolve_canonical_url(override)
+            # No flat-mapping fallback exists for this repo (TOC-title-driven
+            # publish paths) — an unresolved override means "unmapped", not
+            # "guess and hope."
             return None
 
         # Analytics API docs live under src/pages/, published at developer.adobe.com
