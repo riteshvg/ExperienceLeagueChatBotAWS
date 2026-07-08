@@ -4,8 +4,9 @@ Data refresh pipeline — runs in background when triggered from admin panel.
 Steps:
   1. Sync changed docs from AdobeDocs GitHub → S3
   2. Re-ingest changed files into ChromaDB
-  3. Re-run media enrichment
-  4. Upload updated ChromaDB to S3 (for Railway cold starts)
+  3. Validate + attach citation URLs for the newly ingested chunks
+  4. Re-run media enrichment
+  5. Upload updated ChromaDB to S3 (for Railway cold starts)
 
 Status is written to data/refresh_status.json so the admin panel can poll it.
 """
@@ -164,16 +165,23 @@ def _run_refresh(force: bool = False):
         else:
             # Step 2: Re-ingest into ChromaDB
             log.append("=== Step 2: Ingest into ChromaDB ===")
-            if not _run_script("ingest_to_chroma.py", [], status, log):
+            if not _run_script("ingest_to_chroma.py", ["--changed-only"], status, log):
                 raise RuntimeError("Ingest failed")
 
-            # Step 3: Media enrichment
-            log.append("=== Step 3: Media enrichment ===")
+            # Step 3: Citation metadata enrichment (URL validation) — without this,
+            # newly ingested chunks keep url="" and won't produce a live citation
+            # link until the next GitHub Actions run happens to patch them.
+            log.append("=== Step 3: Citation metadata enrichment ===")
+            if not _run_script("enrich_citation_metadata.py", ["--changed-only"], status, log):
+                log.append("⚠ Citation enrichment failed — continuing")
+
+            # Step 4: Media enrichment
+            log.append("=== Step 4: Media enrichment ===")
             if not _run_script("ingest_with_media.py", [], status, log):
                 log.append("⚠ Media enrichment failed — continuing")
 
-            # Step 4: Upload ChromaDB to S3
-            log.append("=== Step 4: Upload ChromaDB → S3 ===")
+            # Step 5: Upload ChromaDB to S3
+            log.append("=== Step 5: Upload ChromaDB → S3 ===")
             if not _run_script("upload_chroma_to_s3.py", [], status, log):
                 log.append("⚠ ChromaDB upload failed — local DB updated but S3 backup failed")
 

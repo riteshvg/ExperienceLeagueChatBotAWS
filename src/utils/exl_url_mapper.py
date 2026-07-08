@@ -26,6 +26,8 @@ REPO_TO_EXL_BASE = {
         "https://experienceleague.adobe.com/en/docs/platform-learn",
     "AdobeDocs/customer-journey-analytics-learn.en":
         "https://experienceleague.adobe.com/en/docs/analytics-platform/using",
+    "AdobeDocs/analytics-learn.en":
+        "https://experienceleague.adobe.com/en/docs/analytics-learn/tutorials",
 }
 
 # Data Collection docs live inside experience-platform.en (help/collection,
@@ -55,6 +57,8 @@ S3_PREFIX_TO_REPO = {
         "AdobeDocs/platform-learn.en",
     "adobe-docs/customer-journey-analytics-learn/":
         "AdobeDocs/customer-journey-analytics-learn.en",
+    "adobe-docs/analytics-learn/":
+        "AdobeDocs/analytics-learn.en",
 }
 
 for _prefix, (_repo, _base) in DEVELOPER_ADOBE_S3_MAP.items():

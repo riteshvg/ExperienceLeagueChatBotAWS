@@ -161,6 +161,18 @@ REPOS = {
         "doc_type": "guide",
         "level": "intermediate",
     },
+    # Analytics tutorials (parallels the already-ingested CJA/platform learn repos)
+    "adobe-docs/analytics-learn": {
+        "github": "AdobeDocs/analytics-learn.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/analytics-learn/",
+        "path_filter": "help/",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/analytics-learn/tutorials",
+        "url_path_strip": "help/",
+        "product": "Adobe Analytics",
+        "doc_type": "tutorial",
+        "level": "beginner",
+    },
 }
 
 REPOS.update(API_DOC_REPOS)

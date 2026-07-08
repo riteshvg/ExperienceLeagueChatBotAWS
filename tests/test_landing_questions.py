@@ -7,6 +7,7 @@ from backend.core.landing_questions import (
     SOLUTION_GENERAL,
     ALL_TAB_PER_SOLUTION,
     MAX_PER_SOLUTION,
+    MAX_QUERY_LENGTH,
     classify_solution,
     group_landing_questions,
 )
@@ -54,3 +55,15 @@ def test_group_landing_questions_dedupes_and_caps():
 def test_limits_constants():
     assert ALL_TAB_PER_SOLUTION == 4
     assert MAX_PER_SOLUTION == 15
+
+
+def test_group_landing_questions_excludes_overly_long_queries():
+    long_query = "How do I create a segment in Adobe Analytics " + ("with lots of extra rambling detail " * 5)
+    assert len(long_query) > MAX_QUERY_LENGTH
+    rows = [
+        {"query_text": long_query, "times_asked": 5},
+        {"query_text": "How do I create a segment in Adobe Analytics?", "times_asked": 1},
+    ]
+    payload = group_landing_questions(rows, per_solution=5)
+    assert payload["total"] == 1
+    assert payload["by_solution"][SOLUTION_ANALYTICS][0]["text"] == "How do I create a segment in Adobe Analytics?"

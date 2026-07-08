@@ -739,7 +739,8 @@ def get_popular_query_logs(limit: int = 200) -> list[dict]:
                         llm_model
                     FROM exl_query_logs
                     WHERE llm_model NOT LIKE 'blocked%%'
-                      AND LENGTH(TRIM(query_text)) >= 15
+                      -- Mirrors MIN/MAX_QUERY_LENGTH in backend/core/landing_questions.py
+                      AND LENGTH(TRIM(query_text)) BETWEEN 15 AND 100
                 ),
                 counts AS (
                     SELECT norm, COUNT(*) AS times_asked, MAX(created_at) AS last_asked
