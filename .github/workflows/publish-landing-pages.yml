@@ -1,0 +1,103 @@
+name: Publish SEO landing pages
+
+# Regenerates the static /tools/rovr/q/<slug> pages + sitemap.xml from newly
+# published questions and pushes them live — without a full backend redeploy.
+# Mirrors `deploy.sh`'s frontend steps (2-4) but skips the Railway step and
+# only touches the generated landing-page assets in the blog repo.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # Every 6 hours
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
+
+    steps:
+      - name: Checkout chatbot repo
+        uses: actions/checkout@v4
+
+      - name: Checkout blog repo (riteshvg/tlp)
+        uses: actions/checkout@v4
+        with:
+          repository: riteshvg/tlp
+          token: ${{ secrets.BLOG_REPO_TOKEN }}
+          path: tlp
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Python dependencies
+        run: pip install psycopg2-binary python-dotenv
+
+      - name: Generate sitemap.xml
+        run: python scripts/generate_sitemap.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Generate static /q/<slug> landing pages
+        run: python scripts/generate_landing_pages.py
+
+      - name: Copy dist → Hugo static
+        run: |
+          STATIC_DIR="tlp/static/tools/rovr"
+          rm -rf "$STATIC_DIR"
+          mkdir -p "$STATIC_DIR"
+          cp -r frontend/dist/. "$STATIC_DIR/"
+          # Cloudflare Pages 200 rewrites for sub-paths are unreliable —
+          # copy index.html into each SPA route directory so Cloudflare finds a real file.
+          for route in callback login admin; do
+            mkdir -p "$STATIC_DIR/$route"
+            cp "$STATIC_DIR/index.html" "$STATIC_DIR/$route/index.html"
+          done
+
+      - uses: peaceiris/actions-hugo@v3
+        with:
+          hugo-version: '0.147.8'
+          extended: true
+
+      - name: Build Hugo site
+        working-directory: tlp
+        run: hugo --quiet
+
+      - name: Commit and push generated pages
+        id: push
+        working-directory: tlp
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A static/tools/rovr public/tools/rovr
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No new landing pages — nothing to push"
+          else
+            git commit -m "chore: publish landing pages $(date '+%Y-%m-%d %H:%M')"
+            git push origin main
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        if: steps.push.outputs.changed == 'true'
+        working-directory: tlp
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler pages deploy public/ --project-name=tlp
