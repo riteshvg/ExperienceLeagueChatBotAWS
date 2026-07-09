@@ -77,7 +77,7 @@ jobs:
 
       - name: Build Hugo site
         working-directory: tlp
-        run: hugo --quiet
+        run: hugo
 
       - name: Commit and push generated pages
         id: push
