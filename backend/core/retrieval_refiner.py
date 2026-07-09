@@ -427,8 +427,11 @@ def retrieve_with_refinement(
         reserved = [d for d in ranked if _doc_key(d) in reserved_keys]
         fill = [d for d in ranked if _doc_key(d) not in reserved_keys]
         merged = (reserved + fill)[:n_results]
-        if not initial or _top_score(merged) > _top_score(initial):
-            initial = merged
+        # `merged` is always a superset of `initial` (same docs plus keyword/
+        # multi-hop passes), so its top score is never lower — a strict `>`
+        # comparison silently discards the reserved multi-hop docs whenever
+        # initial's own top-scoring doc happens to already be the global max.
+        initial = merged
 
     meta = RefinementResult(
         original_search=search_query,
