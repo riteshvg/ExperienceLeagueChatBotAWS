@@ -97,7 +97,7 @@ export type SSEEvent =
   | { type: 'citations'; citations: Citation[] }
   | ({ type: 'evidence' } & RetrievalEvidence)
   | ({ type: 'clarification' } & ClarificationPayload)
-  | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number }
+  | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number; conversation_id?: number }
   | { type: 'error'; message: string }
 
 export interface KnowledgeBankMaintenance {
@@ -137,6 +137,7 @@ export async function* streamChat(
   haikuOnly = false,
   messageId?: string,
   clarification?: ClarificationSelection,
+  conversationId?: number,
 ): AsyncGenerator<SSEEvent> {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
@@ -147,6 +148,7 @@ export async function* streamChat(
       haiku_only: haikuOnly,
       message_id: messageId,
       clarification: clarification ?? undefined,
+      conversation_id: conversationId ?? undefined,
     }),
   })
 
@@ -251,6 +253,60 @@ export async function newSession(): Promise<string> {
 
 export async function clearHistory(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/chat/history/${sessionId}`, { method: 'DELETE' })
+}
+
+// ── Conversation persistence ──────────────────────────────────────────────────
+
+export interface ConversationSummary {
+  id: number
+  user_id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ConversationMessageRow {
+  id: number
+  conversation_id: number
+  role: 'user' | 'assistant'
+  content: string
+  citations: Citation[] | null
+  evidence: RetrievalEvidence | null
+  model: string | null
+  turn_order: number
+  created_at: string
+}
+
+export interface ConversationDetail extends ConversationSummary {
+  messages: ConversationMessageRow[]
+}
+
+export async function listConversations(): Promise<ConversationSummary[]> {
+  const res = await fetch(`${API_BASE}/api/conversations`, { headers: authHeaders() })
+  if (!res.ok) return []
+  const data = await res.json()
+  return data.conversations as ConversationSummary[]
+}
+
+export async function getConversation(id: number): Promise<ConversationDetail> {
+  const res = await fetch(`${API_BASE}/api/conversations/${id}`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Failed to load conversation: ${res.status}`)
+  return res.json()
+}
+
+export async function renameConversation(id: number, title: string): Promise<void> {
+  await fetch(`${API_BASE}/api/conversations/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify({ title }),
+  })
+}
+
+export async function deleteConversationApi(id: number): Promise<void> {
+  await fetch(`${API_BASE}/api/conversations/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────

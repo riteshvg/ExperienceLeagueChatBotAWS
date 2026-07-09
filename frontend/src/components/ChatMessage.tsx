@@ -7,12 +7,15 @@ import { MessageExtras } from './MessageExtras'
 import { ClarificationCard } from './ClarificationCard'
 import { ImageCarousel, type CarouselImage } from './ImageCarousel'
 import { type Message } from '@/lib/api'
-import { useChatStore } from '@/store/chatStore'
+import { useChatStore, type ChatSession } from '@/store/chatStore'
+import { sanitizeAdobeMarkup, stripCitationMarkers, stripMdLinks } from '@/lib/markdownSanitize'
 
 interface Props {
   message: Message
   onFollowUpClick: (text: string) => void
   turnNumber?: number
+  isLastMessage?: boolean
+  session?: ChatSession
 }
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
@@ -58,7 +61,7 @@ function AdobeVideoEmbed({
   const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
   return (
     <span
-      className="block my-3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 not-prose w-full max-w-md"
+      className="block my-3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 not-prose w-full max-w-md print:hidden"
       data-video-id={videoId}
     >
       {label && (
@@ -160,24 +163,6 @@ function DocImage({
   )
 }
 
-function sanitizeAdobeMarkup(text: string): string {
-  return text
-    .replace(/\[!UICONTROL\s+([^\]]+)\]/g, '`$1`')
-    .replace(/\[!DNL\s+([^\]]+)\]/g, '**$1**')
-    .replace(/>\[!(IMPORTANT|NOTE|TIP|WARNING)\]\s*/g, '> **$1:** ')
-}
-
-function stripCitationMarkers(text: string): string {
-  return text.replace(/\[\d+\](?!\()/g, '')
-}
-
-function stripMdLinks(text: string): string {
-  return text
-    .replace(/\[([^\]]+)\]\([^)]*\.md[^)]*\)/g, '$1')
-    // Strip inline EXL/developer.adobe.com doc links — 404-prone; citations panel handles sources
-    .replace(/\[([^\]]+)\]\(https?:\/\/(?:experienceleague|developer)\.adobe\.com[^)]+\)/g, '$1')
-}
-
 function CopyAnswerButton({
   copied,
   onCopy,
@@ -202,7 +187,7 @@ function CopyAnswerButton({
   )
 }
 
-export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props) {
+export function ChatMessage({ message, onFollowUpClick, turnNumber = 0, isLastMessage = false, session }: Props) {
   const selectClarification = useChatStore((s) => s.selectClarification)
   const isStreaming = useChatStore((s) => s.isStreaming)
   const isUser = message.role === 'user'
@@ -325,6 +310,8 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0 }: Props)
             turnNumber={turnNumber}
             messageId={message.id}
             feedback={message.feedback}
+            showDownload={isLastMessage}
+            session={session}
           />
         )}
 

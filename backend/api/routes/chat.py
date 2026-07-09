@@ -113,6 +113,7 @@ class ChatRequest(BaseModel):
     haiku_only: bool = False
     message_id: Optional[str] = None
     clarification: Optional[ClarificationSelection] = None
+    conversation_id: Optional[int] = None
 
 
 @router.post("/chat")
@@ -186,6 +187,8 @@ async def chat(
     async def event_generator():
         full_response = ""
         last_done: Optional[dict] = None
+        last_citations: list = []
+        last_evidence: Optional[dict] = None
 
         async for event in pipeline.stream(
             query=body.query,
@@ -195,6 +198,10 @@ async def chat(
         ):
             if event["type"] == "token":
                 full_response += event.get("content", "")
+            elif event["type"] == "citations":
+                last_citations = event.get("citations") or []
+            elif event["type"] == "evidence":
+                last_evidence = {k: v for k, v in event.items() if k != "type"}
             elif event["type"] == "done":
                 # Buffer the done event — augment it with usage info before yielding
                 last_done = event
@@ -202,6 +209,7 @@ async def chat(
             yield {"data": json.dumps(event)}
 
         # After the pipeline loop: augment done event with usage counts, then yield it
+        conversation_id = body.conversation_id
         if last_done is not None:
             skip_usage = last_done.get("model") == "clarification"
             if uid and not skip_usage:
@@ -219,6 +227,26 @@ async def chat(
                     google_db.increment_monthly_count(uid)
                 except Exception as e:
                     logger.warning(f"Monthly count increment failed (non-fatal): {e}")
+
+            # Persist the turn (user query + assistant response) — non-fatal on failure
+            if uid and not skip_usage:
+                try:
+                    if conversation_id is None:
+                        conversation = google_db.create_conversation(uid, title=body.query[:60])
+                        conversation_id = conversation["id"]
+                    google_db.append_message(conversation_id, "user", body.query)
+                    google_db.append_message(
+                        conversation_id,
+                        "assistant",
+                        full_response,
+                        citations=last_citations or None,
+                        evidence=last_evidence,
+                        model=last_done.get("model"),
+                    )
+                    last_done = {**last_done, "conversation_id": conversation_id}
+                except Exception as e:
+                    logger.warning(f"Conversation persistence failed (non-fatal): {e}")
+
             yield {"data": json.dumps(last_done)}
 
         # After streaming: track usage + log query (skip clarification-only prompts)

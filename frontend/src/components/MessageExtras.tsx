@@ -1,9 +1,16 @@
-import { useState } from 'react'
-import { ChevronDown, ExternalLink, ThumbsDown, ThumbsUp } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Check, ChevronDown, Copy, Download, ExternalLink, ThumbsDown, ThumbsUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { type Citation, type RetrievalEvidence } from '@/lib/api'
 import { trackCitationClick } from '@/analytics'
-import { useChatStore } from '@/store/chatStore'
+import { useChatStore, type ChatSession } from '@/store/chatStore'
+import {
+  downloadSessionAsHtml,
+  downloadSessionAsMarkdown,
+  downloadSessionAsText,
+  serializeSessionAsMarkdown,
+} from '@/lib/exportConversation'
 
 interface Props {
   evidence?: RetrievalEvidence
@@ -13,6 +20,122 @@ interface Props {
   turnNumber?: number
   messageId: string
   feedback?: 1 | -1
+  showDownload?: boolean
+  session?: ChatSession
+}
+
+function DownloadButton({ session }: { session: ChatSession }) {
+  const [open, setOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  const MENU_WIDTH = 160
+
+  const openMenu = () => {
+    const rect = btnRef.current?.getBoundingClientRect()
+    if (rect) {
+      setMenuPos({ top: rect.top - 8, left: Math.min(rect.right - MENU_WIDTH, window.innerWidth - MENU_WIDTH - 8) })
+    }
+    setOpen(true)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        menuRef.current && !menuRef.current.contains(e.target as Node) &&
+        btnRef.current && !btnRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false)
+      }
+    }
+    const handleReposition = () => setOpen(false)
+    document.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('scroll', handleReposition, true)
+    window.addEventListener('resize', handleReposition)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('scroll', handleReposition, true)
+      window.removeEventListener('resize', handleReposition)
+    }
+  }, [open])
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        onClick={() => (open ? setOpen(false) : openMenu())}
+        title="Download conversation"
+        className="p-1.5 rounded-md text-emerald-600/50 hover:text-emerald-700 hover:bg-emerald-100/80 dark:text-emerald-300/70 dark:hover:text-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+      >
+        <Download className="w-3.5 h-3.5" />
+      </button>
+      {open && menuPos &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, width: MENU_WIDTH, transform: 'translateY(-100%)' }}
+            className="rounded-lg border border-emerald-200/80 dark:border-emerald-700/80 bg-white dark:bg-slate-900 shadow-lg z-50 py-1"
+          >
+            <button
+              type="button"
+              onClick={() => {
+                downloadSessionAsMarkdown(session)
+                setOpen(false)
+              }}
+              className="w-full text-left px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              Markdown (.md)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                downloadSessionAsText(session)
+                setOpen(false)
+              }}
+              className="w-full text-left px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              Plain text (.txt)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                downloadSessionAsHtml(session)
+                setOpen(false)
+              }}
+              className="w-full text-left px-3 py-2 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              HTML (.html)
+            </button>
+          </div>,
+          document.body,
+        )}
+    </>
+  )
+}
+
+function CopyConversationButton({ session }: { session: ChatSession }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = () => {
+    // Synchronous call inside the click handler — required by Safari's clipboard permission model.
+    navigator.clipboard.writeText(serializeSessionAsMarkdown(session))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title="Copy conversation"
+      className="p-1.5 rounded-md text-emerald-600/50 hover:text-emerald-700 hover:bg-emerald-100/80 dark:text-emerald-300/70 dark:hover:text-emerald-100 dark:hover:bg-emerald-900/50 transition-colors"
+    >
+      {copied ? <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  )
 }
 
 type Expanded = 'sources' | 'followups' | null
@@ -55,6 +178,8 @@ export function MessageExtras({
   turnNumber = 0,
   messageId,
   feedback,
+  showDownload = false,
+  session,
 }: Props) {
   const [expanded, setExpanded] = useState<Expanded>(null)
   const [showFeedbackInput, setShowFeedbackInput] = useState(false)
@@ -95,7 +220,7 @@ export function MessageExtras({
 
   return (
     <div className="w-full text-xs">
-      <div className="rounded-lg border border-emerald-200/80 dark:border-emerald-700/80 bg-emerald-50/90 dark:bg-slate-900 overflow-hidden shadow-sm">
+      <div className="rounded-lg border border-emerald-300/80 dark:border-emerald-700/80 bg-emerald-100/90 dark:bg-slate-950 overflow-hidden shadow-sm">
         <div className="flex items-stretch">
           {hasSources && (
             <button
@@ -150,6 +275,8 @@ export function MessageExtras({
             >
               <ThumbsDown className="w-3.5 h-3.5" />
             </button>
+            {showDownload && session && <CopyConversationButton session={session} />}
+            {showDownload && session && <DownloadButton session={session} />}
           </div>
         </div>
 

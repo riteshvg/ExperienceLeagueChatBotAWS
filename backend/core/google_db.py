@@ -7,6 +7,7 @@ Tables created on first startup:
   exl_ratelimits — per-IP rate limiting for the auth endpoint
 """
 
+import json
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -119,6 +120,31 @@ def init_tables() -> None:
                     value      TEXT NOT NULL DEFAULT '',
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
+
+                CREATE TABLE IF NOT EXISTS exl_conversations (
+                    id            BIGSERIAL PRIMARY KEY,
+                    user_id       TEXT NOT NULL,
+                    title         TEXT NOT NULL DEFAULT 'New chat',
+                    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+
+                CREATE TABLE IF NOT EXISTS exl_conversation_messages (
+                    id              BIGSERIAL PRIMARY KEY,
+                    conversation_id BIGINT NOT NULL REFERENCES exl_conversations(id) ON DELETE CASCADE,
+                    role            TEXT NOT NULL,
+                    content         TEXT NOT NULL DEFAULT '',
+                    citations       JSONB,
+                    evidence        JSONB,
+                    model           TEXT,
+                    turn_order      INTEGER NOT NULL,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_exl_conversations_user_id
+                    ON exl_conversations (user_id, updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_exl_conversation_messages_conv_id
+                    ON exl_conversation_messages (conversation_id, turn_order);
             """)
             # Safe migrations for existing deployments
             cur.execute(
@@ -1081,5 +1107,149 @@ def check_and_update_ratelimit(ip: str) -> bool:
             )
         conn.commit()
         return True
+    finally:
+        conn.close()
+
+
+def _conversation_to_dict(row: dict) -> dict:
+    d = dict(row)
+    for key in ("created_at", "updated_at"):
+        if hasattr(d.get(key), "isoformat"):
+            d[key] = d[key].isoformat()
+    return d
+
+
+def create_conversation(user_id: str, title: str) -> dict:
+    """Create a new conversation row. Returns the created row."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO exl_conversations (user_id, title) VALUES (%s, %s) RETURNING *",
+                (user_id, title),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return _conversation_to_dict(row)
+    finally:
+        conn.close()
+
+
+def append_message(
+    conversation_id: int,
+    role: str,
+    content: str,
+    citations: Optional[list] = None,
+    evidence: Optional[dict] = None,
+    model: Optional[str] = None,
+) -> None:
+    """Append a message to a conversation (auto-incrementing turn_order) and bump updated_at."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COALESCE(MAX(turn_order), -1) + 1 AS next_order "
+                "FROM exl_conversation_messages WHERE conversation_id = %s",
+                (conversation_id,),
+            )
+            next_order = cur.fetchone()["next_order"]
+            cur.execute(
+                """
+                INSERT INTO exl_conversation_messages
+                    (conversation_id, role, content, citations, evidence, model, turn_order)
+                VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s)
+                """,
+                (
+                    conversation_id,
+                    role,
+                    content,
+                    json.dumps(citations) if citations is not None else None,
+                    json.dumps(evidence) if evidence is not None else None,
+                    model,
+                    next_order,
+                ),
+            )
+            cur.execute(
+                "UPDATE exl_conversations SET updated_at = NOW() WHERE id = %s",
+                (conversation_id,),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def list_conversations(user_id: str) -> list[dict]:
+    """Return conversation summaries (no messages) for a user, most recent first."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM exl_conversations WHERE user_id = %s ORDER BY updated_at DESC",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+        return [_conversation_to_dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_conversation(conversation_id: int, user_id: str) -> Optional[dict]:
+    """Return a conversation with its messages, scoped to the owning user. None if not found/owned."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM exl_conversations WHERE id = %s AND user_id = %s",
+                (conversation_id, user_id),
+            )
+            conv = cur.fetchone()
+            if conv is None:
+                return None
+            cur.execute(
+                "SELECT * FROM exl_conversation_messages WHERE conversation_id = %s ORDER BY turn_order",
+                (conversation_id,),
+            )
+            messages = cur.fetchall()
+        result = _conversation_to_dict(conv)
+        result["messages"] = [
+            {
+                **{k: v for k, v in dict(m).items() if k not in ("created_at",)},
+                "created_at": m["created_at"].isoformat() if hasattr(m.get("created_at"), "isoformat") else m.get("created_at"),
+            }
+            for m in messages
+        ]
+        return result
+    finally:
+        conn.close()
+
+
+def delete_conversation(conversation_id: int, user_id: str) -> bool:
+    """Delete a conversation (and its messages via cascade), scoped to the owning user."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM exl_conversations WHERE id = %s AND user_id = %s",
+                (conversation_id, user_id),
+            )
+            deleted = cur.rowcount > 0
+        conn.commit()
+        return deleted
+    finally:
+        conn.close()
+
+
+def rename_conversation(conversation_id: int, user_id: str, title: str) -> Optional[dict]:
+    """Rename a conversation, scoped to the owning user. Returns updated row or None."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE exl_conversations SET title = %s, updated_at = NOW() WHERE id = %s AND user_id = %s RETURNING *",
+                (title, conversation_id, user_id),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return _conversation_to_dict(row) if row else None
     finally:
         conn.close()

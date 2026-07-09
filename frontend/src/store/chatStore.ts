@@ -1,6 +1,20 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation, type RetrievalEvidence, type ClarificationOption, type ClarificationSelection, type ClarificationPayload } from '@/lib/api'
+import {
+  streamChat,
+  clearHistory,
+  getFollowUps,
+  submitFeedback,
+  listConversations,
+  getConversation,
+  deleteConversationApi,
+  type Message,
+  type Citation,
+  type RetrievalEvidence,
+  type ClarificationOption,
+  type ClarificationSelection,
+  type ClarificationPayload,
+} from '@/lib/api'
 import {
   trackQuerySent,
   trackFollowupQuery,
@@ -27,6 +41,10 @@ export interface ChatSession {
   title: string
   messages: Message[]
   createdAt: number
+  /** Backing row in exl_conversations, once the first turn has been persisted server-side. */
+  conversationId?: number
+  /** False for sessions hydrated as summaries from listConversations() — messages not fetched yet. */
+  messagesLoaded?: boolean
 }
 
 interface ChatState {
@@ -55,6 +73,10 @@ interface ChatState {
   startNewChat: () => void
   switchSession: (id: string) => void
   deleteSession: (id: string) => void
+  /** Merge server-side conversation summaries into local sessions (call once on app load). */
+  hydrateConversations: () => Promise<void>
+  /** Open (or fetch+create) the session backed by this conversation id and switch to it — used by the ?conversation= deep link. */
+  openConversationById: (conversationId: number) => Promise<void>
   clearError: () => void
   setApiDisabled: (disabled: boolean) => void
   setKnowledgeBankMaintenance: (
@@ -144,12 +166,115 @@ export const useChatStore = create<ChatState>()(
         switchSession: (id) => {
           if (get().isStreaming) return
           set({ activeSessionId: id, error: null })
+
+          const session = get().sessions[id]
+          if (session && session.messagesLoaded === false && session.conversationId !== undefined) {
+            getConversation(session.conversationId)
+              .then((detail) => {
+                const messages: Message[] = detail.messages.map((m) => ({
+                  id: `db-${m.id}`,
+                  role: m.role,
+                  content: m.content,
+                  citations: m.citations ?? undefined,
+                  evidence: m.evidence ?? undefined,
+                  model: m.model ?? undefined,
+                }))
+                set((s) => {
+                  const current = s.sessions[id]
+                  if (!current) return s
+                  // If the user already sent a message into this session while the fetch was
+                  // in flight, don't clobber it with the (now-stale) server snapshot — just
+                  // mark it loaded so switching away and back doesn't re-fetch needlessly.
+                  if (current.messages.length > 0) {
+                    return { sessions: { ...s.sessions, [id]: { ...current, messagesLoaded: true } } }
+                  }
+                  return {
+                    sessions: {
+                      ...s.sessions,
+                      [id]: { ...current, messages, messagesLoaded: true },
+                    },
+                  }
+                })
+              })
+              .catch(() => {})
+          }
+        },
+
+        hydrateConversations: async () => {
+          try {
+            const summaries = await listConversations()
+            set((s) => {
+              const sessions = { ...s.sessions }
+              const existingConversationIds = new Set(
+                Object.values(sessions)
+                  .map((sess) => sess.conversationId)
+                  .filter((cid): cid is number => cid !== undefined),
+              )
+              for (const summary of summaries) {
+                if (existingConversationIds.has(summary.id)) continue
+                const sessionId = `conv-${summary.id}`
+                if (sessions[sessionId]) continue
+                sessions[sessionId] = {
+                  id: sessionId,
+                  title: summary.title,
+                  messages: [],
+                  createdAt: new Date(summary.created_at).getTime(),
+                  conversationId: summary.id,
+                  messagesLoaded: false,
+                }
+              }
+              return { sessions }
+            })
+          } catch {
+            // Non-fatal — local sessions still work without server hydration
+          }
+        },
+
+        openConversationById: async (conversationId) => {
+          const existing = Object.values(get().sessions).find((s) => s.conversationId === conversationId)
+          if (existing) {
+            get().switchSession(existing.id)
+            return
+          }
+          try {
+            const detail = await getConversation(conversationId)
+            const messages: Message[] = detail.messages.map((m) => ({
+              id: `db-${m.id}`,
+              role: m.role,
+              content: m.content,
+              citations: m.citations ?? undefined,
+              evidence: m.evidence ?? undefined,
+              model: m.model ?? undefined,
+            }))
+            const sessionId = `conv-${detail.id}`
+            set((s) => ({
+              sessions: {
+                ...s.sessions,
+                [sessionId]: {
+                  id: sessionId,
+                  title: detail.title,
+                  messages,
+                  createdAt: new Date(detail.created_at).getTime(),
+                  conversationId: detail.id,
+                  messagesLoaded: true,
+                },
+              },
+              activeSessionId: sessionId,
+              error: null,
+            }))
+          } catch {
+            // Conversation not found / not owned by this user — leave the current session as-is
+          }
         },
 
         deleteSession: (id) => {
           const { sessions, activeSessionId } = get()
+          const target = sessions[id]
           const remaining = Object.fromEntries(Object.entries(sessions).filter(([k]) => k !== id))
           clearHistory(id).catch(() => {})
+          if (target?.conversationId !== undefined) {
+            deleteConversationApi(target.conversationId).catch(() => {})
+          }
 
           if (id === activeSessionId) {
             const others = Object.values(remaining).sort((a, b) => b.createdAt - a.createdAt)
@@ -223,8 +348,10 @@ export const useChatStore = create<ChatState>()(
             ]),
           }))
 
+          const conversationId = get().sessions[activeSessionId]?.conversationId
+
           try {
-            for await (const event of streamChat(query, activeSessionId, false, assistantId, clarification)) {
+            for await (const event of streamChat(query, activeSessionId, false, assistantId, clarification, conversationId)) {
               if (!get().isStreaming) break
 
               if (event.type === 'token') {
@@ -275,12 +402,22 @@ export const useChatStore = create<ChatState>()(
                   }
                 }
 
-                set((s) => ({
-                  ...updatesFromDone,
-                  sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
-                    msgs.map((m) => (m.id === assistantId ? { ...m, streaming: false, model: event.model } : m))
-                  ),
-                }))
+                set((s) => {
+                  const activeSession = s.sessions[s.activeSessionId]
+                  const sessionsWithConversationId =
+                    event.conversation_id !== undefined && activeSession && !activeSession.conversationId
+                      ? {
+                          ...s.sessions,
+                          [s.activeSessionId]: { ...activeSession, conversationId: event.conversation_id },
+                        }
+                      : s.sessions
+                  return {
+                    ...updatesFromDone,
+                    sessions: patchActiveMessages(sessionsWithConversationId, s.activeSessionId, (msgs) =>
+                      msgs.map((m) => (m.id === assistantId ? { ...m, streaming: false, model: event.model } : m))
+                    ),
+                  }
+                })
               } else if (event.type === 'error') {
                 trackNoAnswer(query, turnNumber, 'error')
                 set((s) => ({
