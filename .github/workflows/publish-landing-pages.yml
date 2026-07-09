@@ -75,9 +75,23 @@ jobs:
           hugo-version: '0.147.8'
           extended: true
 
+      # The vendored theme still calls Hugo's `_internal/google_analytics*.html`
+      # templates, which modern Hugo removed. This mirrors a local-only, never
+      # committed fix in the theme submodule's working tree — strip the same
+      # dead block here so a fresh checkout builds too.
+      - name: Patch Hugo theme (remove deprecated internal GA templates)
+        run: |
+          FILE="tlp/themes/hugo-tranquilpeak-theme/layouts/partials/head.html"
+          awk '
+            /\{\{ if or \.Params\.googleAnalytics\.async \.Params\.ga\.async \}\}/ { skip=1; next }
+            skip && /\{\{ end \}\}/ { skip=0; next }
+            skip { next }
+            { print }
+          ' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+
       - name: Build Hugo site
         working-directory: tlp
-        run: hugo
+        run: hugo --quiet
 
       - name: Commit and push generated pages
         id: push
