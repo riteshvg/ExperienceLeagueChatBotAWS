@@ -1192,24 +1192,51 @@ def append_conversation_message(
     is_published: bool = False,
     evidence: Optional[dict] = None,
 ) -> None:
-    """Append one message row (user or assistant turn) to a conversation."""
+    """Append one message row (user or assistant turn) to a conversation.
+
+    make_slug() hashes the question text, so a repeated (popular) question produces
+    the same slug every time — by design, only one published FAQ page per unique
+    question. idx_messages_slug enforces that with a partial unique index. If this
+    exact question was already published, retry without claiming the slug rather
+    than losing the message (and the whole turn's conversation persistence) to a
+    duplicate-key error.
+    """
+    from psycopg2.errors import UniqueViolation
     from psycopg2.extras import Json
 
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO messages (id, conversation_id, role, content, citations, slug, is_published, evidence)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    str(uuid.uuid4()), conversation_id, role, content,
-                    Json(citations) if citations is not None else None,
-                    slug, is_published,
-                    Json(evidence) if evidence is not None else None,
-                ),
-            )
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO messages (id, conversation_id, role, content, citations, slug, is_published, evidence)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        str(uuid.uuid4()), conversation_id, role, content,
+                        Json(citations) if citations is not None else None,
+                        slug, is_published,
+                        Json(evidence) if evidence is not None else None,
+                    ),
+                )
+            except UniqueViolation:
+                if slug is None:
+                    raise
+                conn.rollback()
+                with conn.cursor() as retry_cur:
+                    retry_cur.execute(
+                        """
+                        INSERT INTO messages (id, conversation_id, role, content, citations, slug, is_published, evidence)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            str(uuid.uuid4()), conversation_id, role, content,
+                            Json(citations) if citations is not None else None,
+                            None, False,
+                            Json(evidence) if evidence is not None else None,
+                        ),
+                    )
         conn.commit()
     finally:
         conn.close()
