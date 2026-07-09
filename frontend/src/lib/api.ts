@@ -376,6 +376,7 @@ export interface QueryLog {
   created_at: string
   feedback_rating?: 1 | -1 | null
   feedback_comment?: string | null
+  seo_slug?: string | null
 }
 
 export interface Pagination {

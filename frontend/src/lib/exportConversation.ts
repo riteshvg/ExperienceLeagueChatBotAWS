@@ -26,7 +26,7 @@ function markdownToPlainText(md: string): string {
     .trim()
 }
 
-function appOrigin(): string {
+export function appOrigin(): string {
   return typeof window !== 'undefined' ? window.location.origin : 'https://rovr.app'
 }
 
