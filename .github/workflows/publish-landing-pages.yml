@@ -27,6 +27,7 @@ jobs:
           repository: riteshvg/tlp
           token: ${{ secrets.BLOG_REPO_TOKEN }}
           path: tlp
+          submodules: recursive
 
       - uses: actions/setup-python@v5
         with:
