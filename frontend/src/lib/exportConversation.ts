@@ -40,12 +40,13 @@ const LOGO_URL = () => assetUrl('rovrlogo.png')
 const FAVICON_URL = () => assetUrl('favicon.svg')
 
 /**
- * Links back to the Rovr app. There's no deep-link route into a specific saved
- * conversation — history is loaded by clicking it in the sidebar (see historyStore.ts),
- * not via a URL param — so this always points at the app root.
+ * Deep-links back to the specific conversation via ?conversation=<id> (handled in
+ * ChatPage.tsx, which resolves it through historyStore.loadConversation). Falls back
+ * to the app root if the conversation hasn't been persisted server-side yet.
  */
-function conversationUrl(_session: ChatSession): string {
-  return `${appOrigin()}${import.meta.env.BASE_URL ?? '/'}`
+function conversationUrl(session: ChatSession): string {
+  const appRoot = `${appOrigin()}${import.meta.env.BASE_URL ?? '/'}`
+  return session.conversationId ? `${appRoot}?conversation=${session.conversationId}` : appRoot
 }
 
 function sessionTitleLine(session: ChatSession): string {

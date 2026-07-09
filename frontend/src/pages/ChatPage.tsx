@@ -9,6 +9,7 @@ import { ChatMessage } from '@/components/ChatMessage';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Sidebar } from '@/components/Sidebar';
 import { LandingPanel } from '@/components/LandingPanel';
+import { useHistoryStore } from '@/store/historyStore';
 import { getMe, fetchMaintenanceStatus, isApiDisabled } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { PRODUCT_PILL_STYLES, type TickerQuestion } from '@/config/questions';
@@ -48,6 +49,7 @@ export function ChatPage() {
     setApiDisabled,
     setKnowledgeBankMaintenance,
     startNewChat,
+    switchSession,
   } = useChatStore();
   const { logout, session } = useAuthStore();
   const {
@@ -102,6 +104,22 @@ export function ChatPage() {
     pollHealth();
     const interval = setInterval(pollHealth, 10_000);
     return () => clearInterval(interval);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Deep link from an exported/copied conversation footer: ?conversation=<id>
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const conversationId = params.get('conversation');
+    if (conversationId) {
+      if (sessions[conversationId]) {
+        switchSession(conversationId);
+      } else {
+        useHistoryStore.getState().loadConversation(conversationId);
+      }
+      params.delete('conversation');
+      const newSearch = params.toString();
+      window.history.replaceState(null, '', window.location.pathname + (newSearch ? `?${newSearch}` : ''));
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-fetch quota after each message completes
