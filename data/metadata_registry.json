@@ -30153,6 +30153,1302 @@
     "source_file": "adobe-docs/analytics-apis/src/pages/support.md",
     "title": "Analytics 2.0 API support"
   },
+  "adobe-docs/customer-journey-analytics-learn/README.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/README.md",
+    "title": "Readme",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/README"
+  },
+  "adobe-docs/customer-journey-analytics-learn/code-of-conduct.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/code-of-conduct.md",
+    "title": "Code Of Conduct",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/code-of-conduct"
+  },
+  "adobe-docs/customer-journey-analytics-learn/contributing.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/contributing.md",
+    "title": "Contributing",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/contributing"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/TOC.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/TOC.md",
+    "title": "Toc",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/TOC"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/adobe-product-analytics/adobe-product-analytics-overview.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/adobe-product-analytics/adobe-product-analytics-overview.md",
+    "title": "Adobe Product Analytics Overview",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/adobe-product-analytics/adobe-product-analytics-overview"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/annotations/create-an-annotation.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/annotations/create-an-annotation.md",
+    "title": "Create An Annotation",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/annotations/create-an-annotation"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/curate-and-share/data-storytelling-generate-slides.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/curate-and-share/data-storytelling-generate-slides.md",
+    "title": "Data Storytelling Generate Slides",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/curate-and-share/data-storytelling-generate-slides"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/curate-and-share/share-with-anyone-in-analysis-workspace.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/curate-and-share/share-with-anyone-in-analysis-workspace.md",
+    "title": "Share With Anyone In Analysis Workspace",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/curate-and-share/share-with-anyone-in-analysis-workspace"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/add-components-to-the-freeform-panel.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/add-components-to-the-freeform-panel.md",
+    "title": "Add Components To The Freeform Panel",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/panels/add-components-to-the-freeform-panel"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/build-the-attribution-panel.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/build-the-attribution-panel.md",
+    "title": "Build The Attribution Panel",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/panels/build-the-attribution-panel"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/configure-next-previous-item-panel.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/configure-next-previous-item-panel.md",
+    "title": "Configure Next Previous Item Panel",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/panels/configure-next-previous-item-panel"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/use-the-experimentation-panel.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/use-the-experimentation-panel.md",
+    "title": "Use The Experimentation Panel",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/panels/use-the-experimentation-panel"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/use-the-quick-insights-panel.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/panels/use-the-quick-insights-panel.md",
+    "title": "Use The Quick Insights Panel",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/panels/use-the-quick-insights-panel"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/templates/create-custom-templates.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/templates/create-custom-templates.md",
+    "title": "Create Custom Templates",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/templates/create-custom-templates"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/templates/use-templates.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/templates/use-templates.md",
+    "title": "Use Templates",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/templates/use-templates"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/tips-and-tricks/dynamic-drop-downs.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/tips-and-tricks/dynamic-drop-downs.md",
+    "title": "Dynamic Drop Downs",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/tips-and-tricks/dynamic-drop-downs"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-area-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-area-visualizations.md",
+    "title": "Add Area Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/add-area-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-bar-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-bar-visualizations.md",
+    "title": "Add Bar Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/add-bar-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-bullet-graph-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-bullet-graph-visualizations.md",
+    "title": "Add Bullet Graph Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/add-bullet-graph-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-donut-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-donut-visualizations.md",
+    "title": "Add Donut Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/add-donut-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-line-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-line-visualizations.md",
+    "title": "Add Line Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/add-line-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-text-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-text-visualizations.md",
+    "title": "Add Text Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/add-text-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-treemap-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/add-treemap-visualizations.md",
+    "title": "Add Treemap Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/add-treemap-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/configure-and-use-the-map-visualization.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/configure-and-use-the-map-visualization.md",
+    "title": "Configure And Use The Map Visualization",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/configure-and-use-the-map-visualization"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/create-stacked-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/create-stacked-visualizations.md",
+    "title": "Create Stacked Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/create-stacked-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/creating-cross-channel-visualizations-in-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/creating-cross-channel-visualizations-in-customer-journey-analytics.md",
+    "title": "Creating Cross Channel Visualizations In Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/creating-cross-channel-visualizations-in-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/cross-channel-attribution-in-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/cross-channel-attribution-in-customer-journey-analytics.md",
+    "title": "Cross Channel Attribution In Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/cross-channel-attribution-in-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/dimension-graph-live-linking.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/dimension-graph-live-linking.md",
+    "title": "Dimension Graph Live Linking",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/dimension-graph-live-linking"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/forecasting.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/forecasting.md",
+    "title": "Forecasting",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/forecasting"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/getting-data-into-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/getting-data-into-visualizations.md",
+    "title": "Getting Data Into Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/getting-data-into-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/intelligent-captions.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/intelligent-captions.md",
+    "title": "Intelligent Captions",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/intelligent-captions"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/line-visualization.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/line-visualization.md",
+    "title": "Line Visualization",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/line-visualization"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/multiple-dimension-columns-in-freeform-tables.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/multiple-dimension-columns-in-freeform-tables.md",
+    "title": "Multiple Dimension Columns In Freeform Tables",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/multiple-dimension-columns-in-freeform-tables"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/use-scatterplot-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/use-scatterplot-visualizations.md",
+    "title": "Use Scatterplot Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/use-scatterplot-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/use-summary-visualizations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/visualizations/use-summary-visualizations.md",
+    "title": "Use Summary Visualizations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/visualizations/use-summary-visualizations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/workspace-projects/analysis-workspace-overview.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/workspace-projects/analysis-workspace-overview.md",
+    "title": "Analysis Workspace Overview",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/workspace-projects/analysis-workspace-overview"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/workspace-projects/analysis-workspace-templates.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/workspace-projects/analysis-workspace-templates.md",
+    "title": "Analysis Workspace Templates",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/workspace-projects/analysis-workspace-templates"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/workspace-projects/build-a-new-project.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/workspace-projects/build-a-new-project.md",
+    "title": "Build A New Project",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/workspace-projects/build-a-new-project"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/workspace-projects/journey-analysis/journey-canvas-viz.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/workspace-projects/journey-analysis/journey-canvas-viz.md",
+    "title": "Journey Canvas Viz",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/workspace-projects/journey-analysis/journey-canvas-viz"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/workspace-projects/workspace-commenting.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/analysis-workspace/workspace-projects/workspace-commenting.md",
+    "title": "Workspace Commenting",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/analysis-workspace/workspace-projects/workspace-commenting"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/architecture/architecture-and-integrations-of-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/architecture/architecture-and-integrations-of-cja.md",
+    "title": "Architecture And Integrations Of Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/architecture/architecture-and-integrations-of-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/b2b/cja-b2b-beyond-the-first-questions.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/b2b/cja-b2b-beyond-the-first-questions.md",
+    "title": "Cja B2B Beyond The First Questions",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/b2b/cja-b2b-beyond-the-first-questions"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/b2b/cja-b2b-overview.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/b2b/cja-b2b-overview.md",
+    "title": "Cja B2B Overview",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/b2b/cja-b2b-overview"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/b2b/integrate-cja-with-marketo-for-b2b-insights.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/b2b/integrate-cja-with-marketo-for-b2b-insights.md",
+    "title": "Integrate Cja With Marketo For B2B Insights",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/b2b/integrate-cja-with-marketo-for-b2b-insights"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/customer-journey-analytics-landing-page.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/customer-journey-analytics-landing-page.md",
+    "title": "Customer Journey Analytics Landing Page",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/cja-basics/customer-journey-analytics-landing-page"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/new-terms-and-concepts-in-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/new-terms-and-concepts-in-cja.md",
+    "title": "New Terms And Concepts In Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/cja-basics/new-terms-and-concepts-in-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/understanding-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/understanding-customer-journey-analytics.md",
+    "title": "Understanding Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/cja-basics/understanding-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/use-ai-assistant.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/use-ai-assistant.md",
+    "title": "Use Ai Assistant",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/cja-basics/use-ai-assistant"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/what-is-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/what-is-customer-journey-analytics.md",
+    "title": "What Is Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/cja-basics/what-is-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/why-cja-modernize-customer-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/cja-basics/why-cja-modernize-customer-analytics.md",
+    "title": "Why Cja Modernize Customer Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/cja-basics/why-cja-modernize-customer-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/audiences/audience-publishing-for-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/audiences/audience-publishing-for-cja.md",
+    "title": "Audience Publishing For Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/audiences/audience-publishing-for-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/calc-metrics/introduction-to-calculated-metrics-in-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/calc-metrics/introduction-to-calculated-metrics-in-customer-journey-analytics.md",
+    "title": "Introduction To Calculated Metrics In Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/calc-metrics/introduction-to-calculated-metrics-in-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/calc-metrics/moving-your-calculated-metrics-from-adobe-analytics-to-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/calc-metrics/moving-your-calculated-metrics-from-adobe-analytics-to-customer-journey-analytics.md",
+    "title": "Moving Your Calculated Metrics From Adobe Analytics To Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/calc-metrics/moving-your-calculated-metrics-from-adobe-analytics-to-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/data-dictionary/use-data-dictionary.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/data-dictionary/use-data-dictionary.md",
+    "title": "Use Data Dictionary",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/data-dictionary/use-data-dictionary"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/dimensions/event-depth-in-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/dimensions/event-depth-in-cja.md",
+    "title": "Event Depth In Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/dimensions/event-depth-in-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/create-a-quick-filter.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/create-a-quick-filter.md",
+    "title": "Create A Quick Filter",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/filters/create-a-quick-filter"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/create-audiences-from-segments.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/create-audiences-from-segments.md",
+    "title": "Create Audiences From Segments",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/filters/create-audiences-from-segments"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/creating-cross-channel-filters-in-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/creating-cross-channel-filters-in-customer-journey-analytics.md",
+    "title": "Creating Cross Channel Filters In Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/filters/creating-cross-channel-filters-in-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/introduction-to-filters-in-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/introduction-to-filters-in-cja.md",
+    "title": "Introduction To Filters In Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/filters/introduction-to-filters-in-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/moving-adobe-analytics-segments-to-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/moving-adobe-analytics-segments-to-customer-journey-analytics.md",
+    "title": "Moving Adobe Analytics Segments To Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/filters/moving-adobe-analytics-segments-to-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/use-filters-as-dimensions.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/filters/use-filters-as-dimensions.md",
+    "title": "Use Filters As Dimensions",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/filters/use-filters-as-dimensions"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/real-time-reporting.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/components/real-time-reporting.md",
+    "title": "Real Time Reporting",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/components/real-time-reporting"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/add-past-data-to-an-existing-connection-in-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/add-past-data-to-an-existing-connection-in-cja.md",
+    "title": "Add Past Data To An Existing Connection In Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/connections/add-past-data-to-an-existing-connection-in-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/cja-connections-creation-and-edit-experience.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/cja-connections-creation-and-edit-experience.md",
+    "title": "Cja Connections Creation And Edit Experience",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/connections/cja-connections-creation-and-edit-experience"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/cja-lookup-data.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/cja-lookup-data.md",
+    "title": "Cja Lookup Data",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/connections/cja-lookup-data"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/connecting-customer-journey-analytics-to-data-sources-in-platform.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/connecting-customer-journey-analytics-to-data-sources-in-platform.md",
+    "title": "Connecting Customer Journey Analytics To Data Sources In Platform",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/connections/connecting-customer-journey-analytics-to-data-sources-in-platform"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/connections-details-experience-in-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/connections-details-experience-in-cja.md",
+    "title": "Connections Details Experience In Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/connections/connections-details-experience-in-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/get-started-with-audience-analysis.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/connections/get-started-with-audience-analysis.md",
+    "title": "Get Started With Audience Analysis",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/connections/get-started-with-audience-analysis"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/content-analytics/create-configuration.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/content-analytics/create-configuration.md",
+    "title": "Create Configuration",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/content-analytics/create-configuration"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/content-analytics/edit-configuration.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/content-analytics/edit-configuration.md",
+    "title": "Edit Configuration",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/content-analytics/edit-configuration"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/content-analytics/how-it-works.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/content-analytics/how-it-works.md",
+    "title": "How It Works",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/content-analytics/how-it-works"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/content-analytics/introduction-to-content-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/content-analytics/introduction-to-content-analytics.md",
+    "title": "Introduction To Content Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/content-analytics/introduction-to-content-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/content-analytics/reporting.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/content-analytics/reporting.md",
+    "title": "Reporting",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/content-analytics/reporting"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/dashboards/assist-executives-to-access-mobile-scorecards.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/dashboards/assist-executives-to-access-mobile-scorecards.md",
+    "title": "Assist Executives To Access Mobile Scorecards",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/dashboards/assist-executives-to-access-mobile-scorecards"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/dashboards/create-a-mobile-scorecard.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/dashboards/create-a-mobile-scorecard.md",
+    "title": "Create A Mobile Scorecard",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/dashboards/create-a-mobile-scorecard"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-insights-agent/data-insights-agent-use-cases.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-insights-agent/data-insights-agent-use-cases.md",
+    "title": "Data Insights Agent Use Cases",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-insights-agent/data-insights-agent-use-cases"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-insights-agent/data-insights-with-marketing-agent-365copilot.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-insights-agent/data-insights-with-marketing-agent-365copilot.md",
+    "title": "Data Insights With Marketing Agent 365Copilot",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-insights-agent/data-insights-with-marketing-agent-365copilot"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-insights-agent/introduction-to-the-data-insights-agent.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-insights-agent/introduction-to-the-data-insights-agent.md",
+    "title": "Introduction To The Data Insights Agent",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-insights-agent/introduction-to-the-data-insights-agent"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-insights-agent/use-the-data-insights-agent.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-insights-agent/use-the-data-insights-agent.md",
+    "title": "Use The Data Insights Agent",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-insights-agent/use-the-data-insights-agent"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-prep/ingest-and-use-analytics-classifications.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-prep/ingest-and-use-analytics-classifications.md",
+    "title": "Ingest And Use Analytics Classifications",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-prep/ingest-and-use-analytics-classifications"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-prep/ingest-map-and-transform-adobe-analytics-data.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-prep/ingest-map-and-transform-adobe-analytics-data.md",
+    "title": "Ingest Map And Transform Adobe Analytics Data",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-prep/ingest-map-and-transform-adobe-analytics-data"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-prep/working-with-data-in-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-prep/working-with-data-in-cja.md",
+    "title": "Working With Data In Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-prep/working-with-data-in-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/attribution-settings-in-data-views.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/attribution-settings-in-data-views.md",
+    "title": "Attribution Settings In Data Views",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/attribution-settings-in-data-views"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/basic-configuration-for-data-views.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/basic-configuration-for-data-views.md",
+    "title": "Basic Configuration For Data Views",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/basic-configuration-for-data-views"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/binding-dimensions-in-data-views.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/binding-dimensions-in-data-views.md",
+    "title": "Binding Dimensions In Data Views",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/binding-dimensions-in-data-views"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/component-type-settings-in-data-views.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/component-type-settings-in-data-views.md",
+    "title": "Component Type Settings In Data Views",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/component-type-settings-in-data-views"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/configure-no-value-options-in-data-views.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/configure-no-value-options-in-data-views.md",
+    "title": "Configure No Value Options In Data Views",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/configure-no-value-options-in-data-views"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/configure-substring-component-settings.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/configure-substring-component-settings.md",
+    "title": "Configure Substring Component Settings",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/configure-substring-component-settings"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/configuring-component-settings-in-data-views.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/configuring-component-settings-in-data-views.md",
+    "title": "Configuring Component Settings In Data Views",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/configuring-component-settings-in-data-views"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/create-summary-level-data-sources.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/create-summary-level-data-sources.md",
+    "title": "Create Summary Level Data Sources",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/create-summary-level-data-sources"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/creating-value-buckets-in-data-views-for-analysis.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/creating-value-buckets-in-data-views-for-analysis.md",
+    "title": "Creating Value Buckets In Data Views For Analysis",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/creating-value-buckets-in-data-views-for-analysis"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/currency-conversion.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/currency-conversion.md",
+    "title": "Currency Conversion",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/currency-conversion"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/customize-event-depth-in-derived-fields.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/customize-event-depth-in-derived-fields.md",
+    "title": "Customize Event Depth In Derived Fields",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/derived-fields/customize-event-depth-in-derived-fields"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/derived-fields-in-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/derived-fields-in-cja.md",
+    "title": "Derived Fields In Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/derived-fields/derived-fields-in-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/use-date-math-to-calculate-time-between-events.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/use-date-math-to-calculate-time-between-events.md",
+    "title": "Use Date Math To Calculate Time Between Events",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/derived-fields/use-date-math-to-calculate-time-between-events"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/use-the-math-function-in-derived-fields.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/use-the-math-function-in-derived-fields.md",
+    "title": "Use The Math Function In Derived Fields",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/derived-fields/use-the-math-function-in-derived-fields"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/use-the-next-previous-function-in-derived-fields.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/use-the-next-previous-function-in-derived-fields.md",
+    "title": "Use The Next Previous Function In Derived Fields",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/derived-fields/use-the-next-previous-function-in-derived-fields"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/use-typecasting-in-derived-fields.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/derived-fields/use-typecasting-in-derived-fields.md",
+    "title": "Use Typecasting In Derived Fields",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/derived-fields/use-typecasting-in-derived-fields"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/formatting-metrics-in-data-views.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/formatting-metrics-in-data-views.md",
+    "title": "Formatting Metrics In Data Views",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/formatting-metrics-in-data-views"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/include-or-exclude-dimension-values-in-data-views.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/include-or-exclude-dimension-values-in-data-views.md",
+    "title": "Include Or Exclude Dimension Values In Data Views",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/include-or-exclude-dimension-values-in-data-views"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/include-or-exclude-metric-values-in-data-views.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/include-or-exclude-metric-values-in-data-views.md",
+    "title": "Include Or Exclude Metric Values In Data Views",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/include-or-exclude-metric-values-in-data-views"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/overview-of-configuring-data-views-for-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/data-views/overview-of-configuring-data-views-for-cja.md",
+    "title": "Overview Of Configuring Data Views For Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/data-views/overview-of-configuring-data-views-for-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/experience-platform-integration/enhanced-reporting-for-adobe-journey-optimizer.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/experience-platform-integration/enhanced-reporting-for-adobe-journey-optimizer.md",
+    "title": "Enhanced Reporting For Adobe Journey Optimizer",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/experience-platform-integration/enhanced-reporting-for-adobe-journey-optimizer"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/exporting/full-table-export.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/exporting/full-table-export.md",
+    "title": "Full Table Export",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/exporting/full-table-export"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/exporting/manage-full-table-exports.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/exporting/manage-full-table-exports.md",
+    "title": "Manage Full Table Exports",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/exporting/manage-full-table-exports"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/exporting/report-builder/report-builder-for-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/exporting/report-builder/report-builder-for-customer-journey-analytics.md",
+    "title": "Report Builder For Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/exporting/report-builder/report-builder-for-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/exporting/report-builder/schedule-cja-workbooks-using-report-builder.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/exporting/report-builder/schedule-cja-workbooks-using-report-builder.md",
+    "title": "Schedule Cja Workbooks Using Report Builder",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/exporting/report-builder/schedule-cja-workbooks-using-report-builder"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/active-growth.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/active-growth.md",
+    "title": "Active Growth",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/active-growth"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/conversion-trends.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/conversion-trends.md",
+    "title": "Conversion Trends",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/conversion-trends"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/engagement.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/engagement.md",
+    "title": "Engagement",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/engagement"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/first-use-impact.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/first-use-impact.md",
+    "title": "First Use Impact",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/first-use-impact"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/frequency.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/frequency.md",
+    "title": "Frequency",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/frequency"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/funnel.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/funnel.md",
+    "title": "Funnel",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/funnel"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/guided-analysis-in-workspace.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/guided-analysis-in-workspace.md",
+    "title": "Guided Analysis In Workspace",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/guided-analysis-in-workspace"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/net-growth.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/net-growth.md",
+    "title": "Net Growth",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/net-growth"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/release-impact.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/release-impact.md",
+    "title": "Release Impact",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/release-impact"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/retention.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/retention.md",
+    "title": "Retention",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/retention"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/timeline.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/timeline.md",
+    "title": "Timeline",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/timeline"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/trends.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/guided-analysis/trends.md",
+    "title": "Trends",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/guided-analysis/trends"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/overview.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/overview.md",
+    "title": "Overview",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/overview"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/permissions/set-up-permissions.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/permissions/set-up-permissions.md",
+    "title": "Set Up Permissions",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/permissions/set-up-permissions"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/remote-mcp-server/remote-mcp-server-for-cja-in-action.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/remote-mcp-server/remote-mcp-server-for-cja-in-action.md",
+    "title": "Remote Mcp Server For Cja In Action",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/remote-mcp-server/remote-mcp-server-for-cja-in-action"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/remote-mcp-server/remote-mcp-server-for-cja-overview.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/remote-mcp-server/remote-mcp-server-for-cja-overview.md",
+    "title": "Remote Mcp Server For Cja Overview",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/remote-mcp-server/remote-mcp-server-for-cja-overview"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/reporting-activity-manager/use-the-reporting-activity-manager.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/reporting-activity-manager/use-the-reporting-activity-manager.md",
+    "title": "Use The Reporting Activity Manager",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/reporting-activity-manager/use-the-reporting-activity-manager"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/use-cases/ai/track-and-analyze-ai-traffic.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/use-cases/ai/track-and-analyze-ai-traffic.md",
+    "title": "Track And Analyze Ai Traffic",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/use-cases/ai/track-and-analyze-ai-traffic"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/use-cases/ai/validate-dataset-quality-data-engineering-agent.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/use-cases/ai/validate-dataset-quality-data-engineering-agent.md",
+    "title": "Validate Dataset Quality Data Engineering Agent",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/use-cases/ai/validate-dataset-quality-data-engineering-agent"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/use-cases/complex-data/object-arrays-in-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/use-cases/complex-data/object-arrays-in-cja.md",
+    "title": "Object Arrays In Cja",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/use-cases/complex-data/object-arrays-in-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/use-cases/data-views-use-cases/first-time-and-returning-sessions.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/use-cases/data-views-use-cases/first-time-and-returning-sessions.md",
+    "title": "First Time And Returning Sessions",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/use-cases/data-views-use-cases/first-time-and-returning-sessions"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/use-cases/data-views-use-cases/leverage-date-field-support.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/use-cases/data-views-use-cases/leverage-date-field-support.md",
+    "title": "Leverage Date Field Support",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/use-cases/data-views-use-cases/leverage-date-field-support"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/visitor-id/configure-missing-person-id.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/visitor-id/configure-missing-person-id.md",
+    "title": "Configure Missing Person Id",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/visitor-id/configure-missing-person-id"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/visitor-id/overview-of-stitching.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/visitor-id/overview-of-stitching.md",
+    "title": "Overview Of Stitching",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/visitor-id/overview-of-stitching"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/visitor-id/stitching-enablement-and-validation.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/visitor-id/stitching-enablement-and-validation.md",
+    "title": "Stitching Enablement And Validation",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/visitor-id/stitching-enablement-and-validation"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/visitor-id/understanding-how-customer-journey-analytics-uses-identity.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/visitor-id/understanding-how-customer-journey-analytics-uses-identity.md",
+    "title": "Understanding How Customer Journey Analytics Uses Identity",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/visitor-id/understanding-how-customer-journey-analytics-uses-identity"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/cja-main/visitor-id/validate-identity-stitching-quality.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/cja-main/visitor-id/validate-identity-stitching-quality.md",
+    "title": "Validate Identity Stitching Quality",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/cja-main/visitor-id/validate-identity-stitching-quality"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/TOC.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/TOC.md",
+    "title": "Customer Journey Analytics video clips {#video-clips}",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/TOC"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/algorithmic-attribution-a-game-changer-for-marketers.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/algorithmic-attribution-a-game-changer-for-marketers.md",
+    "title": "Algorithmic Attribution - A Game-Changer for Marketers",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/algorithmic-attribution-a-game-changer-for-marketers"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/analytics-easy-mode-simplifying-workspace-for-all-users.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/analytics-easy-mode-simplifying-workspace-for-all-users.md",
+    "title": "Analytics Easy Mode - Simplifying Workspace for All Users",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/analytics-easy-mode-simplifying-workspace-for-all-users"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/anomaly-detection-in-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/anomaly-detection-in-customer-journey-analytics.md",
+    "title": "Anomaly Detection in Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/anomaly-detection-in-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/audience-agent-proactive-audience-health-monitoring.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/audience-agent-proactive-audience-health-monitoring.md",
+    "title": "Audience Agent - Proactive Audience Health Monitoring",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/audience-agent-proactive-audience-health-monitoring"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/best-practices-for-data-modeling-and-identity-in-adobe-experience-platform.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/best-practices-for-data-modeling-and-identity-in-adobe-experience-platform.md",
+    "title": "Best Practices For Data Modeling And Identity In Adobe Experience Platform",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/best-practices-for-data-modeling-and-identity-in-adobe-experience-platform"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/best-practices-for-implementing-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/best-practices-for-implementing-customer-journey-analytics.md",
+    "title": "Customer Journey Analytics Implementation Types",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/best-practices-for-implementing-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/breaking-data-limits-with-summary-data-sources.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/breaking-data-limits-with-summary-data-sources.md",
+    "title": "Breaking Data Limits with Summary Data Sources",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/breaking-data-limits-with-summary-data-sources"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/content-analytics-ai-powered-insights-for-creative-assets.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/content-analytics-ai-powered-insights-for-creative-assets.md",
+    "title": "Content Analytics - AI-Powered Insights for Creative Assets",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/content-analytics-ai-powered-insights-for-creative-assets"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/data-as-a-product-planning-your-cja-implementation.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/data-as-a-product-planning-your-cja-implementation.md",
+    "title": "Data as a Product - Planning Your CJA Implementation",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/data-as-a-product-planning-your-cja-implementation"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/data-insights-agent-empowering-self-service-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/data-insights-agent-empowering-self-service-analytics.md",
+    "title": "Data Insights Agent - Empowering Self-Service Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/data-insights-agent-empowering-self-service-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/derived-fields-user-state-change-metrics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/derived-fields-user-state-change-metrics.md",
+    "title": "Derived Fields - User State Change Metrics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/derived-fields-user-state-change-metrics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/gamifying-workspace-unlock-achievements-in-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/gamifying-workspace-unlock-achievements-in-customer-journey-analytics.md",
+    "title": "Gamifying Workspace - Unlock Achievements in Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/gamifying-workspace-unlock-achievements-in-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/graph-based-stitching-for-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/graph-based-stitching-for-customer-journey-analytics.md",
+    "title": "Graph-Based Stitching for Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/graph-based-stitching-for-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/how-ai-assistant-transforms-data-insights-in-adobe-experience-platform.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/how-ai-assistant-transforms-data-insights-in-adobe-experience-platform.md",
+    "title": "How AI Assistant Transforms Data Insights in Adobe Experience Platform",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/how-ai-assistant-transforms-data-insights-in-adobe-experience-platform"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/how-genai-enhances-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/how-genai-enhances-customer-journey-analytics.md",
+    "title": "How GenAI Enhances Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/how-genai-enhances-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/identity-stitching-in-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/identity-stitching-in-customer-journey-analytics.md",
+    "title": "Identity Stitching in Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/identity-stitching-in-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/implementation-best-practices-for-customer-journey-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/implementation-best-practices-for-customer-journey-analytics.md",
+    "title": "Implementation Best Practices for Customer Journey Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/implementation-best-practices-for-customer-journey-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/in-line-derived-fields-real-time-data-transformation-in-cja.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/in-line-derived-fields-real-time-data-transformation-in-cja.md",
+    "title": "In-Line Derived Fields - Real-Time Data Transformation in CJA",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/in-line-derived-fields-real-time-data-transformation-in-cja"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/introducing-adobe-s-agent-orchestrator-the-next-era-of-genai-innovation.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/introducing-adobe-s-agent-orchestrator-the-next-era-of-genai-innovation.md",
+    "title": "Introducing Adobe's Agent Orchestrator - The Next Era of GenAI Innovation",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/introducing-adobe-s-agent-orchestrator-the-next-era-of-genai-innovation"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/journey-canvas-visualizing-complex-funnels.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/journey-canvas-visualizing-complex-funnels.md",
+    "title": "Journey Canvas - Visualizing Complex Funnels",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/journey-canvas-visualizing-complex-funnels"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/run-and-operate-strategies-for-scaling-adobe-implementations.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/run-and-operate-strategies-for-scaling-adobe-implementations.md",
+    "title": "Run and Operate Strategies for Scaling Adobe Implementations",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/run-and-operate-strategies-for-scaling-adobe-implementations"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/the-strategic-imperative-of-customer-analytics.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/the-strategic-imperative-of-customer-analytics.md",
+    "title": "The Strategic Imperative of Customer Analytics",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/the-strategic-imperative-of-customer-analytics"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/three-types-of-cja-implementation-projects.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/three-types-of-cja-implementation-projects.md",
+    "title": "Three Types of CJA Implementation Projects",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/three-types-of-cja-implementation-projects"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/understanding-customer-journey-analytics-as-your-dream-home.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/understanding-customer-journey-analytics-as-your-dream-home.md",
+    "title": "Understanding Customer Journey Analytics as Your Dream Home",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/understanding-customer-journey-analytics-as-your-dream-home"
+  },
+  "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/video-clip-overview.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/help/video-clips/summit/2025/video-clip-overview.md",
+    "title": "Video clip overview",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/video-clips/summit/2025/video-clip-overview"
+  },
+  "adobe-docs/customer-journey-analytics-learn/license.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/license.md",
+    "title": "License",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/license"
+  },
+  "adobe-docs/customer-journey-analytics-learn/metadata.md": {
+    "doc_type": "tutorial",
+    "level": "beginner",
+    "product": "Customer Journey Analytics",
+    "s3_key": "adobe-docs/customer-journey-analytics-learn/metadata.md",
+    "title": "Metadata",
+    "url": "https://experienceleague.adobe.com/en/docs/analytics-platform/using/metadata"
+  },
   "adobe-docs/customer-journey-analytics/code-of-conduct.md": {
     "description": "",
     "doc_id": "generated--3334501035971387382",

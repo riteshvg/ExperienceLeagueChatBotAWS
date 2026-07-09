@@ -1,23 +1,9 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { streamChat, clearHistory, getFollowUps, submitFeedback, type Message, type Citation, type RetrievalEvidence, type ChatStage } from '@/lib/api'
 import {
-  streamChat,
-  clearHistory,
-  getFollowUps,
-  submitFeedback,
-  listConversations,
-  getConversation,
-  deleteConversationApi,
-  type Message,
-  type Citation,
-  type RetrievalEvidence,
-  type ClarificationOption,
-  type ClarificationSelection,
-  type ClarificationPayload,
-} from '@/lib/api'
-import {
-  trackQuerySent,
+  hasAnalyticsSession,
   trackFollowupQuery,
+  trackResponseReceived,
   trackSessionStart,
   trackSessionEnd,
   trackFeedbackPositive,
@@ -30,6 +16,26 @@ function makeId() {
   return Math.random().toString(36).slice(2)
 }
 
+// Chat history now lives server-side, keyed to the authenticated user
+// (see historyStore.ts). Browser-local session state used to be persisted
+// here too, which caused stale, per-browser chats to reappear alongside the
+// real account history — one-time cleanup of that legacy cache.
+try {
+  localStorage.removeItem('el-chat-store')
+} catch {
+  /* ignore */
+}
+
+// Watchdog: if a pipeline stage runs this long with no transition and no tokens,
+// the status copy switches to a generic "still working" message.
+const STAGE_STALL_MS = 8000
+
+// Minimum time each real pipeline stage stays on screen before the next one can
+// replace it. Retrieval can finish in milliseconds locally, but "Checking Adobe
+// documentation" needs to actually be readable — that disclosure is what makes
+// the pipeline feel trustworthy, so it must never flash by unseen.
+const MIN_STAGE_DISPLAY_MS = 800
+
 function deriveTitle(messages: Message[]): string {
   const first = messages.find((m) => m.role === 'user')
   if (!first) return 'New chat'
@@ -41,16 +47,17 @@ export interface ChatSession {
   title: string
   messages: Message[]
   createdAt: number
-  /** Backing row in exl_conversations, once the first turn has been persisted server-side. */
-  conversationId?: number
-  /** False for sessions hydrated as summaries from listConversations() — messages not fetched yet. */
-  messagesLoaded?: boolean
+  // Backend conversation this session persists to. Null until the first turn
+  // completes; a session loaded from history already has one and reuses it.
+  conversationId: string | null
 }
 
 interface ChatState {
   sessions: Record<string, ChatSession>
   activeSessionId: string
   isStreaming: boolean
+  currentStage: ChatStage | null
+  stageStalled: boolean
   error: string | null
   accessDenied: boolean
   rateLimited: boolean
@@ -66,17 +73,14 @@ interface ChatState {
 
   feedbackToast: boolean
   sendMessage: (query: string) => Promise<void>
-  selectClarification: (option: ClarificationOption, originalQuery: string) => Promise<void>
-  _streamQuery: (query: string, clarification?: ClarificationSelection) => Promise<void>
+  _streamQuery: (query: string) => Promise<void>
   setFeedback: (messageId: string, rating: 1 | -1, query: string, comment?: string) => void
   dismissFeedbackToast: () => void
   startNewChat: () => void
   switchSession: (id: string) => void
   deleteSession: (id: string) => void
-  /** Merge server-side conversation summaries into local sessions (call once on app load). */
-  hydrateConversations: () => Promise<void>
-  /** Open (or fetch+create) the session backed by this conversation id and switch to it — used by the ?conversation= deep link. */
-  openConversationById: (conversationId: number) => Promise<void>
+  loadHistoricalSession: (conversationId: string, title: string, messages: Message[]) => void
+  resetLocalState: () => void
   clearError: () => void
   setApiDisabled: (disabled: boolean) => void
   setKnowledgeBankMaintenance: (
@@ -88,7 +92,7 @@ interface ChatState {
 }
 
 function createSession(): ChatSession {
-  return { id: makeId(), title: 'New chat', messages: [], createdAt: Date.now() }
+  return { id: makeId(), title: 'New chat', messages: [], createdAt: Date.now(), conversationId: null }
 }
 
 // Helper: update only the active session's messages
@@ -107,13 +111,14 @@ function patchActiveMessages(
 }
 
 export const useChatStore = create<ChatState>()(
-  persist(
-    (set, get) => {
-      const initial = createSession()
+  (set, get) => {
+    const initial = createSession()
       return {
         sessions: { [initial.id]: initial },
         activeSessionId: initial.id,
         isStreaming: false,
+        currentStage: null,
+        stageStalled: false,
         error: null,
         accessDenied: false,
         rateLimited: false,
@@ -165,116 +170,38 @@ export const useChatStore = create<ChatState>()(
 
         switchSession: (id) => {
           if (get().isStreaming) return
+          const targetMessages = get().sessions[id]?.messages ?? []
+          const hasTurns = targetMessages.some((m) => m.role === 'user')
+          if (hasTurns && !hasAnalyticsSession()) trackSessionStart('resume_chat')
           set({ activeSessionId: id, error: null })
-
-          const session = get().sessions[id]
-          if (session && session.messagesLoaded === false && session.conversationId !== undefined) {
-            getConversation(session.conversationId)
-              .then((detail) => {
-                const messages: Message[] = detail.messages.map((m) => ({
-                  id: `db-${m.id}`,
-                  role: m.role,
-                  content: m.content,
-                  citations: m.citations ?? undefined,
-                  evidence: m.evidence ?? undefined,
-                  model: m.model ?? undefined,
-                }))
-                set((s) => {
-                  const current = s.sessions[id]
-                  if (!current) return s
-                  // If the user already sent a message into this session while the fetch was
-                  // in flight, don't clobber it with the (now-stale) server snapshot — just
-                  // mark it loaded so switching away and back doesn't re-fetch needlessly.
-                  if (current.messages.length > 0) {
-                    return { sessions: { ...s.sessions, [id]: { ...current, messagesLoaded: true } } }
-                  }
-                  return {
-                    sessions: {
-                      ...s.sessions,
-                      [id]: { ...current, messages, messagesLoaded: true },
-                    },
-                  }
-                })
-              })
-              .catch(() => {})
-          }
         },
 
-        hydrateConversations: async () => {
-          try {
-            const summaries = await listConversations()
-            set((s) => {
-              const sessions = { ...s.sessions }
-              const existingConversationIds = new Set(
-                Object.values(sessions)
-                  .map((sess) => sess.conversationId)
-                  .filter((cid): cid is number => cid !== undefined),
-              )
-              for (const summary of summaries) {
-                if (existingConversationIds.has(summary.id)) continue
-                const sessionId = `conv-${summary.id}`
-                if (sessions[sessionId]) continue
-                sessions[sessionId] = {
-                  id: sessionId,
-                  title: summary.title,
-                  messages: [],
-                  createdAt: new Date(summary.created_at).getTime(),
-                  conversationId: summary.id,
-                  messagesLoaded: false,
-                }
-              }
-              return { sessions }
-            })
-          } catch {
-            // Non-fatal — local sessions still work without server hydration
-          }
-        },
-
-        openConversationById: async (conversationId) => {
-          const existing = Object.values(get().sessions).find((s) => s.conversationId === conversationId)
-          if (existing) {
-            get().switchSession(existing.id)
-            return
-          }
-          try {
-            const detail = await getConversation(conversationId)
-            const messages: Message[] = detail.messages.map((m) => ({
-              id: `db-${m.id}`,
-              role: m.role,
-              content: m.content,
-              citations: m.citations ?? undefined,
-              evidence: m.evidence ?? undefined,
-              model: m.model ?? undefined,
-            }))
-            const sessionId = `conv-${detail.id}`
-            set((s) => ({
-              sessions: {
-                ...s.sessions,
-                [sessionId]: {
-                  id: sessionId,
-                  title: detail.title,
-                  messages,
-                  createdAt: new Date(detail.created_at).getTime(),
-                  conversationId: detail.id,
-                  messagesLoaded: true,
-                },
+        // Pure local state write — the messages already came from a database
+        // read (see historyStore.loadConversation). Never calls the pipeline.
+        loadHistoricalSession: (conversationId, title, messages) => {
+          if (get().isStreaming) return
+          const hasTurns = messages.some((m) => m.role === 'user')
+          if (hasTurns && !hasAnalyticsSession()) trackSessionStart('resume_chat')
+          set((s) => ({
+            sessions: {
+              ...s.sessions,
+              [conversationId]: {
+                id: conversationId,
+                conversationId,
+                title,
+                messages,
+                createdAt: Date.now(),
               },
-              activeSessionId: sessionId,
-              error: null,
-            }))
-          } catch {
-            // Conversation not found / not owned by this user — leave the current session as-is
-          }
+            },
+            activeSessionId: conversationId,
+            error: null,
+          }))
         },
 
         deleteSession: (id) => {
           const { sessions, activeSessionId } = get()
-          const target = sessions[id]
           const remaining = Object.fromEntries(Object.entries(sessions).filter(([k]) => k !== id))
           clearHistory(id).catch(() => {})
-          if (target?.conversationId !== undefined) {
-            deleteConversationApi(target.conversationId).catch(() => {})
-          }
 
           if (id === activeSessionId) {
             const others = Object.values(remaining).sort((a, b) => b.createdAt - a.createdAt)
@@ -299,7 +226,6 @@ export const useChatStore = create<ChatState>()(
           trackSessionEnd(totalTurns)
           clearHistory(activeSessionId).catch(() => {})
           const fresh = createSession()
-          trackSessionStart('new_chat_button')
           set((s) => ({
             sessions: { ...s.sessions, [fresh.id]: fresh },
             activeSessionId: fresh.id,
@@ -311,18 +237,7 @@ export const useChatStore = create<ChatState>()(
           await get()._streamQuery(query)
         },
 
-        selectClarification: async (option: ClarificationOption, originalQuery: string) => {
-          const clarification: ClarificationSelection = {
-            option_id: option.id,
-            resolved_query: option.query,
-            product_override: option.product,
-            doc_anchor_s3_key: option.doc_anchor_s3_key,
-            original_query: originalQuery,
-          }
-          await get()._streamQuery(option.query, clarification)
-        },
-
-        _streamQuery: async (query: string, clarification?: ClarificationSelection) => {
+        _streamQuery: async (query: string) => {
           const { activeSessionId, isStreaming, accessDenied, rateLimited, apiDisabled, monthlyExhausted } = get()
           if (!query.trim() || isStreaming || accessDenied || rateLimited || apiDisabled || monthlyExhausted) return
           set({ error: null })
@@ -331,8 +246,7 @@ export const useChatStore = create<ChatState>()(
           const existingMsgs = get().sessions[activeSessionId]?.messages ?? []
           const turnNumber = existingMsgs.filter((m) => m.role === 'user').length + 1
 
-          // Fire analytics before the API call (clarification follow-ups count as queries)
-          trackQuerySent(query, turnNumber, 'unknown', 'uncategorised')
+          // Fire analytics before the API call
           if (turnNumber >= 2) trackFollowupQuery(query, turnNumber)
 
           const userMsg: Message = { id: makeId(), role: 'user', content: query }
@@ -341,6 +255,7 @@ export const useChatStore = create<ChatState>()(
 
           set((s) => ({
             isStreaming: true,
+            stageStalled: false,
             sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) => [
               ...msgs,
               userMsg,
@@ -348,13 +263,69 @@ export const useChatStore = create<ChatState>()(
             ]),
           }))
 
-          const conversationId = get().sessions[activeSessionId]?.conversationId
+          // Watchdog: flips stageStalled if the currently *displayed* stage sits
+          // this long with no transition and no tokens.
+          let staleTimer: ReturnType<typeof setTimeout> | null = null
+          const armStaleTimer = () => {
+            if (staleTimer) clearTimeout(staleTimer)
+            staleTimer = setTimeout(() => set({ stageStalled: true }), STAGE_STALL_MS)
+          }
+          const disarmStaleTimer = () => {
+            if (staleTimer) clearTimeout(staleTimer)
+            staleTimer = null
+          }
+
+          // Stage display queue: each real stage the backend reports is guaranteed
+          // at least MIN_STAGE_DISPLAY_MS on screen before the next one can replace
+          // it, so a fast retrieval can never skip past "Checking Adobe
+          // documentation" before a user has a chance to read it. Tokens always
+          // preempt this immediately (see statusCleared below) — the queue only
+          // paces transitions *between* status stages, never delays real content.
+          let stageQueue: ChatStage[] = []
+          let dwellTimer: ReturnType<typeof setTimeout> | null = null
+          const clearDwellTimer = () => {
+            if (dwellTimer) clearTimeout(dwellTimer)
+            dwellTimer = null
+          }
+          const showNextQueuedStage = () => {
+            const next = stageQueue.shift()
+            if (next === undefined) {
+              dwellTimer = null
+              return
+            }
+            set({ currentStage: next, stageStalled: false })
+            armStaleTimer()
+            dwellTimer = setTimeout(showNextQueuedStage, MIN_STAGE_DISPLAY_MS)
+          }
+          const enqueueStage = (stage: ChatStage) => {
+            const last = stageQueue.length > 0 ? stageQueue[stageQueue.length - 1] : get().currentStage
+            if (last === stage) return
+            stageQueue.push(stage)
+            if (!dwellTimer) showNextQueuedStage()
+          }
+          const resetStageMachinery = () => {
+            stageQueue = []
+            clearDwellTimer()
+            disarmStaleTimer()
+          }
+
+          enqueueStage('understanding')
+          let statusCleared = false
+
+          const conversationId = get().sessions[activeSessionId]?.conversationId ?? null
 
           try {
-            for await (const event of streamChat(query, activeSessionId, false, assistantId, clarification, conversationId)) {
+            for await (const event of streamChat(query, activeSessionId, false, assistantId, conversationId)) {
               if (!get().isStreaming) break
 
-              if (event.type === 'token') {
+              if (event.type === 'status') {
+                enqueueStage(event.stage)
+              } else if (event.type === 'token') {
+                if (!statusCleared) {
+                  statusCleared = true
+                  resetStageMachinery()
+                  set({ currentStage: null, stageStalled: false })
+                }
                 set((s) => ({
                   sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                     msgs.map((m) => (m.id === assistantId ? { ...m, content: m.content + event.content } : m))
@@ -373,19 +344,9 @@ export const useChatStore = create<ChatState>()(
                     msgs.map((m) => (m.id === assistantId ? { ...m, evidence: evidence as RetrievalEvidence } : m))
                   ),
                 }))
-              } else if (event.type === 'clarification') {
-                const { type: _t, ...clarificationPayload } = event
-                set((s) => ({
-                  sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
-                    msgs.map((m) =>
-                      m.id === assistantId
-                        ? { ...m, clarification: clarificationPayload as ClarificationPayload }
-                        : m
-                    )
-                  ),
-                }))
               } else if (event.type === 'done') {
-                const updatesFromDone: Partial<ChatState> = {}
+                resetStageMachinery()
+                const updatesFromDone: Partial<ChatState> = { currentStage: null, stageStalled: false }
                 if (event.queries_used !== undefined) updatesFromDone.queriesUsed = event.queries_used
                 if (event.queries_remaining !== undefined) updatesFromDone.queriesRemaining = event.queries_remaining
                 if (event.queries_limit !== undefined) updatesFromDone.queriesLimit = event.queries_limit
@@ -400,27 +361,27 @@ export const useChatStore = create<ChatState>()(
                   } else {
                     trackNoAnswer(query, turnNumber, 'no_retrieval')
                   }
+                } else {
+                  trackResponseReceived(query, turnNumber, event.model, currentMsg?.citations?.length ?? 0)
                 }
 
                 set((s) => {
-                  const activeSession = s.sessions[s.activeSessionId]
-                  const sessionsWithConversationId =
-                    event.conversation_id !== undefined && activeSession && !activeSession.conversationId
-                      ? {
-                          ...s.sessions,
-                          [s.activeSessionId]: { ...activeSession, conversationId: event.conversation_id },
-                        }
-                      : s.sessions
-                  return {
-                    ...updatesFromDone,
-                    sessions: patchActiveMessages(sessionsWithConversationId, s.activeSessionId, (msgs) =>
-                      msgs.map((m) => (m.id === assistantId ? { ...m, streaming: false, model: event.model } : m))
-                    ),
-                  }
+                  const patched = patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
+                    msgs.map((m) => (m.id === assistantId ? { ...m, streaming: false, model: event.model } : m))
+                  )
+                  const session = patched[s.activeSessionId]
+                  const sessions =
+                    event.conversation_id && session && !session.conversationId
+                      ? { ...patched, [s.activeSessionId]: { ...session, conversationId: event.conversation_id } }
+                      : patched
+                  return { ...updatesFromDone, sessions }
                 })
               } else if (event.type === 'error') {
+                resetStageMachinery()
                 trackNoAnswer(query, turnNumber, 'error')
                 set((s) => ({
+                  currentStage: null,
+                  stageStalled: false,
                   error: event.message,
                   sessions: patchActiveMessages(s.sessions, s.activeSessionId, (msgs) =>
                     msgs.map((m) =>
@@ -444,7 +405,10 @@ export const useChatStore = create<ChatState>()(
             const rateLimitMsg = isRateLimited ? ((err as any)?.detail?.message ?? msg) : ''
             const suppressContent =
               isDisabled || isApiDisabled || isKnowledgeBankUpdating || isRateLimited || isMonthlyExhausted
+            resetStageMachinery()
             set((s) => ({
+              currentStage: null,
+              stageStalled: false,
               error: suppressContent ? null : msg,
               accessDenied: isDisabled || s.accessDenied,
               rateLimited: isRateLimited || s.rateLimited,
@@ -467,13 +431,14 @@ export const useChatStore = create<ChatState>()(
               ),
             }))
           } finally {
-            set({ isStreaming: false })
+            resetStageMachinery()
+            set({ isStreaming: false, currentStage: null, stageStalled: false })
           }
 
           // After streaming: generate follow-up questions (non-blocking)
           const finalMsg = get().sessions[get().activeSessionId]?.messages
             .find((m) => m.id === assistantId)
-          if (finalMsg && finalMsg.content && !finalMsg.content.startsWith('Error:') && finalMsg.model !== 'none' && finalMsg.model !== 'clarification') {
+          if (finalMsg && finalMsg.content && !finalMsg.content.startsWith('Error:') && finalMsg.model !== 'none') {
             getFollowUps(query, finalMsg.content).then((follow_ups) => {
               if (follow_ups.length > 0) {
                 set((s) => ({
@@ -485,22 +450,22 @@ export const useChatStore = create<ChatState>()(
             })
           }
         },
+
+        // Wipe local session state on logout — otherwise the previous
+        // account's in-memory chat content could still be visible to the
+        // next person who signs in on this browser, even though the
+        // history *list* is already correctly scoped per account.
+        resetLocalState: () => {
+          const fresh = createSession()
+          set({
+            sessions: { [fresh.id]: fresh },
+            activeSessionId: fresh.id,
+            isStreaming: false,
+            currentStage: null,
+            stageStalled: false,
+            error: null,
+          })
+        },
       }
-    },
-    {
-      name: 'el-chat-store',
-      partialize: (s) => ({
-        sessions: s.sessions,
-        activeSessionId: s.activeSessionId,
-      }),
-      migrate: (persisted: any) => {
-        if (persisted && !persisted.sessions) {
-          const session = createSession()
-          return { sessions: { [session.id]: session }, activeSessionId: session.id }
-        }
-        return persisted
-      },
-      version: 2,
     }
-  )
 )

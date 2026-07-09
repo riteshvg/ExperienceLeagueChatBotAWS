@@ -17,7 +17,7 @@ const SCROLL_TRANSITION = 'transform 0.55s cubic-bezier(0.4, 0, 0.2, 1)'
 
 interface Props {
   questions: TickerQuestion[]
-  onSelectPrompt: (text: string) => void
+  onSelectPrompt: (question: TickerQuestion) => void
 }
 
 function Pill({
@@ -92,9 +92,9 @@ export function QuestionTicker({ questions, onSelectPrompt }: Props) {
   }, [])
 
   const handleSelect = useCallback(
-    (text: string) => {
+    (question: TickerQuestion) => {
       setHoverPaused(true)
-      onSelectPrompt(text)
+      onSelectPrompt(question)
     },
     [onSelectPrompt],
   )
@@ -162,7 +162,7 @@ export function QuestionTicker({ questions, onSelectPrompt }: Props) {
             <button
               key={`${i}-${q.text}`}
               type="button"
-              onClick={() => handleSelect(q.text)}
+              onClick={() => handleSelect(q)}
               className="w-full text-left transition-colors duration-100 hover:bg-slate-50 dark:hover:bg-slate-800 focus-visible:outline-none focus-visible:bg-slate-50 dark:focus-visible:bg-slate-800 border-b border-slate-200 dark:border-slate-700"
               style={{
                 minHeight: CARD_MIN_HEIGHT,

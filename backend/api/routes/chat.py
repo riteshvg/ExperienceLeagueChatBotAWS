@@ -19,7 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from backend.api.deps import get_pipeline, get_session_store, get_site_user
 from backend.core import google_db
-from backend.core.landing_questions import build_landing_payload
+from backend.core.landing_questions import build_landing_payload, classify_solution
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
 
@@ -99,21 +99,12 @@ def _is_non_english(text: str) -> bool:
     return False
 
 
-class ClarificationSelection(BaseModel):
-    option_id: str
-    resolved_query: str
-    product_override: Optional[str] = None
-    doc_anchor_s3_key: Optional[str] = None
-    original_query: Optional[str] = None
-
-
 class ChatRequest(BaseModel):
     query: str
     session_id: Optional[str] = None
     haiku_only: bool = False
     message_id: Optional[str] = None
-    clarification: Optional[ClarificationSelection] = None
-    conversation_id: Optional[int] = None
+    conversation_id: Optional[str] = None
 
 
 @router.post("/chat")
@@ -186,20 +177,19 @@ async def chat(
 
     async def event_generator():
         full_response = ""
-        last_done: Optional[dict] = None
         last_citations: list = []
         last_evidence: Optional[dict] = None
+        last_done: Optional[dict] = None
 
         async for event in pipeline.stream(
             query=body.query,
             session_id=session_id,
             haiku_only=body.haiku_only,
-            clarification=body.clarification.model_dump() if body.clarification else None,
         ):
             if event["type"] == "token":
                 full_response += event.get("content", "")
             elif event["type"] == "citations":
-                last_citations = event.get("citations") or []
+                last_citations = event.get("citations", [])
             elif event["type"] == "evidence":
                 last_evidence = {k: v for k, v in event.items() if k != "type"}
             elif event["type"] == "done":
@@ -209,10 +199,8 @@ async def chat(
             yield {"data": json.dumps(event)}
 
         # After the pipeline loop: augment done event with usage counts, then yield it
-        conversation_id = body.conversation_id
         if last_done is not None:
-            skip_usage = last_done.get("model") == "clarification"
-            if uid and not skip_usage:
+            if uid:
                 try:
                     usage = google_db.increment_daily_count(uid)
                     last_done = {
@@ -227,30 +215,36 @@ async def chat(
                     google_db.increment_monthly_count(uid)
                 except Exception as e:
                     logger.warning(f"Monthly count increment failed (non-fatal): {e}")
-
-            # Persist the turn (user query + assistant response) — non-fatal on failure
-            if uid and not skip_usage:
+                # Persist to conversation history — pure DB writes, never touches
+                # the pipeline. Reuse the client's conversation_id only if it's
+                # actually owned by this user; otherwise start a fresh one rather
+                # than erroring the turn out.
                 try:
-                    if conversation_id is None:
-                        conversation = google_db.create_conversation(uid, title=body.query[:60])
-                        conversation_id = conversation["id"]
-                    google_db.append_message(conversation_id, "user", body.query)
-                    google_db.append_message(
-                        conversation_id,
-                        "assistant",
-                        full_response,
-                        citations=last_citations or None,
-                        evidence=last_evidence,
-                        model=last_done.get("model"),
+                    conversation_id = body.conversation_id
+                    if not conversation_id or not google_db.conversation_belongs_to_user(conversation_id, uid):
+                        conversation_id = google_db.create_conversation(
+                            user_id=uid, session_id=session_id, title=body.query,
+                        )
+                    google_db.append_conversation_message(conversation_id, "user", body.query)
+                    # Publish a landing-page slug only for answered, on-topic queries —
+                    # same quality bar as the aggregated /chat/landing-questions feed.
+                    model = last_done.get("model")
+                    slug = (
+                        google_db.make_slug(body.query)
+                        if model and model != "none" and classify_solution(body.query)
+                        else None
+                    )
+                    google_db.append_conversation_message(
+                        conversation_id, "assistant", full_response, citations=last_citations,
+                        slug=slug, is_published=bool(slug), evidence=last_evidence,
                     )
                     last_done = {**last_done, "conversation_id": conversation_id}
                 except Exception as e:
-                    logger.warning(f"Conversation persistence failed (non-fatal): {e}")
-
+                    logger.warning(f"Conversation history persistence failed (non-fatal): {e}")
             yield {"data": json.dumps(last_done)}
 
-        # After streaming: track usage + log query (skip clarification-only prompts)
-        if uid and last_done and last_done.get("model") != "clarification":
+        # After streaming: track usage + log query
+        if uid and last_done:
             try:
                 google_db.increment_total_queries(uid)
                 google_db.touch_last_seen(uid)
@@ -267,6 +261,15 @@ async def chat(
                 logger.warning(f"Usage tracking failed (non-fatal): {e}")
 
     return EventSourceResponse(event_generator())
+
+
+@router.get("/landing/{slug}")
+async def get_landing(slug: str):
+    """Public, unauthenticated SEO landing page for a single recorded query+answer."""
+    result = google_db.get_landing_by_slug(slug)
+    if not result:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Not found")
+    return result
 
 
 @router.get("/chat/landing-questions")

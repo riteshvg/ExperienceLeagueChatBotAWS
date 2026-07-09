@@ -22,6 +22,8 @@ interface Props {
   feedback?: 1 | -1
   showDownload?: boolean
   session?: ChatSession
+  /** Hide the thumbs up/down affordance — e.g. on public, unauthenticated pages. */
+  hideFeedback?: boolean
 }
 
 function DownloadButton({ session }: { session: ChatSession }) {
@@ -180,6 +182,7 @@ export function MessageExtras({
   feedback,
   showDownload = false,
   session,
+  hideFeedback = false,
 }: Props) {
   const [expanded, setExpanded] = useState<Expanded>(null)
   const [showFeedbackInput, setShowFeedbackInput] = useState(false)
@@ -194,6 +197,8 @@ export function MessageExtras({
   const sourceCount = evidence ? evidenceSources.length : citationSources.length
   const hasFollowUps = (followUps?.length ?? 0) > 0
   const feedbackLocked = feedback !== undefined
+
+  if (!hasSources && !hasFollowUps && hideFeedback) return null
 
   const toggle = (section: Expanded) => {
     setExpanded((current) => (current === section ? null : section))
@@ -243,41 +248,43 @@ export function MessageExtras({
               <ChevronDown className={tabChevron(expanded === 'followups')} />
             </button>
           )}
-          {(hasSources || hasFollowUps) && (
+          {(hasSources || hasFollowUps) && !hideFeedback && (
             <div className="w-px bg-emerald-200/80 dark:bg-emerald-700/60 self-stretch" />
           )}
-          <div className="flex items-center gap-0.5 px-2 py-1.5 flex-shrink-0">
-            <button
-              type="button"
-              onClick={() => handleFeedback(1)}
-              title="Helpful"
-              disabled={feedbackLocked}
-              className={cn(
-                'p-1.5 rounded-md transition-colors',
-                feedback === 1
-                  ? 'text-emerald-700 bg-emerald-100 dark:text-emerald-200 dark:bg-emerald-900/70'
-                  : 'text-emerald-600/50 hover:text-emerald-700 hover:bg-emerald-100/80 dark:text-emerald-300/70 dark:hover:text-emerald-100 dark:hover:bg-emerald-900/50 disabled:cursor-default',
-              )}
-            >
-              <ThumbsUp className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleFeedback(-1)}
-              title="Not helpful"
-              disabled={feedbackLocked}
-              className={cn(
-                'p-1.5 rounded-md transition-colors',
-                feedback === -1
-                  ? 'text-red-600 bg-red-50 dark:text-red-300 dark:bg-red-950/50'
-                  : 'text-emerald-600/50 hover:text-red-500 hover:bg-red-50/80 dark:text-emerald-300/70 dark:hover:text-red-300 dark:hover:bg-red-950/40 disabled:cursor-default',
-              )}
-            >
-              <ThumbsDown className="w-3.5 h-3.5" />
-            </button>
-            {showDownload && session && <CopyConversationButton session={session} />}
-            {showDownload && session && <DownloadButton session={session} />}
-          </div>
+          {!hideFeedback && (
+            <div className="flex items-center gap-0.5 px-2 py-1.5 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => handleFeedback(1)}
+                title="Helpful"
+                disabled={feedbackLocked}
+                className={cn(
+                  'p-1.5 rounded-md transition-colors',
+                  feedback === 1
+                    ? 'text-emerald-700 bg-emerald-100 dark:text-emerald-200 dark:bg-emerald-900/70'
+                    : 'text-emerald-600/50 hover:text-emerald-700 hover:bg-emerald-100/80 dark:text-emerald-300/70 dark:hover:text-emerald-100 dark:hover:bg-emerald-900/50 disabled:cursor-default',
+                )}
+              >
+                <ThumbsUp className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleFeedback(-1)}
+                title="Not helpful"
+                disabled={feedbackLocked}
+                className={cn(
+                  'p-1.5 rounded-md transition-colors',
+                  feedback === -1
+                    ? 'text-red-600 bg-red-50 dark:text-red-300 dark:bg-red-950/50'
+                    : 'text-emerald-600/50 hover:text-red-500 hover:bg-red-50/80 dark:text-emerald-300/70 dark:hover:text-red-300 dark:hover:bg-red-950/40 disabled:cursor-default',
+                )}
+              >
+                <ThumbsDown className="w-3.5 h-3.5" />
+              </button>
+              {showDownload && session && <CopyConversationButton session={session} />}
+              {showDownload && session && <DownloadButton session={session} />}
+            </div>
+          )}
         </div>
 
         {showFeedbackInput && !feedbackLocked && (

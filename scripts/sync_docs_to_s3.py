@@ -161,6 +161,32 @@ REPOS = {
         "doc_type": "guide",
         "level": "intermediate",
     },
+    # Analytics tutorials (parallels the already-ingested CJA/platform learn repos)
+    "adobe-docs/analytics-learn": {
+        "github": "AdobeDocs/analytics-learn.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/analytics-learn/",
+        "path_filter": "help/",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/analytics-learn/tutorials",
+        "url_path_strip": "help/",
+        "product": "Adobe Analytics",
+        "doc_type": "tutorial",
+        "level": "beginner",
+    },
+    # AJO tutorials. Citation URLs are override-only (see exl_url_mapper.py's
+    # _AJO_LEARN_REPOS / config/ajo_learn_toc_exl_overrides.json) -- unlike
+    # analytics-learn.en, this repo has no flat folder-to-URL mapping.
+    "adobe-docs/journey-optimizer-learn": {
+        "github": "AdobeDocs/journey-optimizer-learn.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/journey-optimizer-learn/",
+        "path_filter": "help/",
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/journey-optimizer-learn",
+        "url_path_strip": "help/",
+        "product": "Adobe Journey Optimizer",
+        "doc_type": "tutorial",
+        "level": "beginner",
+    },
 }
 
 REPOS.update(API_DOC_REPOS)

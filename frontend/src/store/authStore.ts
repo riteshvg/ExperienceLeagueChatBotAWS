@@ -1,5 +1,7 @@
 import { create } from 'zustand'
 import { hashUserId, setHashedUserId } from '@/analytics'
+import { useHistoryStore } from './historyStore'
+import { useChatStore } from './chatStore'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 const SESSION_KEY = 'exl_session'
@@ -18,10 +20,12 @@ interface AuthState {
   session: SessionData | null
   isAuthenticated: boolean
 
-  /** Called by OAuthCallback after Google redirects back. */
+  /** Called by OAuthCallback after an OAuth provider redirects back. */
   setSession: (data: SessionData) => void
   /** Redirects browser to the Google OAuth consent screen via the backend. */
   initiateGoogleLogin: () => void
+  /** Redirects browser to the GitHub OAuth consent screen via the backend. */
+  initiateGitHubLogin: () => void
   /** Invalidates the server session and clears local state. */
   logout: () => Promise<void>
 }
@@ -63,6 +67,10 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     window.location.href = `${API_BASE}/api/auth/google`
   },
 
+  initiateGitHubLogin() {
+    window.location.href = `${API_BASE}/api/auth/github`
+  },
+
   async logout() {
     const token = get().session?.sessionToken
     if (token) {
@@ -77,5 +85,8 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
     }
     localStorage.removeItem(SESSION_KEY)
     set({ session: null, isAuthenticated: false })
+    // Chat state is per-account — never let it survive into the next login on this browser.
+    useHistoryStore.getState().reset()
+    useChatStore.getState().resetLocalState()
   },
 }))

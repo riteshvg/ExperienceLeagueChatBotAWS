@@ -51,53 +51,26 @@ export interface RetrievalEvidence {
   sources: RetrievalSource[]
 }
 
-export interface ClarificationOption {
-  id: string
-  label: string
-  query: string
-  product: string
-  doc_title: string
-  preview_url: string
-  doc_anchor_s3_key?: string
-  similarity_score?: number
-  match_strength?: string
-}
-
-export interface ClarificationPayload {
-  genesis: string
-  original_query: string
-  blocked_reason: string
-  intent_summary: string
-  options: ClarificationOption[]
-}
-
-export interface ClarificationSelection {
-  option_id: string
-  resolved_query: string
-  product_override?: string
-  doc_anchor_s3_key?: string
-  original_query?: string
-}
-
 export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
   citations?: Citation[]
   evidence?: RetrievalEvidence
-  clarification?: ClarificationPayload
   model?: string
   streaming?: boolean
   follow_ups?: string[]
   feedback?: 1 | -1
 }
 
+export type ChatStage = 'understanding' | 'searching' | 'writing'
+
 export type SSEEvent =
+  | { type: 'status'; stage: ChatStage }
   | { type: 'token'; content: string }
   | { type: 'citations'; citations: Citation[] }
   | ({ type: 'evidence' } & RetrievalEvidence)
-  | ({ type: 'clarification' } & ClarificationPayload)
-  | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number; conversation_id?: number }
+  | { type: 'done'; model: string; session_id: string; input_tokens?: number; output_tokens?: number; queries_used?: number; queries_remaining?: number; queries_limit?: number; conversation_id?: string }
   | { type: 'error'; message: string }
 
 export interface KnowledgeBankMaintenance {
@@ -136,8 +109,7 @@ export async function* streamChat(
   sessionId: string,
   haikuOnly = false,
   messageId?: string,
-  clarification?: ClarificationSelection,
-  conversationId?: number,
+  conversationId?: string | null,
 ): AsyncGenerator<SSEEvent> {
   const res = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
@@ -147,8 +119,7 @@ export async function* streamChat(
       session_id: sessionId,
       haiku_only: haikuOnly,
       message_id: messageId,
-      clarification: clarification ?? undefined,
-      conversation_id: conversationId ?? undefined,
+      conversation_id: conversationId || undefined,
     }),
   })
 
@@ -255,58 +226,74 @@ export async function clearHistory(sessionId: string): Promise<void> {
   await fetch(`${API_BASE}/api/chat/history/${sessionId}`, { method: 'DELETE' })
 }
 
-// ── Conversation persistence ──────────────────────────────────────────────────
-
-export interface ConversationSummary {
-  id: number
-  user_id: string
-  title: string
+export interface LandingBySlug {
+  slug: string
+  query: string
+  answer: string
+  citations: Citation[]
+  evidence: RetrievalEvidence | null
   created_at: string
-  updated_at: string
 }
 
-export interface ConversationMessageRow {
-  id: number
-  conversation_id: number
+/** Public, unauthenticated fetch for a single recorded query's SEO landing page. */
+export async function getLandingBySlug(slug: string): Promise<LandingBySlug | null> {
+  const res = await fetch(`${API_BASE}/api/landing/${encodeURIComponent(slug)}`)
+  if (!res.ok) return null
+  return res.json()
+}
+
+// ── Conversation history (persistent, keyed to the authenticated user) ───────
+// Pure reads — loading a past conversation never touches the RAG pipeline.
+
+export interface ConversationSummary {
+  id: string
+  title: string
+  created_at: string
+}
+
+export interface ConversationMessage {
+  id: string
   role: 'user' | 'assistant'
   content: string
   citations: Citation[] | null
-  evidence: RetrievalEvidence | null
-  model: string | null
-  turn_order: number
   created_at: string
 }
 
-export interface ConversationDetail extends ConversationSummary {
-  messages: ConversationMessageRow[]
-}
-
-export async function listConversations(): Promise<ConversationSummary[]> {
+export async function fetchConversations(): Promise<ConversationSummary[]> {
   const res = await fetch(`${API_BASE}/api/conversations`, { headers: authHeaders() })
-  if (!res.ok) return []
+  if (!res.ok) throw new Error(`Fetching conversations failed: ${res.status}`)
   const data = await res.json()
   return data.conversations as ConversationSummary[]
 }
 
-export async function getConversation(id: number): Promise<ConversationDetail> {
-  const res = await fetch(`${API_BASE}/api/conversations/${id}`, { headers: authHeaders() })
-  if (!res.ok) throw new Error(`Failed to load conversation: ${res.status}`)
-  return res.json()
-}
-
-export async function renameConversation(id: number, title: string): Promise<void> {
-  await fetch(`${API_BASE}/api/conversations/${id}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify({ title }),
-  })
-}
-
-export async function deleteConversationApi(id: number): Promise<void> {
-  await fetch(`${API_BASE}/api/conversations/${id}`, {
-    method: 'DELETE',
+export async function fetchConversationMessages(conversationId: string): Promise<ConversationMessage[]> {
+  const res = await fetch(`${API_BASE}/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
     headers: authHeaders(),
   })
+  if (!res.ok) throw new Error(`Fetching conversation failed: ${res.status}`)
+  const data = await res.json()
+  return data.messages as ConversationMessage[]
+}
+
+export interface DemoLoginResponse {
+  token: string
+  user_id: string
+  email: string
+  name: string
+  picture: string
+  expires_at: number
+  is_admin: boolean
+}
+
+/** Owner-only quick-access login — bypasses Google/GitHub OAuth. 404s when disabled server-side. */
+export async function demoLogin(username: string, password: string): Promise<DemoLoginResponse> {
+  const res = await fetch(`${API_BASE}/api/auth/demo-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  })
+  if (!res.ok) throw new Error(res.status === 401 ? 'Invalid credentials' : 'Demo login unavailable')
+  return res.json()
 }
 
 // ── Admin ─────────────────────────────────────────────────────────────────────

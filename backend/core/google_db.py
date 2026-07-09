@@ -5,11 +5,15 @@ Tables created on first startup:
   exl_users      — one row per Google account (user_id = Google sub)
   exl_sessions   — active sessions with 30-day TTL
   exl_ratelimits — per-IP rate limiting for the auth endpoint
+  conversations  — one row per chat conversation, keyed to exl_users.user_id
+  messages       — full turn-by-turn transcript for a conversation
 """
 
-import json
+import hashlib
 import os
+import re
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -121,30 +125,25 @@ def init_tables() -> None:
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
 
-                CREATE TABLE IF NOT EXISTS exl_conversations (
-                    id            BIGSERIAL PRIMARY KEY,
-                    user_id       TEXT NOT NULL,
-                    title         TEXT NOT NULL DEFAULT 'New chat',
-                    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                CREATE TABLE IF NOT EXISTS conversations (
+                    id          UUID PRIMARY KEY,
+                    user_id     TEXT NOT NULL REFERENCES exl_users(user_id) ON DELETE CASCADE,
+                    session_id  TEXT,
+                    title       TEXT NOT NULL DEFAULT '',
+                    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
 
-                CREATE TABLE IF NOT EXISTS exl_conversation_messages (
-                    id              BIGSERIAL PRIMARY KEY,
-                    conversation_id BIGINT NOT NULL REFERENCES exl_conversations(id) ON DELETE CASCADE,
-                    role            TEXT NOT NULL,
-                    content         TEXT NOT NULL DEFAULT '',
+                CREATE TABLE IF NOT EXISTS messages (
+                    id              UUID PRIMARY KEY,
+                    conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                    role            TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+                    content         TEXT NOT NULL,
                     citations       JSONB,
+                    slug            TEXT,
+                    is_published    BOOLEAN NOT NULL DEFAULT FALSE,
                     evidence        JSONB,
-                    model           TEXT,
-                    turn_order      INTEGER NOT NULL,
                     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
                 );
-
-                CREATE INDEX IF NOT EXISTS idx_exl_conversations_user_id
-                    ON exl_conversations (user_id, updated_at DESC);
-                CREATE INDEX IF NOT EXISTS idx_exl_conversation_messages_conv_id
-                    ON exl_conversation_messages (conversation_id, turn_order);
             """)
             # Safe migrations for existing deployments
             cur.execute(
@@ -194,13 +193,41 @@ def init_tables() -> None:
             cur.execute(
                 "INSERT INTO system_config (key, value) VALUES ('default_monthly_limit', '20') ON CONFLICT (key) DO NOTHING"
             )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_conversations_user_created ON conversations (user_id, created_at DESC)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_conversation_created ON messages (conversation_id, created_at ASC)"
+            )
+            # session_id is a free-form client-generated id (not guaranteed to be a
+            # UUID) kept only for analytics correlation — TEXT, not UUID.
+            cur.execute(
+                "ALTER TABLE conversations ALTER COLUMN session_id TYPE TEXT"
+            )
+            cur.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS slug TEXT"
+            )
+            cur.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS is_published BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            cur.execute(
+                "ALTER TABLE messages ADD COLUMN IF NOT EXISTS evidence JSONB"
+            )
+            cur.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_slug ON messages (slug) WHERE slug IS NOT NULL"
+            )
         conn.commit()
     finally:
         conn.close()
 
 
 def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
-    """Insert or update a Google user. Updates last_seen on every login."""
+    """Insert or update an OAuth user. Updates last_seen on every login.
+
+    Email is the account identity in Rovr. If the same person signs in with a
+    second OAuth provider, keep the original row so quotas/admin flags/history
+    remain attached to one account.
+    """
     admin_email = os.getenv(_ADMIN_EMAIL_ENV, "").strip().lower()
     is_admin_value = email.strip().lower() == admin_email if admin_email else False
 
@@ -230,9 +257,8 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
                     """
                     INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, is_admin, daily_query_limit, monthly_query_limit)
                     VALUES (%s, %s, %s, %s, NOW(), NOW(), TRUE, %s, %s)
-                    ON CONFLICT (user_id) DO UPDATE
-                        SET email     = EXCLUDED.email,
-                            name      = EXCLUDED.name,
+                    ON CONFLICT (email) DO UPDATE
+                        SET name      = EXCLUDED.name,
                             picture   = EXCLUDED.picture,
                             last_seen = NOW(),
                             is_admin  = TRUE
@@ -245,9 +271,8 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
                     """
                     INSERT INTO exl_users (user_id, email, name, picture, first_seen, last_seen, daily_query_limit, monthly_query_limit)
                     VALUES (%s, %s, %s, %s, NOW(), NOW(), %s, %s)
-                    ON CONFLICT (user_id) DO UPDATE
-                        SET email     = EXCLUDED.email,
-                            name      = EXCLUDED.name,
+                    ON CONFLICT (email) DO UPDATE
+                        SET name      = EXCLUDED.name,
                             picture   = EXCLUDED.picture,
                             last_seen = NOW()
                     RETURNING *
@@ -714,7 +739,8 @@ def get_popular_query_logs(limit: int = 200) -> list[dict]:
                         llm_model
                     FROM exl_query_logs
                     WHERE llm_model NOT LIKE 'blocked%%'
-                      AND LENGTH(TRIM(query_text)) >= 15
+                      -- Mirrors MIN/MAX_QUERY_LENGTH in backend/core/landing_questions.py
+                      AND LENGTH(TRIM(query_text)) BETWEEN 15 AND 100
                 ),
                 counts AS (
                     SELECT norm, COUNT(*) AS times_asked, MAX(created_at) AS last_asked
@@ -1111,145 +1137,185 @@ def check_and_update_ratelimit(ip: str) -> bool:
         conn.close()
 
 
-def _conversation_to_dict(row: dict) -> dict:
-    d = dict(row)
-    for key in ("created_at", "updated_at"):
-        if hasattr(d.get(key), "isoformat"):
-            d[key] = d[key].isoformat()
-    return d
+# ── Conversation history (persistent, keyed to the authenticated user) ────────
+#
+# This is a pure storage layer: creating/appending rows here never calls the
+# RAG pipeline, embeddings, or the LLM. session_id is carried along only for
+# analytics correlation with exl_query_logs — history lookups always go
+# through conversation_id + user_id, never session_id.
+
+_TITLE_MAX_LEN = 60
 
 
-def create_conversation(user_id: str, title: str) -> dict:
-    """Create a new conversation row. Returns the created row."""
+def create_conversation(user_id: str, session_id: Optional[str], title: str) -> str:
+    """Create a new conversation row. Returns the new conversation id."""
+    conversation_id = str(uuid.uuid4())
     conn = _connect()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO exl_conversations (user_id, title) VALUES (%s, %s) RETURNING *",
-                (user_id, title),
+                """
+                INSERT INTO conversations (id, user_id, session_id, title)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (conversation_id, user_id, session_id, title.strip()[:_TITLE_MAX_LEN]),
             )
-            row = cur.fetchone()
         conn.commit()
-        return _conversation_to_dict(row)
+    finally:
+        conn.close()
+    return conversation_id
+
+
+def conversation_belongs_to_user(conversation_id: str, user_id: str) -> bool:
+    """True if conversation_id exists and is owned by user_id. False on any mismatch or bad id."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "SELECT 1 FROM conversations WHERE id = %s AND user_id = %s",
+                    (conversation_id, user_id),
+                )
+            except Exception:
+                return False
+            return cur.fetchone() is not None
     finally:
         conn.close()
 
 
-def append_message(
-    conversation_id: int,
+def append_conversation_message(
+    conversation_id: str,
     role: str,
     content: str,
     citations: Optional[list] = None,
+    slug: Optional[str] = None,
+    is_published: bool = False,
     evidence: Optional[dict] = None,
-    model: Optional[str] = None,
 ) -> None:
-    """Append a message to a conversation (auto-incrementing turn_order) and bump updated_at."""
+    """Append one message row (user or assistant turn) to a conversation."""
+    from psycopg2.extras import Json
+
     conn = _connect()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT COALESCE(MAX(turn_order), -1) + 1 AS next_order "
-                "FROM exl_conversation_messages WHERE conversation_id = %s",
-                (conversation_id,),
-            )
-            next_order = cur.fetchone()["next_order"]
-            cur.execute(
                 """
-                INSERT INTO exl_conversation_messages
-                    (conversation_id, role, content, citations, evidence, model, turn_order)
-                VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s)
+                INSERT INTO messages (id, conversation_id, role, content, citations, slug, is_published, evidence)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    conversation_id,
-                    role,
-                    content,
-                    json.dumps(citations) if citations is not None else None,
-                    json.dumps(evidence) if evidence is not None else None,
-                    model,
-                    next_order,
+                    str(uuid.uuid4()), conversation_id, role, content,
+                    Json(citations) if citations is not None else None,
+                    slug, is_published,
+                    Json(evidence) if evidence is not None else None,
                 ),
             )
-            cur.execute(
-                "UPDATE exl_conversations SET updated_at = NOW() WHERE id = %s",
-                (conversation_id,),
-            )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def make_slug(text: str) -> str:
+    """URL-safe, human-legible slug for a query, deduplicated via a content hash suffix."""
+    base = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60].rstrip("-")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:6]
+    return f"{base}-{digest}" if base else digest
+
+
+def get_landing_by_slug(slug: str) -> Optional[dict]:
+    """Return a published query+answer pair for a public SEO landing page, or None."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT conversation_id, content AS answer, citations, evidence, created_at
+                FROM messages
+                WHERE slug = %s AND is_published = TRUE AND role = 'assistant'
+                """,
+                (slug,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cur.execute(
+                """
+                SELECT content FROM messages
+                WHERE conversation_id = %s AND role = 'user' AND created_at <= %s
+                ORDER BY created_at DESC LIMIT 1
+                """,
+                (row["conversation_id"], row["created_at"]),
+            )
+            q = cur.fetchone()
+        created_at = row["created_at"]
+        return {
+            "slug": slug,
+            "query": q["content"] if q else "",
+            "answer": row["answer"],
+            "citations": row["citations"] or [],
+            "evidence": row["evidence"],
+            "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else created_at,
+        }
     finally:
         conn.close()
 
 
 def list_conversations(user_id: str) -> list[dict]:
-    """Return conversation summaries (no messages) for a user, most recent first."""
+    """Return id/title/created_at only for a user's conversations, most recent first."""
     conn = _connect()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM exl_conversations WHERE user_id = %s ORDER BY updated_at DESC",
+                "SELECT id, title, created_at FROM conversations WHERE user_id = %s ORDER BY created_at DESC",
                 (user_id,),
             )
             rows = cur.fetchall()
-        return [_conversation_to_dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def get_conversation(conversation_id: int, user_id: str) -> Optional[dict]:
-    """Return a conversation with its messages, scoped to the owning user. None if not found/owned."""
-    conn = _connect()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT * FROM exl_conversations WHERE id = %s AND user_id = %s",
-                (conversation_id, user_id),
-            )
-            conv = cur.fetchone()
-            if conv is None:
-                return None
-            cur.execute(
-                "SELECT * FROM exl_conversation_messages WHERE conversation_id = %s ORDER BY turn_order",
-                (conversation_id,),
-            )
-            messages = cur.fetchall()
-        result = _conversation_to_dict(conv)
-        result["messages"] = [
-            {
-                **{k: v for k, v in dict(m).items() if k not in ("created_at",)},
-                "created_at": m["created_at"].isoformat() if hasattr(m.get("created_at"), "isoformat") else m.get("created_at"),
-            }
-            for m in messages
-        ]
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["id"] = str(d["id"])
+            if hasattr(d.get("created_at"), "isoformat"):
+                d["created_at"] = d["created_at"].isoformat()
+            result.append(d)
         return result
     finally:
         conn.close()
 
 
-def delete_conversation(conversation_id: int, user_id: str) -> bool:
-    """Delete a conversation (and its messages via cascade), scoped to the owning user."""
+def get_conversation_messages(conversation_id: str, user_id: str) -> Optional[list[dict]]:
+    """Return ordered messages for a conversation, or None if it doesn't exist or
+    isn't owned by user_id — callers must treat None as "not found", never leak
+    which case it was.
+    """
     conn = _connect()
     try:
         with conn.cursor() as cur:
+            try:
+                cur.execute(
+                    "SELECT 1 FROM conversations WHERE id = %s AND user_id = %s",
+                    (conversation_id, user_id),
+                )
+            except Exception:
+                return None
+            if cur.fetchone() is None:
+                return None
             cur.execute(
-                "DELETE FROM exl_conversations WHERE id = %s AND user_id = %s",
-                (conversation_id, user_id),
+                """
+                SELECT id, role, content, citations, created_at
+                FROM messages
+                WHERE conversation_id = %s
+                ORDER BY created_at ASC
+                """,
+                (conversation_id,),
             )
-            deleted = cur.rowcount > 0
-        conn.commit()
-        return deleted
-    finally:
-        conn.close()
-
-
-def rename_conversation(conversation_id: int, user_id: str, title: str) -> Optional[dict]:
-    """Rename a conversation, scoped to the owning user. Returns updated row or None."""
-    conn = _connect()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE exl_conversations SET title = %s, updated_at = NOW() WHERE id = %s AND user_id = %s RETURNING *",
-                (title, conversation_id, user_id),
-            )
-            row = cur.fetchone()
-        conn.commit()
-        return _conversation_to_dict(row) if row else None
+            rows = cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["id"] = str(d["id"])
+            if hasattr(d.get("created_at"), "isoformat"):
+                d["created_at"] = d["created_at"].isoformat()
+            result.append(d)
+        return result
     finally:
         conn.close()

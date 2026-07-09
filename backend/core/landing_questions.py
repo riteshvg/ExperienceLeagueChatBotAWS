@@ -75,6 +75,7 @@ LANDING_SOLUTIONS: tuple[str, ...] = (
 )
 
 MIN_QUERY_LENGTH = 15
+MAX_QUERY_LENGTH = 100
 MAX_PER_SOLUTION = 15
 ALL_TAB_PER_SOLUTION = 4
 
@@ -126,7 +127,7 @@ def _topic_hint_product(query: str) -> str | None:
 
 def _looks_like_question(text: str) -> bool:
     stripped = text.strip()
-    if len(stripped) < MIN_QUERY_LENGTH:
+    if len(stripped) < MIN_QUERY_LENGTH or len(stripped) > MAX_QUERY_LENGTH:
         return False
     if "?" in stripped:
         return True
@@ -158,7 +159,7 @@ def group_landing_questions(rows: list[dict], *, per_solution: int = MAX_PER_SOL
 
     for row in rows:
         text = (row.get("query_text") or "").strip()
-        if len(text) < MIN_QUERY_LENGTH:
+        if len(text) < MIN_QUERY_LENGTH or len(text) > MAX_QUERY_LENGTH:
             continue
         norm = text.lower()
         if norm in seen_norm:

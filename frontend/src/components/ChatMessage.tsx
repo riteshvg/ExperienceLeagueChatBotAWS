@@ -4,11 +4,11 @@ import remarkGfm from 'remark-gfm'
 import { Play, Copy, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MessageExtras } from './MessageExtras'
-import { ClarificationCard } from './ClarificationCard'
 import { ImageCarousel, type CarouselImage } from './ImageCarousel'
 import { type Message } from '@/lib/api'
-import { useChatStore, type ChatSession } from '@/store/chatStore'
+import { type ChatSession } from '@/store/chatStore'
 import { sanitizeAdobeMarkup, stripCitationMarkers, stripMdLinks } from '@/lib/markdownSanitize'
+import { trackImageCarouselNavigate, trackImageOpen } from '@/analytics'
 
 interface Props {
   message: Message
@@ -16,6 +16,8 @@ interface Props {
   turnNumber?: number
   isLastMessage?: boolean
   session?: ChatSession
+  /** Hide the thumbs up/down affordance — e.g. on public, unauthenticated pages. */
+  hideFeedback?: boolean
 }
 
 const VIDEO_URL_RE = /video\.tv\.adobe\.com|youtube\.com\/watch|youtu\.be/
@@ -187,17 +189,20 @@ function CopyAnswerButton({
   )
 }
 
-export function ChatMessage({ message, onFollowUpClick, turnNumber = 0, isLastMessage = false, session }: Props) {
-  const selectClarification = useChatStore((s) => s.selectClarification)
-  const isStreaming = useChatStore((s) => s.isStreaming)
+export function ChatMessage({
+  message,
+  onFollowUpClick,
+  turnNumber = 0,
+  isLastMessage = false,
+  session,
+  hideFeedback = false,
+}: Props) {
   const isUser = message.role === 'user'
-  const isClarificationOnly =
-    !isUser && message.model === 'clarification' && !!message.clarification
   const [copied, setCopied] = useState(false)
   const [carousel, setCarousel] = useState<{ images: CarouselImage[]; index: number } | null>(null)
   // Show SSE content as it arrives — typewriter lag caused layout thrash with embedded media.
   const processedContent = stripMdLinks(
-    stripCitationMarkers(sanitizeAdobeMarkup(message.content || (isClarificationOnly ? '' : ' '))),
+    stripCitationMarkers(sanitizeAdobeMarkup(message.content || ' ')),
   )
 
   const embedReady = !message.streaming
@@ -218,10 +223,10 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0, isLastMe
             src={src}
             alt={altText}
             onOpen={() =>
-              setCarousel({
-                images: messageImages,
-                index: resolveImageIndex(messageImages, index, src, altText),
-              })
+              openCarousel(
+                messageImages,
+                resolveImageIndex(messageImages, index, src, altText),
+              )
             }
           />
         )
@@ -258,12 +263,43 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0, isLastMe
     setTimeout(() => setCopied(false), 2000)
   }
 
+  const openCarousel = (images: CarouselImage[], index: number) => {
+    const image = images[index]
+    if (!image) return
+    trackImageOpen({
+      imageUrl: image.src,
+      imageAlt: image.alt || '',
+      imageIndex: index,
+      imageCount: images.length,
+      turnNumber,
+      messageId: message.id,
+    })
+    setCarousel({ images, index })
+  }
+
+  const handleCarouselIndexChange = (nextIndex: number) => {
+    setCarousel((prev) => {
+      if (!prev || nextIndex === prev.index) return prev
+      const image = prev.images[nextIndex]
+      if (!image) return prev
+      trackImageCarouselNavigate({
+        imageUrl: image.src,
+        imageAlt: image.alt || '',
+        imageIndex: nextIndex,
+        previousImageIndex: prev.index,
+        imageCount: prev.images.length,
+        direction: nextIndex > prev.index ? 'next' : nextIndex < prev.index ? 'previous' : 'jump',
+        turnNumber,
+        messageId: message.id,
+      })
+      return { ...prev, index: nextIndex }
+    })
+  }
+
   return (
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
       <div className={cn('max-w-[85%] space-y-2', isUser ? 'items-end' : 'items-start')}>
 
-        {/* Bubble — omitted when the response is clarification-only (no answer text yet) */}
-        {!isClarificationOnly && (
         <div className={cn(
           'relative px-4 py-3 rounded-2xl text-sm leading-relaxed',
           isUser
@@ -288,20 +324,9 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0, isLastMe
             </div>
           )}
         </div>
-        )}
-
-        {!isUser && message.clarification && message.model === 'clarification' && (
-          <ClarificationCard
-            clarification={message.clarification}
-            disabled={isStreaming}
-            onSelect={(option) =>
-              selectClarification(option, message.clarification!.original_query)
-            }
-          />
-        )}
 
         {/* Sources + follow-ups (compact expandable row) */}
-        {!isUser && !message.streaming && message.content.trim() && message.model !== 'clarification' && (
+        {!isUser && !message.streaming && message.content.trim() && (
           <MessageExtras
             evidence={message.evidence}
             citations={message.citations}
@@ -312,6 +337,7 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0, isLastMe
             feedback={message.feedback}
             showDownload={isLastMessage}
             session={session}
+            hideFeedback={hideFeedback}
           />
         )}
 
@@ -322,7 +348,7 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0, isLastMe
           images={carousel.images}
           index={carousel.index}
           onClose={() => setCarousel(null)}
-          onIndexChange={(index) => setCarousel((prev) => (prev ? { ...prev, index } : null))}
+          onIndexChange={handleCarouselIndexChange}
         />
       )}
     </div>

@@ -15,11 +15,16 @@ export {
   trackPageView,
   trackSessionStart,
   trackSessionEnd,
+  trackQuestionAsked,
   trackQuerySent,
   trackFollowupQuery,
+  trackResponseReceived,
+  trackSuggestedPromptClick,
   trackFeedbackPositive,
   trackFeedbackNegative,
   trackCitationClick,
+  trackImageOpen,
+  trackImageCarouselNavigate,
   trackNoAnswer,
   trackTermsAccepted,
 } from './events'
@@ -28,18 +33,23 @@ export {
 export { usePageView } from './usePageView'
 
 // Utilities needed outside the analytics module
-export { hashUserId, setHashedUserId, sanitizeQuery } from './dataLayer'
+export { hashUserId, hasAnalyticsSession, setHashedUserId, sanitizeQuery } from './dataLayer'
 
 // Types — re-exported for components that need to reference them
 export type {
   RovrEvent,
   PageViewEvent,
   SessionStartEvent,
+  QuestionAskedEvent,
   QuerySentEvent,
   FollowupQueryEvent,
+  ResponseReceivedEvent,
+  SuggestedPromptClickEvent,
   SessionEndEvent,
   FeedbackPositiveEvent,
   FeedbackNegativeEvent,
   CitationClickEvent,
+  ImageOpenEvent,
+  ImageCarouselNavigateEvent,
   NoAnswerEvent,
 } from './dataLayer'
