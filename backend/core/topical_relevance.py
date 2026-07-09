@@ -22,6 +22,15 @@ _GENERIC_TERMS = frozenset({
     "optimizer", "target", "collection", "data", "cloud", "real", "time",
     "aep", "ajo", "cja", "aa", "rtcdp", "exl", "docs", "documentation",
     "different", "various", "types", "what", "are", "the", "for", "about",
+    # Procedural/creation verbs — near-universal across how-to docs, so
+    # requiring a URL/title match on these (rather than the real topic
+    # nouns) causes multi-step workflow queries to match the wrong doc
+    # or drop the right ones.
+    "steps", "step", "process", "full", "creating", "create", "created",
+    "building", "build", "built", "setting", "set", "setup", "configuring",
+    "configure", "implementing", "implement", "activating", "activate",
+    "connecting", "connect", "integrating", "integrate", "using", "use",
+    "then",
 })
 
 # Minimum topical score for a doc to be used for answers / sources.

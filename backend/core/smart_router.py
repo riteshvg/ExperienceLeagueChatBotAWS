@@ -93,10 +93,17 @@ def detect_product_intent(query: str) -> str | None:
     for keyword, product in _API_INTENT_MAP.items():
         if re.search(rf"\b{re.escape(keyword)}\b", q_lower):
             return product
-    for keyword, product in _PRODUCT_INTENT_MAP.items():
-        if re.search(rf"\b{re.escape(keyword)}\b", q_lower):
-            return product
-    return None
+
+    matched_products = {
+        product
+        for keyword, product in _PRODUCT_INTENT_MAP.items()
+        if re.search(rf"\b{re.escape(keyword)}\b", q_lower)
+    }
+    # Query names 2+ distinct products (e.g. "Analytics" + "CJA") — scoping to
+    # just one would hard-filter out the other product's docs at retrieval time.
+    if len(matched_products) > 1:
+        return None
+    return next(iter(matched_products), None)
 
 
 def classify_query(query: str) -> str:
