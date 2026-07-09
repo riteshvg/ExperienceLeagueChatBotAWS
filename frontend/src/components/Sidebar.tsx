@@ -68,7 +68,7 @@ export function Sidebar({ onSelectPrompt, isOpen, onClose }: Props) {
         />
       )}
     <aside className={cn(
-      'flex-shrink-0 bg-[#14532D] text-white flex flex-col h-full z-30 transition-all duration-200',
+      'flex-shrink-0 bg-[#14532D] text-white flex flex-col h-full z-30 transition-all duration-200 print:hidden',
       // Desktop: always visible, collapsible
       'md:relative md:translate-x-0',
       collapsed ? 'md:w-14' : 'md:w-64',

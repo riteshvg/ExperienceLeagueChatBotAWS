@@ -9,6 +9,7 @@ import { ChatMessage } from '@/components/ChatMessage';
 import { StatusIndicator } from '@/components/StatusIndicator';
 import { Sidebar } from '@/components/Sidebar';
 import { LandingPanel } from '@/components/LandingPanel';
+import { useHistoryStore } from '@/store/historyStore';
 import { getMe, fetchMaintenanceStatus, isApiDisabled } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { PRODUCT_PILL_STYLES, type TickerQuestion } from '@/config/questions';
@@ -48,6 +49,7 @@ export function ChatPage() {
     setApiDisabled,
     setKnowledgeBankMaintenance,
     startNewChat,
+    switchSession,
   } = useChatStore();
   const { logout, session } = useAuthStore();
   const {
@@ -102,6 +104,22 @@ export function ChatPage() {
     pollHealth();
     const interval = setInterval(pollHealth, 10_000);
     return () => clearInterval(interval);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Deep link from an exported/copied conversation footer: ?conversation=<id>
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const conversationId = params.get('conversation');
+    if (conversationId) {
+      if (sessions[conversationId]) {
+        switchSession(conversationId);
+      } else {
+        useHistoryStore.getState().loadConversation(conversationId);
+      }
+      params.delete('conversation');
+      const newSearch = params.toString();
+      window.history.replaceState(null, '', window.location.pathname + (newSearch ? `?${newSearch}` : ''));
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-fetch quota after each message completes
@@ -265,16 +283,16 @@ export function ChatPage() {
   }
 
   return (
-    <div className="flex w-full h-screen overflow-hidden">
+    <div className="flex w-full h-screen overflow-hidden print:h-auto print:overflow-visible">
       <Sidebar
         onSelectPrompt={handleSidebarPromptSelect}
         isOpen={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
       />
 
-      <main className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-950">
+      <main className="flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-950 print:bg-white">
         {/* Header */}
-        <header className="flex-shrink-0 h-12 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4">
+        <header className="flex-shrink-0 h-12 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between px-4 print:hidden">
           {/* Hamburger — mobile only */}
           <button
             onClick={() => setSidebarOpen(true)}
@@ -383,7 +401,7 @@ export function ChatPage() {
         </header>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 print:overflow-visible print:h-auto">
           {/* Kill switch banner */}
           {apiDisabled && (
             <div className="flex items-start gap-3 px-4 py-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-200">
@@ -423,6 +441,7 @@ export function ChatPage() {
 
           {(() => {
             let userTurn = 0;
+            const lastMessageId = messages[messages.length - 1]?.id;
             return messages.map((msg) => {
               if (msg.role === 'user') userTurn++;
               const turn = userTurn;
@@ -438,6 +457,8 @@ export function ChatPage() {
                   message={msg}
                   onFollowUpClick={handleFollowUpPromptSelect}
                   turnNumber={turn}
+                  isLastMessage={msg.id === lastMessageId}
+                  session={sessions[activeSessionId]}
                 />
               );
             });
@@ -453,7 +474,7 @@ export function ChatPage() {
         </div>
 
         {/* Input */}
-        <div className="flex-shrink-0 px-4 py-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800">
+        <div className="flex-shrink-0 px-4 py-3 bg-slate-50 dark:bg-slate-950 border-t border-slate-200 dark:border-slate-800 print:hidden">
           {knowledgeBankUpdating && !apiDisabled && (
             <div
               role="status"
@@ -513,7 +534,7 @@ export function ChatPage() {
       {/* Feedback thank-you toast */}
       <div
         className={cn(
-          'fixed bottom-6 left-1/2 -translate-x-1/2 z-50',
+          'fixed bottom-6 left-1/2 -translate-x-1/2 z-50 print:hidden',
           'flex items-center gap-2 px-4 py-2.5 rounded-full',
           'bg-[#14532D] text-white text-sm font-medium shadow-lg',
           'transition-all duration-300',

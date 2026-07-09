@@ -6,12 +6,16 @@ import { cn } from '@/lib/utils'
 import { MessageExtras } from './MessageExtras'
 import { ImageCarousel, type CarouselImage } from './ImageCarousel'
 import { type Message } from '@/lib/api'
+import { type ChatSession } from '@/store/chatStore'
+import { sanitizeAdobeMarkup, stripCitationMarkers, stripMdLinks } from '@/lib/markdownSanitize'
 import { trackImageCarouselNavigate, trackImageOpen } from '@/analytics'
 
 interface Props {
   message: Message
   onFollowUpClick: (text: string) => void
   turnNumber?: number
+  isLastMessage?: boolean
+  session?: ChatSession
   /** Hide the thumbs up/down affordance — e.g. on public, unauthenticated pages. */
   hideFeedback?: boolean
 }
@@ -59,7 +63,7 @@ function AdobeVideoEmbed({
   const embedUrl = `https://video.tv.adobe.com/v/${videoId}?autoplay=0&hidetitle=true`
   return (
     <span
-      className="block my-3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 not-prose w-full max-w-md"
+      className="block my-3 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 not-prose w-full max-w-md print:hidden"
       data-video-id={videoId}
     >
       {label && (
@@ -161,24 +165,6 @@ function DocImage({
   )
 }
 
-function sanitizeAdobeMarkup(text: string): string {
-  return text
-    .replace(/\[!UICONTROL\s+([^\]]+)\]/g, '`$1`')
-    .replace(/\[!DNL\s+([^\]]+)\]/g, '**$1**')
-    .replace(/>\[!(IMPORTANT|NOTE|TIP|WARNING)\]\s*/g, '> **$1:** ')
-}
-
-function stripCitationMarkers(text: string): string {
-  return text.replace(/\[\d+\](?!\()/g, '')
-}
-
-function stripMdLinks(text: string): string {
-  return text
-    .replace(/\[([^\]]+)\]\([^)]*\.md[^)]*\)/g, '$1')
-    // Strip inline EXL/developer.adobe.com doc links — 404-prone; citations panel handles sources
-    .replace(/\[([^\]]+)\]\(https?:\/\/(?:experienceleague|developer)\.adobe\.com[^)]+\)/g, '$1')
-}
-
 function CopyAnswerButton({
   copied,
   onCopy,
@@ -203,7 +189,14 @@ function CopyAnswerButton({
   )
 }
 
-export function ChatMessage({ message, onFollowUpClick, turnNumber = 0, hideFeedback = false }: Props) {
+export function ChatMessage({
+  message,
+  onFollowUpClick,
+  turnNumber = 0,
+  isLastMessage = false,
+  session,
+  hideFeedback = false,
+}: Props) {
   const isUser = message.role === 'user'
   const [copied, setCopied] = useState(false)
   const [carousel, setCarousel] = useState<{ images: CarouselImage[]; index: number } | null>(null)
@@ -342,6 +335,8 @@ export function ChatMessage({ message, onFollowUpClick, turnNumber = 0, hideFeed
             turnNumber={turnNumber}
             messageId={message.id}
             feedback={message.feedback}
+            showDownload={isLastMessage}
+            session={session}
             hideFeedback={hideFeedback}
           />
         )}
