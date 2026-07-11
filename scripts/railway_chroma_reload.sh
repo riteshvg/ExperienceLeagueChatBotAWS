@@ -19,7 +19,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-HEALTH_URL="${ROVR_HEALTH_URL:-https://experienceleaguechatbotaws-production.up.railway.app/api/health}"
+HEALTH_URL="${ROVR_HEALTH_URL:-https://chatbot.thelearningproject.in/api/health}"
 EXPECTED_CHUNKS="${EXPECTED_CHUNKS:-0}"
 DRY_RUN=false
 POLL_SECS=15

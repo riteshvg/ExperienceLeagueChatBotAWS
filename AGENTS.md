@@ -17,8 +17,8 @@ Instructions for AI agents and IDEs working in this repo.
 
 | Component | URL |
 |-----------|-----|
-| Backend health | `https://experienceleaguechatbotaws-production.up.railway.app/api/health` |
-| Backend ping | `https://experienceleaguechatbotaws-production.up.railway.app/api/ping` |
+| Backend health | `https://chatbot.thelearningproject.in/api/health` |
+| Backend ping | `https://chatbot.thelearningproject.in/api/ping` |
 | Frontend | `https://thelearningproject.in/tools/rovr` |
 | Railway | project `experienceleaguechatbot`, service `ExperienceLeagueChatBotAWS` |
 
@@ -28,7 +28,7 @@ Instructions for AI agents and IDEs working in this repo.
 # Pre-flight
 railway deployment list | head -3
 railway variables -k | grep -E 'CHROMA|KNOWLEDGE|FORCE'
-curl -s https://experienceleaguechatbotaws-production.up.railway.app/api/health
+curl -s https://chatbot.thelearningproject.in/api/health
 
 # Deploy (pick ONE — not both unless you cancel the duplicate)
 git push origin main          # triggers Railway build from git

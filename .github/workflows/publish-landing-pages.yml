@@ -109,6 +109,11 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install blog repo dependencies
+        if: steps.push.outputs.changed == 'true'
+        working-directory: tlp
+        run: npm ci
+
       - name: Deploy to Cloudflare Pages
         if: steps.push.outputs.changed == 'true'
         working-directory: tlp
