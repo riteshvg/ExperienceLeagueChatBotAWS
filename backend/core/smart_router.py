@@ -79,6 +79,31 @@ _PRODUCT_INTENT_MAP = {
     "adobe target": "Adobe Target",
 }
 
+# Bare acronyms/short names that regular users type without the "Adobe "
+# prefix or full phrase (e.g. "...offer in Target?", "How do I use AA
+# segments?", "What is AJO journey testing?", "RT-CDP"). Checked in addition
+# to _PRODUCT_INTENT_MAP, word-boundary matched the same way. Each key here
+# was verified against the ingested KB (title/product cross-check) before
+# being added, to confirm it isn't a common English word or an existing
+# cross-product feature name that would mis-scope retrieval.
+_BARE_ACRONYM_MAP = {
+    "target": "Adobe Target",
+    "ajo": "Adobe Journey Optimizer",
+    "aa": "Adobe Analytics",
+    "rt-cdp": "Adobe Experience Platform",
+}
+
+# Denylist — a bare acronym also appears inside a real, distinct cross-product
+# feature name; exclude those phrasings rather than mis-scoping to the bare
+# acronym's product.
+#   "target": A4T ("Analytics for Target") is an Adobe Analytics feature name
+#   that contains the literal word "target" — confirmed via KB doc titles
+#   "Analytics For Target Panel" and "Virtual report suites and Analytics for
+#   Target (A4T)", both tagged product=Adobe Analytics.
+_BARE_ACRONYM_DENYLIST = {
+    "target": re.compile(r"\banalytics\s+for\s+target\b|\ba4t\b", re.IGNORECASE),
+}
+
 
 def detect_product_intent(query: str) -> str | None:
     """
@@ -99,6 +124,15 @@ def detect_product_intent(query: str) -> str | None:
         for keyword, product in _PRODUCT_INTENT_MAP.items()
         if re.search(rf"\b{re.escape(keyword)}\b", q_lower)
     }
+
+    for keyword, product in _BARE_ACRONYM_MAP.items():
+        if not re.search(rf"\b{re.escape(keyword)}\b", q_lower):
+            continue
+        denylist = _BARE_ACRONYM_DENYLIST.get(keyword)
+        if denylist and denylist.search(q_lower):
+            continue
+        matched_products.add(product)
+
     # Query names 2+ distinct products (e.g. "Analytics" + "CJA") — scoping to
     # just one would hard-filter out the other product's docs at retrieval time.
     if len(matched_products) > 1:

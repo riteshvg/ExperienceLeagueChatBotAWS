@@ -25,6 +25,8 @@ def fresh_redirect_cache():
 
 
 from src.utils.citation_metadata import (
+    URL_SOURCE_DEAD,
+    URL_SOURCE_UNVALIDATED,
     URL_SOURCE_VALIDATED,
     apply_url_validation,
     build_index_metadata,
@@ -151,10 +153,31 @@ def test_apply_url_validation_stores_live_url_only():
     base = build_index_metadata(
         "adobe-docs/adobe-journey-optimizer/help/using/campaigns/api-triggered-campaigns.md"
     )
-    live = apply_url_validation(base, True)
+    live = apply_url_validation(base, "live")
     assert live.url == live.exl_url
     assert live.url_source == URL_SOURCE_VALIDATED
 
-    dead = apply_url_validation(base, False)
+
+def test_apply_url_validation_dead_clears_both_url_and_exl_url():
+    base = build_index_metadata(
+        "adobe-docs/adobe-journey-optimizer/help/using/campaigns/api-triggered-campaigns.md"
+    )
+    dead = apply_url_validation(base, "dead")
     assert dead.url == ""
     assert dead.exl_url == ""
+    assert dead.url_source == URL_SOURCE_DEAD
+
+
+def test_apply_url_validation_unvalidated_preserves_exl_url():
+    """
+    A transient failure (timeout/429/5xx/exception) must not be
+    indistinguishable from a confirmed-dead page — exl_url survives so it can
+    be recovered on the next validation pass without re-deriving.
+    """
+    base = build_index_metadata(
+        "adobe-docs/adobe-journey-optimizer/help/using/campaigns/api-triggered-campaigns.md"
+    )
+    unvalidated = apply_url_validation(base, "unvalidated")
+    assert unvalidated.exl_url == base.exl_url
+    assert unvalidated.url == ""
+    assert unvalidated.url_source == URL_SOURCE_UNVALIDATED
