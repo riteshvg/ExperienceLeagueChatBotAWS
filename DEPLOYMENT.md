@@ -116,7 +116,7 @@ railway logs --tail # watch startup
 **Verify:**
 
 ```bash
-curl https://experienceleaguechatbotaws-production.up.railway.app/api/health
+curl https://chatbot.thelearningproject.in/api/health
 ```
 
 Expect `{"status": "ok", "chromadb": {"document_count": <N>}}`.

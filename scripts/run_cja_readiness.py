@@ -4,7 +4,7 @@ Run CJA readiness checks against a deployed Rovr API (retrieval-only, no LLM).
 
 Usage:
     python scripts/run_cja_readiness.py
-    python scripts/run_cja_readiness.py --base-url https://experienceleaguechatbotaws-production.up.railway.app
+    python scripts/run_cja_readiness.py --base-url https://chatbot.thelearningproject.in
     ADMIN_PASSWORD=... python scripts/run_cja_readiness.py --base-url http://127.0.0.1:8000
 
 Exit code 0 when all checks pass, 1 otherwise.

@@ -106,12 +106,21 @@ fi
 
 # ── Steps 2-4: Frontend build + Cloudflare deploy ─────────────────────────────
 if [ "$BACKEND_ONLY" = false ]; then
-  # Step 2: Build React frontend
+  # Step 2: Regenerate sitemap.xml, then build React frontend
+  echo ""
+  echo "▶ [2/4] Generating sitemap.xml…"
+  cd "$CHATBOT_ROOT"
+  venv/bin/python scripts/generate_sitemap.py
   echo ""
   echo "▶ [2/4] Building React frontend…"
   cd "$CHATBOT_ROOT/frontend"
   npm run build
   echo "  ✓ Build complete → frontend/dist/"
+
+  echo ""
+  echo "▶ [2/4] Generating static /q/<slug> landing pages (SEO meta/OG tags)…"
+  cd "$CHATBOT_ROOT"
+  venv/bin/python scripts/generate_landing_pages.py
 
   # Step 3: Copy dist into Hugo static folder (clean replace — no stale assets)
   echo ""
@@ -160,7 +169,7 @@ echo ""
 echo "══════════════════════════════════════════════"
 echo "  All done ✓"
 if [ "$FRONTEND_ONLY" = false ]; then
-  echo "  Backend  : https://experienceleaguechatbotaws-production.up.railway.app/api/health"
+  echo "  Backend  : https://chatbot.thelearningproject.in/api/health"
 fi
 if [ "$BACKEND_ONLY" = false ]; then
   echo "  Frontend : https://thelearningproject.in/tools/rovr"
