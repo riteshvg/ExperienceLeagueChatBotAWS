@@ -12,6 +12,7 @@ from chromadb.config import Settings as ChromaSettings
 from src.utils.citation_metadata import (
     URL_SOURCE_DEAD,
     URL_SOURCE_UNMAPPED,
+    URL_SOURCE_UNVALIDATED,
     URL_SOURCE_VALIDATED,
     enrich_s3_key,
     metadata_to_chroma_fields,
@@ -95,7 +96,7 @@ async def enrich_chroma_collection(
     validate_targets = [u for u in derive_by_key.values() if is_specific_url(u)]
 
     if skip_validate:
-        live_map = {u: True for u in validate_targets}
+        live_map = {u: "live" for u in validate_targets}
         logger.info("Skipping HTTP validation")
     else:
         logger.info("Validating %d unique EXL URLs…", len(validate_targets))
@@ -154,10 +155,11 @@ async def enrich_chroma_collection(
     for product in sorted(stats):
         s = stats[product]
         logger.info(
-            "  %-35s  validated=%4d  dead=%4d  unmapped=%4d",
+            "  %-35s  validated=%4d  dead=%4d  unvalidated=%4d  unmapped=%4d",
             product,
             s.get(URL_SOURCE_VALIDATED, 0),
             s.get(URL_SOURCE_DEAD, 0),
+            s.get(URL_SOURCE_UNVALIDATED, 0),
             s.get(URL_SOURCE_UNMAPPED, 0),
         )
 

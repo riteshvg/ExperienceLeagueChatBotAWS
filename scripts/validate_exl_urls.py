@@ -5,7 +5,7 @@ Validate canonical Experience League URLs for indexed documentation.
 Reports one row per unique source document (s3_key):
   product | repo | repo_path | exl_url | status
 
-status: live | dead | unmapped
+status: live | dead | unvalidated | unmapped
 
 Usage:
     python3 scripts/validate_exl_urls.py
@@ -71,7 +71,8 @@ async def run(product_filter: str | None, csv_path: Path | None) -> int:
         s = stats[product]
         print(
             f"  {product:35s}  live={s.get('live', 0):4d}  "
-            f"dead={s.get('dead', 0):4d}  unmapped={s.get('unmapped', 0):4d}"
+            f"dead={s.get('dead', 0):4d}  unvalidated={s.get('unvalidated', 0):4d}  "
+            f"unmapped={s.get('unmapped', 0):4d}"
         )
 
     if csv_path:
