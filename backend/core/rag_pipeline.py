@@ -24,8 +24,17 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from anthropic import AsyncAnthropic
+
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.evidence import build_evidence
+from backend.core.groundedness import (
+    extract_known_urls,
+    pseudo_chunk,
+    resolve_with_escalation,
+    run_groundedness_check,
+    should_run_groundedness_check,
+)
 from backend.core.retrieval_refiner import (
     RefinementResult,
     refinement_to_evidence_fields,
@@ -141,14 +150,24 @@ _SONNET_PROMPT = ChatPromptTemplate.from_messages([
 
 # ── LCEL chains ───────────────────────────────────────────────────────────────
 
-def _build_haiku_chain(api_key: str):
-    llm = ChatAnthropic(model=_HAIKU_MODEL, api_key=api_key, max_tokens=2000, streaming=True)
+def _build_haiku_chain(api_key: str, max_tokens: int = 2000):
+    llm = ChatAnthropic(model=_HAIKU_MODEL, api_key=api_key, max_tokens=max_tokens, streaming=True)
     return _HAIKU_PROMPT | llm | StrOutputParser()
 
 
-def _build_sonnet_chain(api_key: str):
-    llm = ChatAnthropic(model=_SONNET_MODEL, api_key=api_key, max_tokens=4000, streaming=True)
+def _build_sonnet_chain(api_key: str, max_tokens: int = 4000):
+    llm = ChatAnthropic(model=_SONNET_MODEL, api_key=api_key, max_tokens=max_tokens, streaming=True)
     return _SONNET_PROMPT | llm | StrOutputParser()
+
+
+# Tail-latency safety net for the admin-only groundedness-check path: real
+# output lengths are almost always well under this (median ~712 tokens, p90
+# ~1024 across the golden set — see eval/full_pipeline_rerun_v2.json), so this
+# rarely binds. It exists to bound the rare very-long-generation outliers,
+# which also correlate with higher fabrication risk (more room to invent
+# specifics), not to speed up the typical case.
+_ADMIN_TRIGGERED_HAIKU_MAX_TOKENS = 1200
+_ADMIN_TRIGGERED_SONNET_MAX_TOKENS = 1400
 
 
 def _to_lc_history(history: list[dict]) -> list:
@@ -213,6 +232,7 @@ class RAGPipeline:
         query: str,
         session_id: str,
         haiku_only: bool = False,
+        user_email: str | None = None,
     ) -> AsyncGenerator[dict, None]:
         try:
             yield {"type": "status", "stage": "understanding"}
@@ -225,15 +245,24 @@ class RAGPipeline:
             logger.info(f"SmartRouter: '{query[:60]}' → {routed}")
 
             if routed == "sonnet":
-                async for event in self._stream_agent(query, session_id, history, settings):
+                async for event in self._stream_agent(query, session_id, history, settings, user_email):
                     yield event
             else:
-                async for event in self._stream_chain(query, session_id, history, settings):
+                async for event in self._stream_chain(query, session_id, history, settings, user_email):
                     yield event
 
         except Exception as exc:
             logger.exception("RAG pipeline error")
             yield {"type": "error", "message": str(exc)}
+
+    def _is_admin_request(self, user_email: str | None) -> bool:
+        """Gate for the admin-only groundedness-check rollout — reuses the same
+        ADMIN_EMAIL identity mechanism as backend/api/deps.py:get_admin_user()
+        and backend/core/google_db.py, rather than introducing a new one.
+        Empty/unset ADMIN_EMAIL or user_email always returns False (fail closed
+        — no accidental opt-in for everyone if the env var is missing)."""
+        admin_email = (get_settings().admin_email or "").strip().lower()
+        return bool(admin_email) and bool(user_email) and user_email.strip().lower() == admin_email
 
     async def _emit_evidence(
         self,
@@ -373,12 +402,16 @@ class RAGPipeline:
 
     # ── Haiku: single-pass LCEL chain ─────────────────────────────────────────
 
-    async def _stream_chain(self, query, session_id, history, settings):
+    async def _stream_chain(self, query, session_id, history, settings, user_email=None):
         query_to_use, search_query, product_intent, where_filter = (
             self._resolve_retrieval_inputs(query, history)
         )
+        is_admin = self._is_admin_request(user_email)
 
-        yield {"type": "status", "stage": "searching"}
+        if is_admin:
+            yield {"type": "status", "stage": "searching", "message": "Looking through Adobe's documentation…"}
+        else:
+            yield {"type": "status", "stage": "searching"}
 
         raw_docs, refinement, related, topical_scores, blocked = await self._run_retrieval_path(
             query_to_use, search_query, settings, product_intent, where_filter,
@@ -418,21 +451,53 @@ class RAGPipeline:
             f"[{i+1}] {doc['content']}" for i, doc in enumerate(raw_docs)
         )
         context += _build_media_context(raw_docs)
+        yield {"type": "context", "context": context}
 
         raw_citations = self._extract_citations(raw_docs)
         lc_history = _to_lc_history(history)
-        chain = _build_haiku_chain(settings.anthropic_api_key)
+
+        admin_triggered = is_admin and should_run_groundedness_check(evidence)
+        chain = (
+            _build_haiku_chain(settings.anthropic_api_key, max_tokens=_ADMIN_TRIGGERED_HAIKU_MAX_TOKENS)
+            if admin_triggered
+            else _build_haiku_chain(settings.anthropic_api_key)
+        )
 
         # Kick off URL validation concurrently while the LLM streams — hides latency
         import asyncio as _asyncio
         validation_task = _asyncio.create_task(filter_valid_citations(raw_citations))
 
-        yield {"type": "status", "stage": "writing"}
+        if is_admin:
+            yield {"type": "status", "stage": "writing", "message": "Drafting your answer…"}
+        else:
+            yield {"type": "status", "stage": "writing"}
 
         full_response = ""
-        async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
-            full_response += chunk
-            yield {"type": "token", "content": chunk}
+        if admin_triggered:
+            async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
+                full_response += chunk
+            yield {
+                "type": "status", "stage": "reviewing",
+                "message": "Double-checking this against the source docs before showing it to you…",
+            }
+            groundedness_task = _asyncio.create_task(
+                self._apply_groundedness_ux(settings, query_to_use, full_response, context, evidence)
+            )
+            done, pending = await _asyncio.wait({groundedness_task}, timeout=15)
+            if pending:
+                yield {
+                    "type": "status", "stage": "still_reviewing",
+                    "message": "Making sure every detail here is actually documented, not just plausible…",
+                }
+            resolved = await groundedness_task
+            full_response = resolved["final_answer"]
+            yield {"type": "groundedness", "ux_action": resolved["ux_action"], "escalated": resolved["escalated"]}
+            for piece in pseudo_chunk(full_response):
+                yield {"type": "token", "content": piece}
+        else:
+            async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
+                full_response += chunk
+                yield {"type": "token", "content": chunk}
 
         citations = await validation_task
         self.session_store.append_turn(session_id, "user", query_to_use)
@@ -447,12 +512,16 @@ class RAGPipeline:
 
     # ── Sonnet: single-pass LCEL chain ───────────────────────────────────────
 
-    async def _stream_agent(self, query, session_id, history, settings):
+    async def _stream_agent(self, query, session_id, history, settings, user_email=None):
         query_to_use, search_query, product_intent, where_filter = (
             self._resolve_retrieval_inputs(query, history)
         )
+        is_admin = self._is_admin_request(user_email)
 
-        yield {"type": "status", "stage": "searching"}
+        if is_admin:
+            yield {"type": "status", "stage": "searching", "message": "Looking through Adobe's documentation…"}
+        else:
+            yield {"type": "status", "stage": "searching"}
 
         raw_docs, refinement, related, topical_scores, blocked = await self._run_retrieval_path(
             query_to_use, search_query, settings, product_intent, where_filter,
@@ -491,20 +560,52 @@ class RAGPipeline:
             f"[{i+1}] {doc['content']}" for i, doc in enumerate(raw_docs)
         )
         context += _build_media_context(raw_docs)
+        yield {"type": "context", "context": context}
 
         raw_citations = self._extract_citations(raw_docs)
         lc_history = _to_lc_history(history)
-        chain = _build_sonnet_chain(settings.anthropic_api_key)
+
+        admin_triggered = is_admin and should_run_groundedness_check(evidence)
+        chain = (
+            _build_sonnet_chain(settings.anthropic_api_key, max_tokens=_ADMIN_TRIGGERED_SONNET_MAX_TOKENS)
+            if admin_triggered
+            else _build_sonnet_chain(settings.anthropic_api_key)
+        )
 
         import asyncio as _asyncio
         validation_task = _asyncio.create_task(filter_valid_citations(raw_citations))
 
-        yield {"type": "status", "stage": "writing"}
+        if is_admin:
+            yield {"type": "status", "stage": "writing", "message": "Drafting your answer…"}
+        else:
+            yield {"type": "status", "stage": "writing"}
 
         full_response = ""
-        async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
-            full_response += chunk
-            yield {"type": "token", "content": chunk}
+        if admin_triggered:
+            async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
+                full_response += chunk
+            yield {
+                "type": "status", "stage": "reviewing",
+                "message": "Double-checking this against the source docs before showing it to you…",
+            }
+            groundedness_task = _asyncio.create_task(
+                self._apply_groundedness_ux(settings, query_to_use, full_response, context, evidence)
+            )
+            done, pending = await _asyncio.wait({groundedness_task}, timeout=15)
+            if pending:
+                yield {
+                    "type": "status", "stage": "still_reviewing",
+                    "message": "Making sure every detail here is actually documented, not just plausible…",
+                }
+            resolved = await groundedness_task
+            full_response = resolved["final_answer"]
+            yield {"type": "groundedness", "ux_action": resolved["ux_action"], "escalated": resolved["escalated"]}
+            for piece in pseudo_chunk(full_response):
+                yield {"type": "token", "content": piece}
+        else:
+            async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
+                full_response += chunk
+                yield {"type": "token", "content": chunk}
 
         citations = await validation_task
         self.session_store.append_turn(session_id, "user", query_to_use)
@@ -517,6 +618,25 @@ class RAGPipeline:
                "input_tokens": input_tokens, "output_tokens": output_tokens}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    async def _apply_groundedness_ux(
+        self, settings, query: str, answer: str, context: str, evidence: dict,
+    ) -> dict:
+        """Buffered-path post-processing: check the complete answer against its
+        context, and if it fabricates specifics, surgically remove or replace
+        the response before any of it reaches the client. Only called when
+        should_run_groundedness_check(evidence) is True (see call sites).
+
+        Returns the full resolve_with_escalation() dict (final_answer, ux_action,
+        escalated, reverify_chain) — callers that only need the text should read
+        result["final_answer"]. Exposing the full dict lets callers (production
+        SSE stream, eval harness) observe what the check actually decided instead
+        of having to re-run it, which would trivially find nothing wrong since
+        the answer is already post-UX-layer."""
+        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        known_urls = extract_known_urls(evidence)
+        check_result = await run_groundedness_check(client, context, answer, known_urls=known_urls)
+        return await resolve_with_escalation(client, query, answer, context, evidence, check_result)
 
     # Minimum similarity score for a doc to become a citation.
     # Docs retrieved below this threshold are used for LLM context but not shown as sources.
