@@ -119,11 +119,16 @@ _WORD_RE = re.compile(r"[a-z0-9]+")
 def _stem(word: str) -> str:
     """
     Minimal suffix-stripping stemmer — just enough to match word-form variants
-    like "testing"/"test" or "identities"/"identity" without pulling in a full
+    like "testing"/"test" or "activities"/"activity" without pulling in a full
     NLP stemmer for what's a narrow, low-risk normalization. Only strips when
     the remainder is still >=3 chars, so short words ("as", "is") are untouched.
     """
     lower = word.lower()
+    # "-ies" plural (activity/activities, identity/identities) needs its own
+    # rule before the generic suffix loop below — stripping "es" alone would
+    # leave "activiti", not "activity"; the "y" must be restored.
+    if lower.endswith("ies") and len(lower) - 3 >= 3:
+        return lower[:-3] + "y"
     for suf in _STEM_SUFFIXES:
         if lower.endswith(suf) and len(lower) - len(suf) >= 3:
             return lower[: -len(suf)]
