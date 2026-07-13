@@ -187,6 +187,18 @@ REPOS = {
         "doc_type": "tutorial",
         "level": "beginner",
     },
+    ##Experience Cloud AI
+    "adobe-docs/experience-cloud-ai": {
+        "github": "AdobeDocs/experience-cloud-ai.en",
+        "branch": "main",
+        "s3_prefix": "adobe-docs/experience-cloud-ai/",
+        "path_filter": "help/",   # or "" for whole repo — verify against the repo's tree first
+        "experience_league_base": "https://experienceleague.adobe.com/en/docs/experience-cloud-ai/experience-cloud-ai",
+        "url_path_strip": "help/",
+        "product": "Experience Cloud AI",
+        "doc_type": "guide",      # or "tutorial", "api"
+        "level": "intermediate",  # or "beginner" / "advanced"
+    },
 }
 
 REPOS.update(API_DOC_REPOS)
