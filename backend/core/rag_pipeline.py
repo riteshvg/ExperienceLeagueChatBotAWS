@@ -325,6 +325,27 @@ class RAGPipeline:
             related = self._fetch_related_docs(search_query, where_filter)
             return [], refinement, related, topical_scores, "no_retrieval"
 
+        if not relevant_docs and product_intent and where_filter:
+            # A hard product where-clause can exclude the doc that actually
+            # answers a cross-product concept (e.g. "identityMap" is a shared
+            # Data-Collection/XDM field, not AJO-specific, so an AJO-only pool
+            # never contains it even when AJO-scoped retrieval otherwise looks
+            # healthy). Retry once, unscoped, before giving up — the topical
+            # gate below still applies in full (assess_retrieval runs its
+            # normal, unrelaxed substring/URL check when product_filter is
+            # None), so this only widens the candidate pool, not the gate's
+            # precision bar.
+            unscoped_docs, unscoped_refinement = self._retrieve_docs(
+                search_query, query, settings, None, None,
+            )
+            unscoped_assessment = assess_retrieval(query, unscoped_docs, None)
+            if unscoped_assessment["relevant_docs"]:
+                raw_docs = unscoped_docs
+                refinement = unscoped_refinement
+                relevant_docs = unscoped_assessment["relevant_docs"]
+                product_docs = unscoped_assessment["product_docs"]
+                topical_scores = unscoped_assessment["topical_scores"]
+
         if not relevant_docs:
             related = product_docs or self._fetch_related_docs(search_query, where_filter)
             related = sorted(related, key=lambda d: float(d.get("score", 0.0)), reverse=True)[:3]
