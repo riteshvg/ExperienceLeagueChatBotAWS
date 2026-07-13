@@ -591,6 +591,14 @@ export const getKillSwitchStatus = (token: string): Promise<{ enabled: boolean }
 export const setKillSwitch = (token: string, enabled: boolean): Promise<{ enabled: boolean }> =>
   adminMutate('/api/admin/kill-switch', token, 'POST', { enabled })
 
+export type LlmProvider = 'anthropic' | 'bedrock'
+
+export const getLlmProvider = (token: string): Promise<{ provider: LlmProvider }> =>
+  adminFetch('/api/admin/settings/llm-provider', token)
+
+export const setLlmProvider = (token: string, provider: LlmProvider): Promise<{ provider: LlmProvider }> =>
+  adminMutate('/api/admin/settings/llm-provider', token, 'PATCH', { provider })
+
 export const setUserDailyLimit = (token: string, userId: string, limit: number): Promise<GoogleUser> =>
   adminMutate(`/api/admin/users/${encodeURIComponent(userId)}/limit`, token, 'PATCH', { daily_query_limit: limit })
 

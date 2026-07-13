@@ -1,0 +1,107 @@
+{
+  "purpose": "test_for_release",
+  "branch": "qa/hybrid-retrieval-and-toggle",
+  "created": "2026-07-13",
+  "notes": "Manual QA list for the hybrid BM25 retrieval + cross-product retrieval fallback + topical-gate stemming fixes + admin LLM provider toggle, before merging to main. Grouped by what each query validates.",
+  "groups": [
+    {
+      "group": "previously_blocked_now_fixed",
+      "description": "Were hitting no_direct_match before this branch's fixes; should now return real, on-topic results.",
+      "queries": [
+        {
+          "query": "what is identityMap used for in AJO?",
+          "was_wrong": "Product-scoped retrieval to AJO excluded the doc (it lives under Data Collection/AEP) -> no_direct_match",
+          "expect": "Returns 'IdentityMap Schema Field Group' / 'Using identityMap in Data Collection'"
+        },
+        {
+          "query": "What is AJO journey testing?",
+          "was_wrong": "has_direct_url_match rejected 'Test, validate & approve' doc - stemming mismatch (\"testing\" vs \"test\")",
+          "expect": "Returns 'Test, validate & approve'"
+        },
+        {
+          "query": "What's the difference between a rule-based and machine-learning-based activity?",
+          "was_wrong": "has_direct_url_match rejected 'Get started with journey activities' - stemmer didn't handle -ies plural (\"activity\" vs \"activities\")",
+          "expect": "Returns 'Get started with journey activities' among results, no longer blocked"
+        },
+        {
+          "query": "How does AEP identity resolution work?",
+          "was_wrong": "retrieval_recall_gap category",
+          "expect": "Real, on-topic answer"
+        },
+        {
+          "query": "What is an XDM field group?",
+          "was_wrong": "retrieval_recall_gap category",
+          "expect": "Real, on-topic answer"
+        },
+        {
+          "query": "What's the difference between Auto-Target and Auto-Allocate?",
+          "was_wrong": "retrieval_recall_gap category",
+          "expect": "Real, on-topic answer"
+        }
+      ]
+    },
+    {
+      "group": "known_content_gap_expect_honest_decline",
+      "description": "KB genuinely lacks a direct answer; must decline honestly, not fabricate from a coincidental match.",
+      "queries": [
+        {
+          "query": "When would I choose rule-based Target over AI-based Target?",
+          "was_wrong": "Old code answered anyway via a coincidental substring match (\"over\" inside \"overview\" in a URL)",
+          "expect": "no_direct_match / honest decline - this is correct behavior, not a bug"
+        }
+      ]
+    },
+    {
+      "group": "bm25_hybrid_retrieval_recall",
+      "description": "Exact-term / lexical recall checks for the BM25 + dense fusion.",
+      "queries": [
+        "What is identityMap used for in AJO?",
+        "How does AEP identity resolution work?",
+        "What's the difference between a rule-based and machine-learning-based activity?"
+      ]
+    },
+    {
+      "group": "regression_check_must_still_pass",
+      "description": "Scored well before this branch's changes; confirm no regression.",
+      "queries": [
+        "What is a schema in AEP?",
+        "What is a journey in AJO?",
+        "How do I create a calculated metric in Adobe Analytics?",
+        "How do I set up a data element in Launch/Tags?",
+        "How do I create a segment in CJA?",
+        "What is AEP schema validation?",
+        "What's new in the latest AEP release?"
+      ]
+    },
+    {
+      "group": "still_failing_out_of_scope",
+      "description": "Failing before and after this branch's fixes - not addressed this round, confirm unchanged (not worse).",
+      "queries": [
+        {
+          "query": "How do I configure a destination in Real-Time CDP?",
+          "bug_category": "clean"
+        },
+        {
+          "query": "What are the steps to create a segment in CJA and export it to Target?",
+          "bug_category": "clean"
+        },
+        {
+          "query": "Should I use CJA or Adobe Analytics for cross-channel reporting?",
+          "bug_category": "clean"
+        },
+        {
+          "query": "Where can I find documentation on AEP dataset schemas?",
+          "bug_category": "clean"
+        }
+      ]
+    },
+    {
+      "group": "admin_toggle_and_startup",
+      "description": "Non-query checks for the admin LLM provider toggle and BM25 startup fix.",
+      "checks": [
+        "Log into /admin, confirm the LLM Provider toggle loads and flips between Anthropic/Bedrock in the user dropdown - should default to Anthropic on this QA branch.",
+        "Restart the backend and confirm the BM25 build log line ('Building BM25 index at startup...') appears at startup, not on the first user request."
+      ]
+    }
+  ]
+}

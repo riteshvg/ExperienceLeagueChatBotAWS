@@ -13,11 +13,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.core.bm25_index import bm25_search
 from backend.core.query_keywords import (
     QueryKeywords,
     extract_query_keywords,
     hybrid_doc_score,
 )
+from backend.core.rrf import reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,7 @@ _OFF_TOPIC_THRESHOLD = 0.25
 _REFINEMENT_MIN_SCORE = 0.20
 _PROBE_NEIGHBORS = 15
 _MAX_REFINED_QUERIES = 4
+_BM25_POOL_SIZE = 30
 
 _STOPWORDS = frozenset({
     "what", "how", "does", "the", "and", "for", "with", "via", "from", "that",
@@ -379,6 +382,36 @@ def _rank_hybrid(docs: list[dict], keywords: QueryKeywords, user_query: str) -> 
     )
 
 
+def _fuse_dense_and_sparse(
+    retriever,
+    dense_docs: list[dict],
+    keywords: QueryKeywords,
+    user_query: str,
+    *,
+    where_filter: dict | None,
+) -> list[dict]:
+    """
+    Combine three independently-ranked views of the candidate pool via
+    reciprocal rank fusion: pure embedding-score order, the existing
+    keyword/phrase-synonym-aware heuristic rerank, and a true BM25 (lexical,
+    IDF-weighted) pass. BM25 runs against the full corpus rather than just
+    `dense_docs`, so it can surface exact-term matches (identifiers, API
+    names, XDM field names) that dense retrieval alone missed — those get
+    merged into the fused pool, not just re-ordered within it.
+    """
+    bm25_docs = bm25_search(
+        retriever, user_query, n_results=_BM25_POOL_SIZE, where=where_filter,
+    )
+    dense_ranked = sorted(dense_docs, key=lambda d: float(d.get("score", 0.0)), reverse=True)
+    keyword_ranked = _rank_hybrid(dense_docs, keywords, user_query)
+
+    # reciprocal_rank_fusion already dedupes by doc key across the three lists,
+    # keeping fused rank order — do not re-sort by raw "score" afterward
+    # (that field is whichever list first produced the doc, not comparable
+    # across embedding/BM25 scales).
+    return reciprocal_rank_fusion([dense_ranked, keyword_ranked, bm25_docs])
+
+
 def retrieve_with_refinement(
     retriever,
     search_query: str,
@@ -418,7 +451,9 @@ def retrieve_with_refinement(
     )
     merged = _merge_docs([initial, keyword_docs, multi_hop_docs])
     if merged:
-        ranked = _rank_hybrid(merged, keywords, user_query)
+        ranked = _fuse_dense_and_sparse(
+            retriever, merged, keywords, user_query, where_filter=where_filter,
+        )
         # Reserve each multi-hop clause's best couple of docs regardless of
         # global hybrid rank — a densely-populated clause (e.g. "destination")
         # otherwise crowds a thinner one (e.g. "schema") out of the final

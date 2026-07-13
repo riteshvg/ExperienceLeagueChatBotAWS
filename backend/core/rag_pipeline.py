@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from langchain_anthropic import ChatAnthropic
+from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -58,6 +59,12 @@ logger = logging.getLogger(__name__)
 
 _HAIKU_MODEL  = "claude-haiku-4-5-20251001"
 _SONNET_MODEL = "claude-sonnet-4-6"
+
+# Bedrock equivalents (used when the admin llm_provider toggle is set to
+# "bedrock" instead of the default "anthropic") — same underlying models,
+# with the Bedrock-specific "global.anthropic." prefix / "-v1:0" suffix.
+_HAIKU_MODEL_BEDROCK = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+_SONNET_MODEL_BEDROCK = "global.anthropic.claude-sonnet-4-6"
 
 # Returned directly (no LLM) when the query is clearly off-topic
 _OUT_OF_SCOPE_RESPONSE = (
@@ -150,14 +157,29 @@ _SONNET_PROMPT = ChatPromptTemplate.from_messages([
 
 # ── LCEL chains ───────────────────────────────────────────────────────────────
 
-def _build_haiku_chain(api_key: str, max_tokens: int = 2000):
-    llm = ChatAnthropic(model=_HAIKU_MODEL, api_key=api_key, max_tokens=max_tokens, streaming=True)
+def _build_haiku_chain(api_key: str, max_tokens: int = 2000, *, provider: str = "anthropic", region_name: str | None = None):
+    if provider == "bedrock":
+        llm = ChatBedrockConverse(model_id=_HAIKU_MODEL_BEDROCK, region_name=region_name, max_tokens=max_tokens)
+    else:
+        llm = ChatAnthropic(model=_HAIKU_MODEL, api_key=api_key, max_tokens=max_tokens, streaming=True)
     return _HAIKU_PROMPT | llm | StrOutputParser()
 
 
-def _build_sonnet_chain(api_key: str, max_tokens: int = 4000):
-    llm = ChatAnthropic(model=_SONNET_MODEL, api_key=api_key, max_tokens=max_tokens, streaming=True)
+def _build_sonnet_chain(api_key: str, max_tokens: int = 4000, *, provider: str = "anthropic", region_name: str | None = None):
+    if provider == "bedrock":
+        llm = ChatBedrockConverse(model_id=_SONNET_MODEL_BEDROCK, region_name=region_name, max_tokens=max_tokens)
+    else:
+        llm = ChatAnthropic(model=_SONNET_MODEL, api_key=api_key, max_tokens=max_tokens, streaming=True)
     return _SONNET_PROMPT | llm | StrOutputParser()
+
+
+def _current_llm_provider() -> str:
+    """Admin-toggleable "anthropic" (default) vs "bedrock" for main-answer generation."""
+    try:
+        from backend.core.llm_provider import get_llm_provider
+        return get_llm_provider()
+    except Exception:
+        return "anthropic"
 
 
 # Tail-latency safety net for the admin-only groundedness-check path: real
@@ -325,6 +347,27 @@ class RAGPipeline:
             related = self._fetch_related_docs(search_query, where_filter)
             return [], refinement, related, topical_scores, "no_retrieval"
 
+        if not relevant_docs and product_intent and where_filter:
+            # A hard product where-clause can exclude the doc that actually
+            # answers a cross-product concept (e.g. "identityMap" is a shared
+            # Data-Collection/XDM field, not AJO-specific, so an AJO-only pool
+            # never contains it even when AJO-scoped retrieval otherwise looks
+            # healthy). Retry once, unscoped, before giving up — the topical
+            # gate below still applies in full (assess_retrieval runs its
+            # normal, unrelaxed substring/URL check when product_filter is
+            # None), so this only widens the candidate pool, not the gate's
+            # precision bar.
+            unscoped_docs, unscoped_refinement = self._retrieve_docs(
+                search_query, query, settings, None, None,
+            )
+            unscoped_assessment = assess_retrieval(query, unscoped_docs, None)
+            if unscoped_assessment["relevant_docs"]:
+                raw_docs = unscoped_docs
+                refinement = unscoped_refinement
+                relevant_docs = unscoped_assessment["relevant_docs"]
+                product_docs = unscoped_assessment["product_docs"]
+                topical_scores = unscoped_assessment["topical_scores"]
+
         if not relevant_docs:
             related = product_docs or self._fetch_related_docs(search_query, where_filter)
             related = sorted(related, key=lambda d: float(d.get("score", 0.0)), reverse=True)[:3]
@@ -457,10 +500,11 @@ class RAGPipeline:
         lc_history = _to_lc_history(history)
 
         admin_triggered = is_admin and should_run_groundedness_check(evidence)
+        provider = _current_llm_provider()
         chain = (
-            _build_haiku_chain(settings.anthropic_api_key, max_tokens=_ADMIN_TRIGGERED_HAIKU_MAX_TOKENS)
+            _build_haiku_chain(settings.anthropic_api_key, max_tokens=_ADMIN_TRIGGERED_HAIKU_MAX_TOKENS, provider=provider, region_name=settings.bedrock_region)
             if admin_triggered
-            else _build_haiku_chain(settings.anthropic_api_key)
+            else _build_haiku_chain(settings.anthropic_api_key, provider=provider, region_name=settings.bedrock_region)
         )
 
         # Kick off URL validation concurrently while the LLM streams — hides latency
@@ -566,10 +610,11 @@ class RAGPipeline:
         lc_history = _to_lc_history(history)
 
         admin_triggered = is_admin and should_run_groundedness_check(evidence)
+        provider = _current_llm_provider()
         chain = (
-            _build_sonnet_chain(settings.anthropic_api_key, max_tokens=_ADMIN_TRIGGERED_SONNET_MAX_TOKENS)
+            _build_sonnet_chain(settings.anthropic_api_key, max_tokens=_ADMIN_TRIGGERED_SONNET_MAX_TOKENS, provider=provider, region_name=settings.bedrock_region)
             if admin_triggered
-            else _build_sonnet_chain(settings.anthropic_api_key)
+            else _build_sonnet_chain(settings.anthropic_api_key, provider=provider, region_name=settings.bedrock_region)
         )
 
         import asyncio as _asyncio
