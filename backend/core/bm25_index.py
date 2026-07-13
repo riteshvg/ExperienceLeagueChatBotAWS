@@ -166,3 +166,9 @@ def bm25_search(retriever, query: str, n_results: int = 30, where: dict | None =
     """Module-level convenience: ensures the shared index is built, then searches."""
     _index.ensure_built(retriever)
     return _index.search(query, n_results=n_results, where=where)
+
+
+def warm_bm25_index(retriever) -> None:
+    """Eagerly build the shared BM25 index — call at app startup so the first
+    real query doesn't pay the build cost (multiple seconds over ~40k+ chunks)."""
+    _index.ensure_built(retriever)
