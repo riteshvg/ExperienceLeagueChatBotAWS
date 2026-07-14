@@ -66,6 +66,13 @@ _SONNET_MODEL = "claude-sonnet-4-6"
 _HAIKU_MODEL_BEDROCK = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 _SONNET_MODEL_BEDROCK = "global.anthropic.claude-sonnet-4-6"
 
+# Embedding-similarity rescue for the topical gate — a query can score below the
+# lexical topical threshold on vocabulary mismatch alone (business/compliance
+# paraphrase vs. doc terminology) while still being a real match. Stress-test:
+# genuine matches wrongly blocked scored 0.353-0.644; genuinely off-topic queries
+# capped out at 0.125-0.214 — clean separation, so this only rescues real matches.
+_EMBED_RESCUE_THRESHOLD = 0.35
+
 # Returned directly (no LLM) when the query is clearly off-topic
 _OUT_OF_SCOPE_RESPONSE = (
     "I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, "
@@ -94,9 +101,21 @@ You ONLY answer questions about Adobe products: Adobe Analytics, Customer Journe
 Adobe Experience Platform (AEP), Adobe Target, Adobe Journey Optimizer (AJO), and Adobe Data Collection \
 (Tags/Launch, Web SDK, Datastreams, Edge Network).
 
-If the question is not about these Adobe products, respond with:
-"I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe Journey Optimizer, \
-and Adobe Data Collection. Please ask about these products."
+Before answering, check the retrieved documentation context below.
+- If the context contains information that addresses the question, answer using it — even if \
+the question's wording doesn't obviously name an Adobe product. The retrieval system has already \
+confirmed this context is relevant; do not re-judge topic relevance from the question's surface \
+phrasing alone.
+- If the context partially addresses the question, answer with what's supported and explicitly \
+note what's missing — don't treat it as all-or-nothing.
+- If the context does NOT address the question (empty, or unrelated to what was asked), say so \
+plainly: "I don't have information on this in Adobe Experience League documentation." Never \
+speculate about what the user might have meant as an alternative to answering — if you're unsure \
+whether the context addresses the question, say what the context does cover and ask a clarifying \
+question instead of guessing.
+- Only use the "I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe \
+Journey Optimizer, and Adobe Data Collection" response if there is no retrieved context at all for \
+this turn.
 
 Guidelines for Adobe questions:
 - Answer as completely as possible using the retrieved context.
@@ -119,9 +138,21 @@ expertise in Adobe Analytics, Customer Journey Analytics (CJA), Adobe Experience
 Adobe Target, Adobe Journey Optimizer (AJO), and Adobe Data Collection (Tags/Launch, Web SDK, \
 Datastreams, Edge Network).
 
-You ONLY answer questions about these Adobe products. If asked about anything unrelated, respond:
-"I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe Journey Optimizer, \
-and Adobe Data Collection."
+Before answering, check the retrieved documentation context below.
+- If the context contains information that addresses the question, answer using it — even if \
+the question's wording doesn't obviously name an Adobe product. The retrieval system has already \
+confirmed this context is relevant; do not re-judge topic relevance from the question's surface \
+phrasing alone.
+- If the context partially addresses the question, answer with what's supported and explicitly \
+note what's missing — don't treat it as all-or-nothing.
+- If the context does NOT address the question (empty, or unrelated to what was asked), say so \
+plainly: "I don't have information on this in Adobe Experience League documentation." Never \
+speculate about what the user might have meant as an alternative to answering — if you're unsure \
+whether the context addresses the question, say what the context does cover and ask a clarifying \
+question instead of guessing.
+- Only use the "I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe \
+Journey Optimizer, and Adobe Data Collection" response if there is no retrieved context at all for \
+this turn.
 
 Guidelines for Adobe questions:
 - Synthesize a complete, accurate answer using the retrieved context below.
@@ -369,24 +400,47 @@ class RAGPipeline:
                 topical_scores = unscoped_assessment["topical_scores"]
 
         if not relevant_docs:
-            related = product_docs or self._fetch_related_docs(search_query, where_filter)
-            related = sorted(related, key=lambda d: float(d.get("score", 0.0)), reverse=True)[:3]
-            related_scores = {
-                (d.get("metadata") or {}).get("s3_key")
-                or (d.get("metadata") or {}).get("url")
-                or d.get("content", "")[:80]: 0.0
-                for d in related
-            }
-            topical_scores = {**topical_scores, **related_scores}
-            return [], refinement, related, topical_scores, "no_direct_match"
+            # Pure-lexical topical gate found nothing, but a strong embedding match
+            # can still indicate a real answer the lexical gate missed on vocabulary
+            # (paraphrase/synonym mismatch between query wording and doc wording —
+            # see rag_pipeline investigation, stress-test showed off-topic queries
+            # cap out well below this threshold while genuine paraphrased matches
+            # sit above it). Rescue pool is product-scoped when a product filter
+            # was applied, otherwise the full raw retrieval pool.
+            rescue_pool = product_docs if product_intent else raw_docs
+            embed_rescued = [
+                d for d in rescue_pool
+                if float(d.get("score", 0.0)) >= _EMBED_RESCUE_THRESHOLD
+            ]
+            if embed_rescued:
+                relevant_docs = sorted(
+                    embed_rescued, key=lambda d: float(d.get("score", 0.0)), reverse=True,
+                )
+            else:
+                related = product_docs or self._fetch_related_docs(search_query, where_filter)
+                related = sorted(related, key=lambda d: float(d.get("score", 0.0)), reverse=True)[:3]
+                related_scores = {
+                    (d.get("metadata") or {}).get("s3_key")
+                    or (d.get("metadata") or {}).get("url")
+                    or d.get("content", "")[:80]: 0.0
+                    for d in related
+                }
+                topical_scores = {**topical_scores, **related_scores}
+                return [], refinement, related, topical_scores, "no_direct_match"
 
-        # Weak topical alignment — treat as no direct match rather than a low-confidence answer.
+        # Weak topical alignment — treat as no direct match rather than a low-confidence
+        # answer, unless a strong embedding match rescues it (same rationale as above).
         # Skipped when product_intent already hard-scoped retrieval (a real Chroma
         # where-clause) and too few significant terms survive to be a meaningful
         # lexical signal — same condition as assess_retrieval's gate relaxation.
         best_topical = max(topical_match_score(query, d) for d in relevant_docs)
+        best_embed = max(float(d.get("score", 0.0)) for d in relevant_docs)
         thin_significant_terms = len(significant_terms(query)) < _MIN_SIGNIFICANT_FOR_URL_CHECK
-        if best_topical < 0.22 and not (product_intent and thin_significant_terms):
+        if (
+            best_topical < 0.22
+            and best_embed < _EMBED_RESCUE_THRESHOLD
+            and not (product_intent and thin_significant_terms)
+        ):
             related = sorted(
                 relevant_docs + (product_docs or []),
                 key=lambda d: float(d.get("score", 0.0)),

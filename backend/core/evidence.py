@@ -12,9 +12,6 @@ from typing import Any
 
 from src.utils.exl_url_mapper import is_specific_url, resolve_doc_url
 
-# Mirrors RAGPipeline._CITATION_SCORE_THRESHOLD — used for labelling only.
-CITED_SCORE_THRESHOLD = 0.70
-
 
 def _clean_title(raw: str) -> str:
     return re.sub(r"\s*\{#[^}]+\}", "", raw or "").strip()
@@ -104,11 +101,17 @@ def build_evidence(
     topical_scores: optional doc-key → topical match score map
     """
     docs_for_sources = raw_docs if raw_docs else (related_docs or [])
+    # A doc is "cited" when it was actually injected into the LLM's prompt context
+    # (raw_docs — see rag_pipeline.py, this is literally what gets joined into
+    # {context}), not based on an arbitrary similarity-score cutoff. When raw_docs
+    # is empty, docs_for_sources falls back to related_docs (blocked-response
+    # transparency list) — those were never in context, so cited is False; the
+    # explicit override below still applies as a second safety net.
+    used_for_context = bool(raw_docs)
 
     sources: list[dict[str, Any]] = []
     for doc in docs_for_sources:
-        score = float(doc.get("score", 0.0))
-        cited = score >= CITED_SCORE_THRESHOLD
+        cited = used_for_context
         meta = doc.get("metadata") or {}
         doc_key = meta.get("s3_key") or meta.get("url") or doc.get("content", "")[:80]
         topical = (topical_scores or {}).get(doc_key)

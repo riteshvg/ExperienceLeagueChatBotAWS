@@ -1,0 +1,88 @@
+{
+  "purpose": "test_for_release",
+  "branch": "main",
+  "created": "2026-07-14",
+  "notes": "Manual QA list for the topical-gate embedding rescue (rag_pipeline.py), the context-conditioned refusal system prompt rewording (rag_pipeline.py), and the citation cited-flag fix (evidence.py: cited = doc was part of raw_docs injected into LLM context, not a raw similarity-score cutoff). Grouped by what each query validates.",
+  "groups": [
+    {
+      "group": "previously_blocked_now_fixed",
+      "description": "Were hitting no_direct_match / the scripted refusal before this session's fixes; should now return real, grounded, cited answers.",
+      "queries": [
+        {
+          "query": "How would you meet regulatory requirements for capturing detailed metadata at each step of a journey and share it with downstream systems?",
+          "was_wrong": "Topical gate scored below 0.20 on lexical overlap alone (paraphrase/vocabulary mismatch vs. doc wording) despite embedding similarity ~0.5-0.66 indicating a real match -> no_direct_match",
+          "expect": "Detailed answer on AJO journey step event streaming + executionMetadata helper, with populated citations (source_count == citation_count)"
+        },
+        {
+          "query": "explain delta enablement",
+          "was_wrong": "Retrieval and topical gate both passed (source_count=2), but the LLM's system-prompt-driven scope check re-judged the raw query wording independent of the retrieved context, produced the scripted refusal, then speculated unprompted (\"however, if you mean X...\")",
+          "expect": "No scripted 'I can only answer questions about...' refusal. States it doesn't have info on the literal phrase, describes Delta Sharing from context, asks a clarifying question instead of guessing. Citations populated (source_count == citation_count)."
+        },
+        {
+          "query": "what is a share query",
+          "was_wrong": "Same refusal-despite-good-context pattern as 'explain delta enablement' (source_count=4)",
+          "expect": "No scripted refusal; states what the context covers (AEP Query Service sharing), asks a clarifying question if genuinely ambiguous"
+        }
+      ]
+    },
+    {
+      "group": "ambiguous_jargon_regression_check",
+      "description": "Additional paraphrase/jargon-lite queries used to confirm the speculation ban holds structurally, not just for the exact flagged wording.",
+      "queries": [
+        "what is profile enablement",
+        "explain dataset enablement for profile",
+        "tell me about identity stitching",
+        "explain audience overlap detection",
+        "what does GDPR readiness look like for our messaging pipeline",
+        "how do we prove consent was captured before sending an offer",
+        "explain the mechanism for keeping two record systems reconciled"
+      ]
+    },
+    {
+      "group": "citation_fix_check",
+      "description": "For every query in the two groups above: confirm the sources/citations panel is populated whenever the answer is clearly grounded in retrieved context (evidence.source_count should equal evidence.citation_count for non-blocked responses) - this is the evidence.py cited-flag fix, previously these showed citation_count=0 despite well-grounded answers."
+    },
+    {
+      "group": "off_topic_regression_must_still_decline",
+      "description": "Genuinely off-topic queries - confirm the embedding-rescue threshold (0.35) did not introduce false-positive answers. Must still refuse/decline.",
+      "queries": [
+        "What is the best way to bake sourdough bread at home?",
+        "How do I fix a flat tire on my bicycle?",
+        "What is the capital of France?",
+        "How do I train for a marathon?",
+        "What are good stretches for lower back pain?"
+      ]
+    },
+    {
+      "group": "same_product_wrong_subtopic_unchanged",
+      "description": "Pre-existing behavior, not part of this fix - confirm unchanged (not worse).",
+      "queries": [
+        {
+          "query": "How do I change the color theme of the Analysis Workspace UI?",
+          "expect": "Answers fully (pre-existing pass, unrelated to this session's changes)"
+        },
+        {
+          "query": "How do I reset my Adobe ID password?",
+          "expect": "Declines with the new honest partial-match wording, does not fabricate an Adobe Experience League answer"
+        }
+      ]
+    },
+    {
+      "group": "no_direct_match_related_docs_branch",
+      "description": "Verifies the blocked-response fallback path in evidence.py still marks related/transparency docs as NOT cited (used_for_context = bool(raw_docs) = False when raw_docs is empty).",
+      "queries": [
+        {
+          "query": "xyzzy plugh frotz",
+          "expect": "failure_reason=no_direct_match, related docs shown for transparency but all with cited=false, citation_count=0"
+        }
+      ]
+    },
+    {
+      "group": "golden_set_regression",
+      "description": "Full existing golden set (eval/golden_set.json, 40 queries) - confirm 0 unexpected scripted refusals and no citation/product regressions.",
+      "checks": [
+        "Run eval/golden_set.json end-to-end through rovr_eval_wrapper.invoke(); 0 queries should produce the scripted 'I can only answer questions about...' refusal text unless expected_product is genuinely out of scope."
+      ]
+    }
+  ]
+}
