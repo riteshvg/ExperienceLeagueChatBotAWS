@@ -50,6 +50,7 @@ class InterviewSession:
     evaluated: bool = False
     per_question_results: list[dict[str, Any]] = field(default_factory=list)
     session_report: dict[str, Any] | None = None
+    created_at: str | None = None
 
     @property
     def total(self) -> int:
@@ -191,6 +192,7 @@ class InterviewSession:
             "completed": self.completed,
             "evaluated": self.evaluated,
             "current_question": _question_to_dict(q, self.current_index, self.total) if q else None,
+            "created_at": self.created_at,
         }
 
 
@@ -212,11 +214,11 @@ def _question_event(q: InterviewQuestion, index: int, total: int) -> dict[str, A
 
 
 def create_session(user_id: str, level: str, profile_id: str) -> InterviewSession:
-    questions = get_question_set(level, profile_id)
+    questions = get_question_set(level, profile_id, user_id)
     session_id = str(uuid.uuid4())
     from backend.core import google_db
 
-    google_db.create_interview_session(
+    created_at = google_db.create_interview_session(
         session_id, user_id, level, profile_id,
         [(q.id, q.version) for q in questions],
     )
@@ -226,6 +228,7 @@ def create_session(user_id: str, level: str, profile_id: str) -> InterviewSessio
         level=level,
         profile_id=profile_id,
         questions=questions,
+        created_at=created_at,
     )
 
 
@@ -286,6 +289,7 @@ def get_session(session_id: str) -> InterviewSession | None:
         evaluated=row["evaluated"],
         per_question_results=per_question_results,
         session_report=row["session_report"],
+        created_at=row["created_at"],
     )
 
 
@@ -338,38 +342,83 @@ def _docs_to_citations(docs: list[dict], min_score: float = 0.0) -> list[dict[st
     return citations
 
 
-def _parse_evaluation_json(text: str) -> dict[str, Any]:
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    """Best-effort extraction of a JSON object from an LLM response, tolerant of
+    a response that got cut off by max_tokens before the closing fence/brace
+    ever arrived. Strips a ```json fence (with or without its closing ```),
+    then scans from the first '{' tracking bracket/string state so a
+    truncated-mid-object response can be repaired by closing whatever was
+    still open, rather than failing to parse entirely."""
     text = text.strip()
-    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if fence:
-        text = fence.group(1).strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"```\s*$", "", text).strip()
+
+    start = text.find("{")
+    if start == -1:
+        return None
+    text = text[start:]
+
+    stack: list[str] = []
+    in_string = False
+    escape = False
+    close_index: int | None = None
+    for i, ch in enumerate(text):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch in "{[":
+            stack.append(ch)
+        elif ch in "}]":
+            if stack:
+                stack.pop()
+            if not stack:
+                close_index = i
+                break
+
+    if close_index is not None:
+        candidate = text[: close_index + 1]
+    else:
+        # Truncated mid-object — repair by closing whatever was left open.
+        candidate = text
+        if in_string:
+            candidate += '"'
+        candidate = candidate.rstrip()
+        candidate = re.sub(r",\s*$", "", candidate)
+        for opener in reversed(stack):
+            candidate += "}" if opener == "{" else "]"
+
     try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data
+        data = json.loads(candidate)
     except json.JSONDecodeError:
-        pass
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _parse_evaluation_json(text: str) -> dict[str, Any]:
+    data = _extract_json_object(text)
+    if data is not None:
+        return data
     return {
         "score": 3,
         "score_pct": 60,
         "strengths": [],
         "gaps": ["Could not parse structured evaluation."],
         "model_answer_outline": "",
-        "feedback": text,
+        "feedback": text.strip(),
     }
 
 
 def _parse_session_report_json(text: str) -> dict[str, Any]:
-    text = text.strip()
-    fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-    if fence:
-        text = fence.group(1).strip()
-    try:
-        data = json.loads(text)
-        if isinstance(data, dict):
-            return data
-    except json.JSONDecodeError:
-        pass
+    data = _extract_json_object(text)
+    if data is not None:
+        return data
     return {
         "overall_score": 3,
         "readiness": "needs_work",
@@ -378,7 +427,7 @@ def _parse_session_report_json(text: str) -> dict[str, Any]:
         "priority_gaps": [],
         "mistakes_to_avoid": [],
         "topics_to_read": [],
-        "overall_feedback": text,
+        "overall_feedback": text.strip(),
     }
 
 
@@ -558,7 +607,7 @@ class InterviewerPipeline:
                 )
                 resp = await self._client.messages.create(
                     model=_MODEL,
-                    max_tokens=1200,
+                    max_tokens=2500,
                     system=system,
                     messages=[{"role": "user", "content": user_prompt}],
                 )
@@ -705,7 +754,7 @@ class InterviewerPipeline:
                 )
                 resp = await self._client.messages.create(
                     model=_MODEL,
-                    max_tokens=2000,
+                    max_tokens=4096,
                     system=system,
                     messages=[{"role": "user", "content": synth_prompt}],
                 )

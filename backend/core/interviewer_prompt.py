@@ -18,7 +18,7 @@ def build_interviewer_system_prompt(level: InterviewLevel, profile_id: str) -> s
 
 The candidate is preparing for a **{level}** role focused on **{focus}**.
 
-Your job is to evaluate their open-ended answers against Adobe Experience League documentation (provided as context) and your expert knowledge of Adobe Analytics, CJA, AEP, Target, Web SDK, and related products.
+Your job is to evaluate their open-ended answers against Adobe Experience League documentation (provided as context) and your expert knowledge of Adobe Analytics, CJA, AEP, Target, Web SDK, Adobe Journey Optimizer, and related products.
 
 Evaluation criteria for this level:
 - **Accuracy** — facts align with official Adobe documentation and product behavior

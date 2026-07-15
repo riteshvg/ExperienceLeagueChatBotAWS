@@ -1449,6 +1449,35 @@ def get_active_question_bank(level: str, profile_id: str) -> list[dict]:
         conn.close()
 
 
+def get_recent_question_ids(user_id: str, level: str, profile_id: str, *, limit_sessions: int = 3) -> set[str]:
+    """Question IDs asked to this user in their most recent sessions for this
+    level × profile_id, used to avoid repeating the same questions on the next
+    attempt. Empty user_id (anonymous) returns an empty set."""
+    if not user_id:
+        return set()
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT ia.question_id
+                FROM interview_answers ia
+                JOIN interview_sessions s ON s.session_id = ia.session_id
+                WHERE s.session_id IN (
+                    SELECT session_id FROM interview_sessions
+                    WHERE user_id = %s AND level = %s AND profile_id = %s
+                    ORDER BY created_at DESC
+                    LIMIT %s
+                )
+                """,
+                (user_id, level, profile_id, limit_sessions),
+            )
+            rows = cur.fetchall()
+        return {r["question_id"] for r in rows}
+    finally:
+        conn.close()
+
+
 def list_active_question_combinations() -> list[tuple[str, str]]:
     """Distinct (level, profile_id) pairs with at least one active question."""
     conn = _connect()
@@ -1488,10 +1517,12 @@ def create_interview_session(
     level: str,
     profile_id: str,
     questions: list[tuple[str, int]],
-) -> None:
+) -> str:
     """Insert the session row plus one stub answer row per question (question_id,
     question_version), in the order the candidate will see them. One transaction —
-    either the whole session is persisted or none of it is."""
+    either the whole session is persisted or none of it is. Returns created_at
+    (ISO string) so the frontend can render an elapsed-time indicator without a
+    second round trip."""
     conn = _connect()
     try:
         with conn.cursor() as cur:
@@ -1499,9 +1530,11 @@ def create_interview_session(
                 """
                 INSERT INTO interview_sessions (session_id, user_id, level, profile_id)
                 VALUES (%s, %s, %s, %s)
+                RETURNING created_at
                 """,
                 (session_id, user_id, level, profile_id),
             )
+            created_at = cur.fetchone()["created_at"]
             for index, (question_id, question_version) in enumerate(questions):
                 cur.execute(
                     """
@@ -1511,6 +1544,7 @@ def create_interview_session(
                     (session_id, question_id, question_version, index),
                 )
         conn.commit()
+        return created_at.isoformat()
     finally:
         conn.close()
 
@@ -1522,7 +1556,7 @@ def get_interview_session_row(session_id: str) -> Optional[dict]:
             cur.execute(
                 """
                 SELECT session_id, user_id, level, profile_id, current_index, phase,
-                       awaiting_advance, evaluated, session_report
+                       awaiting_advance, evaluated, session_report, created_at
                 FROM interview_sessions WHERE session_id = %s
                 """,
                 (session_id,),
@@ -1532,6 +1566,8 @@ def get_interview_session_row(session_id: str) -> Optional[dict]:
             return None
         d = dict(row)
         d["session_id"] = str(d["session_id"])
+        if d.get("created_at") is not None:
+            d["created_at"] = d["created_at"].isoformat()
         return d
     finally:
         conn.close()

@@ -77,6 +77,10 @@ def test_full_happy_path_start_to_complete():
         session_id = started["session_id"]
         total = started["total_questions"]
         assert started["phase"] == "questioning"
+        assert started["created_at"]  # exposed for the frontend elapsed-time indicator
+
+        review = client.get(f"/api/interviewer/review/{session_id}")
+        assert review.json()["created_at"] == started["created_at"]
 
         _drive_to_review(client, session_id, total)
 

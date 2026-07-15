@@ -132,6 +132,7 @@ export type InterviewerSessionInfo = {
   completed: boolean
   evaluated: boolean
   current_question: InterviewQuestion | null
+  created_at: string | null
 }
 
 export type InterviewerSSEEvent =

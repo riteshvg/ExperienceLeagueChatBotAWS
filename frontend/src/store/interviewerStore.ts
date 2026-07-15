@@ -40,6 +40,7 @@ interface InterviewerState {
   totalQuestions: number
   completed: boolean
   endedEarly: boolean
+  createdAt: string | null
   isStreaming: boolean
   error: string | null
   setupOpen: boolean
@@ -86,6 +87,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
   totalQuestions: 0,
   completed: false,
   endedEarly: false,
+  createdAt: null,
   isStreaming: false,
   error: null,
   setupOpen: false,
@@ -146,6 +148,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
       totalQuestions: 0,
       completed: false,
       endedEarly: false,
+      createdAt: null,
       isStreaming: false,
       error: null,
       setupOpen: false,
@@ -173,6 +176,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
       phase: 'questioning',
       completed: false,
       endedEarly: false,
+      createdAt: null,
       welcomeText: '',
       currentQuestion: null,
       answerDraft: '',
@@ -202,6 +206,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
             questionIndex: event.current_index ?? 0,
             totalQuestions: event.total_questions ?? 0,
             currentQuestion: event.current_question ?? get().currentQuestion,
+            createdAt: event.created_at ?? null,
           })
         } else if (event.type === 'error') {
           set({ error: event.message })

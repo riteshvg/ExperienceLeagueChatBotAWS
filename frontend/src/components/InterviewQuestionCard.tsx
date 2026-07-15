@@ -17,26 +17,18 @@ export function InterviewQuestionCard({ question, className }: Props) {
       <div className="flex items-center justify-between gap-2 mb-2">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800/80">
           {question.is_followup ? (
-            <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 mr-1 normal-case font-medium">
+            <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 normal-case font-medium">
               Follow-up
             </span>
           ) : (
-            'Practice question'
-          )}
-          {question.index != null && question.total != null && (
-            <span className="font-normal normal-case ml-1">
-              · {question.index} of {question.total}
-            </span>
+            'Question'
           )}
         </span>
-        <span className="text-[10px] text-emerald-700/70 capitalize">{question.topic.replace(/_/g, ' ')}</span>
+        <span className="text-[10px] text-emerald-700/70 capitalize text-right">
+          {[question.topic.replace(/_/g, ' '), ...question.expected_themes].join(' · ')}
+        </span>
       </div>
       <p className="text-sm font-medium text-slate-800 leading-relaxed">{question.question}</p>
-      {question.expected_themes.length > 0 && (
-        <p className="text-[11px] text-slate-500 mt-2">
-          Themes: {question.expected_themes.join(' · ')}
-        </p>
-      )}
     </div>
   )
 }

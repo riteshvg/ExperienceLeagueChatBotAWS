@@ -118,8 +118,8 @@ export function InterviewAnswerEditor({
   const wordCount = value.trim() ? value.trim().split(/\s+/).length : 0
 
   return (
-    <div className={cn('rounded-xl border border-slate-200 bg-white overflow-hidden', className)}>
-      <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-slate-100 bg-slate-50/80">
+    <div className={cn('rounded-lg border border-slate-200 overflow-hidden', className)}>
+      <div className="flex items-center gap-0.5 px-1 py-1.5 border-b border-slate-200">
         {tools.map(({ icon: Icon, label, action }) => (
           <button
             key={label}

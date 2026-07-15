@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ChevronDown, ChevronRight, Pencil, ChevronRight as NextIcon, ClipboardList, XCircle } from 'lucide-react'
+import { ChevronDown, ChevronRight, Pencil, ChevronRight as NextIcon, ClipboardList, XCircle, Info } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useInterviewerStore } from '@/store/interviewerStore'
+import { InterviewHeaderBar } from './InterviewHeaderBar'
 import { InterviewQuestionCard } from './InterviewQuestionCard'
 import { InterviewAnswerEditor } from './InterviewAnswerEditor'
 import { InterviewAnswerPreview } from './InterviewAnswerPreview'
@@ -30,6 +31,9 @@ export function InterviewWorkspace() {
     endedEarly,
     level,
     profileLabel,
+    createdAt,
+    questionIndex,
+    totalQuestions,
     submitAnswer,
     startEditAnswer,
     cancelEdit,
@@ -40,8 +44,29 @@ export function InterviewWorkspace() {
   } = useInterviewerStore()
 
   const [historyOpen, setHistoryOpen] = useState(false)
+  // Expanded by default only on first view of a session (question 1); collapsed
+  // by default afterward. Once mounted, the user's own toggling takes over —
+  // this only decides the *initial* state.
+  const [introOpen, setIntroOpen] = useState(() => questionIndex === 0)
+  // Auto-minimize the instant the candidate answers question 1 (pendingAnswer
+  // appears while still on question 1) — fires once, then leaves any later
+  // manual toggling alone.
+  const hasAutoCollapsedIntro = useRef(false)
+  useEffect(() => {
+    const answeredFirstQuestion = questionIndex === 0 && pendingAnswer !== null
+    if (!hasAutoCollapsedIntro.current && (answeredFirstQuestion || questionIndex > 0)) {
+      hasAutoCollapsedIntro.current = true
+      setIntroOpen(false)
+    }
+  }, [questionIndex, pendingAnswer])
   const isEditingPending =
     phase === 'answer_pending' && editingQuestionId === pendingAnswer?.questionId
+
+  const originalAnswer = editingQuestionId
+    ? phase === 'review'
+      ? reviewItems.find((i) => i.question.id === editingQuestionId)?.answer ?? null
+      : pendingAnswer?.answer ?? null
+    : null
 
   const handleSave = () => {
     void submitAnswer(answerDraft)
@@ -62,14 +87,33 @@ export function InterviewWorkspace() {
     isEditingPending ||
     (phase === 'review' && !!editingQuestionId)
 
+  const canEndInterview = phase === 'questioning' || phase === 'answer_pending'
+
   return (
     <div className="space-y-4 max-w-3xl mx-auto w-full">
-      {welcomeText && (
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-          <div className="prose prose-sm max-w-none text-slate-800">
+      <InterviewHeaderBar
+        level={level}
+        profileLabel={profileLabel}
+        phase={phase}
+        createdAt={createdAt}
+        questionIndex={questionIndex}
+        totalQuestions={totalQuestions}
+      />
+
+      {welcomeText && phase !== 'complete' && (
+        <details
+          open={introOpen}
+          onToggle={(e) => setIntroOpen(e.currentTarget.open)}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5"
+        >
+          <summary className="flex items-center gap-1.5 text-sm font-medium text-slate-600 cursor-pointer select-none [&::-webkit-details-marker]:hidden">
+            <Info className="w-3.5 h-3.5 text-slate-400" />
+            How this works
+          </summary>
+          <div className="prose prose-sm max-w-none text-slate-700 mt-3">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{welcomeText}</ReactMarkdown>
           </div>
-        </div>
+        </details>
       )}
 
       {answeredHistory.length > 0 && phase !== 'review' && phase !== 'complete' && (
@@ -102,20 +146,6 @@ export function InterviewWorkspace() {
         </div>
       )}
 
-      {(phase === 'questioning' || phase === 'answer_pending') && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={handleEndInterview}
-            disabled={isStreaming}
-            className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-red-600 disabled:opacity-50"
-          >
-            <XCircle className="w-3.5 h-3.5" />
-            End interview
-          </button>
-        </div>
-      )}
-
       {(phase === 'questioning' || phase === 'answer_pending') && currentQuestion && (
         <InterviewQuestionCard question={currentQuestion} />
       )}
@@ -142,7 +172,16 @@ export function InterviewWorkspace() {
               This answer could use more depth — a follow-up question is next.
             </p>
           )}
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={handleEndInterview}
+              disabled={isStreaming}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-red-600 disabled:opacity-50"
+            >
+              <XCircle className="w-3.5 h-3.5" />
+              End interview
+            </button>
             <button
               type="button"
               onClick={() => void advanceQuestion()}
@@ -172,36 +211,61 @@ export function InterviewWorkspace() {
               Editing answer
             </p>
           )}
+          {editingQuestionId && originalAnswer !== null && (
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Your original answer (read-only, for reference)
+              </p>
+              <div className="opacity-70 pointer-events-none">
+                <InterviewAnswerPreview answer={originalAnswer} />
+              </div>
+            </div>
+          )}
           <InterviewAnswerEditor
             value={answerDraft}
             onChange={setAnswerDraft}
             disabled={isStreaming}
           />
-          <div className="flex flex-wrap gap-2 justify-end">
-            {(isEditingPending || (phase === 'review' && editingQuestionId)) && (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            {canEndInterview ? (
               <button
                 type="button"
-                onClick={cancelEdit}
-                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800"
+                onClick={handleEndInterview}
+                disabled={isStreaming}
+                className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-red-600 disabled:opacity-50"
               >
-                Cancel
+                <XCircle className="w-3.5 h-3.5" />
+                End interview
               </button>
+            ) : (
+              <span />
             )}
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={isStreaming || !answerDraft.trim()}
-              className={cn(
-                'px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50',
-                phase === 'review' ? 'bg-slate-700 hover:bg-slate-800' : 'bg-emerald-700 hover:bg-emerald-800',
+            <div className="flex gap-2">
+              {(isEditingPending || (phase === 'review' && editingQuestionId)) && (
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800"
+                >
+                  Cancel
+                </button>
               )}
-            >
-              {phase === 'review'
-                ? 'Update answer'
-                : isEditingPending
-                  ? 'Save changes'
-                  : 'Save answer'}
-            </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={isStreaming || !answerDraft.trim()}
+                className={cn(
+                  'px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50',
+                  phase === 'review' ? 'bg-slate-700 hover:bg-slate-800' : 'bg-emerald-700 hover:bg-emerald-800',
+                )}
+              >
+                {phase === 'review'
+                  ? 'Update answer'
+                  : isEditingPending
+                    ? 'Save changes'
+                    : 'Save answer'}
+              </button>
+            </div>
           </div>
         </div>
       )}

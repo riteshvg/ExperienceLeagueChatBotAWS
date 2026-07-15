@@ -6,6 +6,7 @@ Levels × solutions (or Principal collections) with topic metadata for retrieval
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from typing import Literal
 
@@ -23,12 +24,13 @@ SOLUTIONS: tuple[dict[str, str], ...] = (
         "id": "all",
         "label": "All solutions",
         "short": "All",
-        "description": "Mixed questions across CJA, AEP, Web SDK, and Target",
+        "description": "Mixed questions across CJA, AEP, Web SDK, Target, and AJO",
     },
     {"id": "cja", "label": "Customer Journey Analytics", "short": "CJA"},
     {"id": "aep", "label": "Adobe Experience Platform", "short": "AEP"},
     {"id": "web_sdk", "label": "Web SDK / Data Collection", "short": "Web SDK"},
     {"id": "target", "label": "Adobe Target", "short": "Target"},
+    {"id": "ajo", "label": "Adobe Journey Optimizer", "short": "AJO"},
 )
 
 # Principal-only multi-solution collections
@@ -221,6 +223,49 @@ _TARGET_ARCHITECT = (
        ("latency", "channels", "mobile"), "Target server-side delivery API"),
 )
 
+# ── AJO ───────────────────────────────────────────────────────────────────────
+
+_AJO_JUNIOR = (
+    _q("ajo-j1", "What is Adobe Journey Optimizer used for?", "overview", 2,
+       ("journeys", "campaigns", "real-time"), "Adobe Journey Optimizer overview"),
+    _q("ajo-j2", "What is the difference between a journey and a campaign in AJO?", "journeys", 2,
+       ("event-triggered", "batch", "audience"), "AJO journeys vs campaigns"),
+    _q("ajo-j3", "What is an action activity in an AJO journey?", "activities", 2,
+       ("email", "push", "SMS", "channel"), "AJO action activity channel"),
+    _q("ajo-j4", "What is a condition activity used for in a journey?", "activities", 2,
+       ("branching", "audience qualification", "if-then"), "AJO condition activity"),
+    _q("ajo-j5", "Name two channels AJO can send messages through.", "channels", 1,
+       ("email", "push", "SMS", "in-app"), "AJO communication channels"),
+)
+
+_AJO_SENIOR = (
+    _q("ajo-s1", "Walk through building an event-triggered journey from entry to exit.", "journeys", 3,
+       ("entry event", "activities", "exit criteria"), "AJO event-triggered journey build"),
+    _q("ajo-s2", "How do audiences and segments from AEP get used inside an AJO journey?", "audiences", 3,
+       ("Real-Time CDP", "segment qualification", "entry audience"), "AJO AEP audience segment integration"),
+    _q("ajo-s3", "Explain how the capping API prevents message fatigue.", "capping", 3,
+       ("frequency rules", "suppression", "channel"), "AJO capping API frequency"),
+    _q("ajo-s4", "What is the role of priority scores when journeys and campaigns compete for the same channel?", "priority", 3,
+       ("arbitration", "conflict resolution", "scoring"), "AJO priority scores journeys campaigns"),
+    _q("ajo-s5", "How do you build and test a personalized email using content templates?", "content", 3,
+       ("templates", "personalization", "preview", "AI Assistant"), "AJO content templates personalization"),
+    _q("ajo-s6", "Describe how you would set up an API-triggered campaign.", "campaigns", 3,
+       ("API trigger", "high throughput", "transactional"), "AJO API-triggered campaigns"),
+)
+
+_AJO_ARCHITECT = (
+    _q("ajo-a1", "Design a always-on journey architecture for onboarding across email, push, and SMS.", "architecture", 5,
+       ("entry sources", "branching", "channel orchestration"), "AJO onboarding journey architecture"),
+    _q("ajo-a2", "How would you architect approval workflows and governance for journeys and campaigns at scale?", "governance", 4,
+       ("approve journeys", "roles", "access control"), "AJO approve journeys governance"),
+    _q("ajo-a3", "Explain trade-offs between code-based experiences and the visual journey canvas.", "implementation", 4,
+       ("code-based surface", "flexibility", "maintainability"), "AJO code-based experience canvas"),
+    _q("ajo-a4", "How do you design a cross-channel arbitration strategy when a customer qualifies for multiple journeys at once?", "priority", 5,
+       ("priority scores", "capping", "channel conflict"), "AJO cross-channel arbitration priority capping"),
+    _q("ajo-a5", "What considerations apply when scaling high-throughput API-triggered campaigns for transactional use cases?", "operations", 4,
+       ("throughput mode", "latency", "reliability"), "AJO high throughput API triggered campaigns"),
+)
+
 # ── Principal collections ─────────────────────────────────────────────────────
 
 _CROSS_ARCH = (
@@ -278,6 +323,9 @@ _SEED_BANK: dict[tuple[str, str], tuple[InterviewQuestion, ...]] = {
     ("architect", "web_sdk"): _WEB_SDK_ARCHITECT,
     ("senior", "target"): _TARGET_SENIOR,
     ("architect", "target"): _TARGET_ARCHITECT,
+    ("junior", "ajo"): _AJO_JUNIOR,
+    ("senior", "ajo"): _AJO_SENIOR,
+    ("architect", "ajo"): _AJO_ARCHITECT,
     ("principal", "cross_solution_architecture"): _CROSS_ARCH,
     ("principal", "data_foundation"): _DATA_FOUNDATION,
     ("principal", "personalization_stack"): _PERSONALIZATION,
@@ -321,24 +369,43 @@ def _row_to_question(row: dict) -> InterviewQuestion:
     )
 
 
+def _pick(
+    pool: list[InterviewQuestion],
+    n: int,
+    *,
+    exclude_ids: set[str],
+) -> list[InterviewQuestion]:
+    """Randomly sample up to n questions from pool, preferring ones not in
+    exclude_ids (recently asked). Falls back to the full pool if excluding
+    would leave too few to satisfy n."""
+    preferred = [q for q in pool if q.id not in exclude_ids]
+    candidates = preferred if len(preferred) >= n else pool
+    return random.sample(candidates, min(n, len(candidates)))
+
+
 def _merge_bank_lists(
     banks: list[list[InterviewQuestion]],
     *,
     per_bank: int,
     max_total: int,
+    exclude_ids: set[str],
 ) -> list[InterviewQuestion]:
     merged: list[InterviewQuestion] = []
-    for bank in banks:
-        merged.extend(bank[:per_bank])
+    order = list(range(len(banks)))
+    random.shuffle(order)
+    for i in order:
+        merged.extend(_pick(banks[i], per_bank, exclude_ids=exclude_ids))
         if len(merged) >= max_total:
             break
+    random.shuffle(merged)
     return merged[:max_total]
 
 
-def _fetch_bank(level: str, profile_id: str) -> list[InterviewQuestion]:
+def _fetch_bank(level: str, profile_id: str, user_id: str = "") -> list[InterviewQuestion]:
     from backend.core import google_db
 
     if profile_id == "all":
+        exclude_ids = google_db.get_recent_question_ids(user_id, level, profile_id)
         if level == "principal":
             ids = list(_SINGLE_COLLECTION_IDS)
             per_bank = 2
@@ -352,10 +419,12 @@ def _fetch_bank(level: str, profile_id: str) -> list[InterviewQuestion]:
                 banks.append([_row_to_question(r) for r in rows])
         if level != "principal" and len(banks) <= 2:
             per_bank = 3
-        return _merge_bank_lists(banks, per_bank=per_bank, max_total=8)
+        return _merge_bank_lists(banks, per_bank=per_bank, max_total=8, exclude_ids=exclude_ids)
 
     rows = google_db.get_active_question_bank(level, profile_id)
-    return [_row_to_question(r) for r in rows]
+    pool = [_row_to_question(r) for r in rows]
+    random.shuffle(pool)
+    return pool
 
 
 def get_profiles_payload() -> dict:
@@ -390,11 +459,11 @@ def validate_profile(level: str, profile_id: str) -> str | None:
     return None
 
 
-def get_question_set(level: str, profile_id: str) -> list[InterviewQuestion]:
+def get_question_set(level: str, profile_id: str, user_id: str = "") -> list[InterviewQuestion]:
     err = validate_profile(level, profile_id)
     if err:
         raise ValueError(err)
-    return _fetch_bank(level, profile_id)
+    return _fetch_bank(level, profile_id, user_id)
 
 
 def profile_label(level: str, profile_id: str) -> str:
