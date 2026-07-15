@@ -32,6 +32,7 @@ from backend.api.routes.auth import router as auth_router
 from backend.api.routes.chat import router as chat_router
 from backend.api.routes.health import router as health_router
 from backend.api.routes.history import router as history_router
+from backend.api.routes.interviewer import router as interviewer_router
 from backend.api.routes.oauth import router as oauth_router
 from backend.core.chroma_paths import chroma_persist_dir
 from backend.core.chroma_retriever import ChromaRetriever
@@ -328,6 +329,14 @@ async def lifespan(app: FastAPI):
             f"Google OAuth DB init failed — Google sign-in will be unavailable: {exc}"
         )
 
+    try:
+        from config.interview_profiles import seed_all_questions
+
+        seed_all_questions()
+        logger.info("Interview question bank seeded (PostgreSQL)")
+    except Exception as exc:
+        logger.warning(f"Interview question seeding failed: {exc}")
+
     _restore_chroma_from_s3()
     persist = chroma_persist_dir()
     _fix_chroma_permissions(persist)
@@ -423,6 +432,7 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(chat_router, prefix="/api")
+app.include_router(interviewer_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(history_router, prefix="/api")
 app.include_router(oauth_router)          # OAuth at root (/.well-known, /oauth/*)
