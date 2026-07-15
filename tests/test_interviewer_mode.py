@@ -73,7 +73,15 @@ def test_session_save_and_advance():
     result = session.advance()
     assert session.phase == "questioning"
     assert result["current_question"] is not None
-    assert get_session(session.session_id) is session
+
+    # get_session rebuilds from Postgres (no in-process cache), so this is a
+    # different object than `session` — assert the persisted state matches instead.
+    reloaded = get_session(session.session_id)
+    assert reloaded is not None
+    assert reloaded.session_id == session.session_id
+    assert reloaded.phase == session.phase
+    assert reloaded.current_index == session.current_index
+    assert reloaded.draft_answers[q1.id] == "CJA is person-centric analytics."
 
 
 def test_session_enters_review_after_last_question():
@@ -105,10 +113,11 @@ def test_parse_evaluation_json_fallback():
 @pytest.mark.asyncio
 async def test_stream_submit_without_llm():
     session = create_session("user-3", "junior", "cja")
-    for q in session.questions:
-        session.draft_answers[q.id] = f"Answer about {q.topic}"
-    session.phase = "review"
-    session.awaiting_advance = False
+    while session.phase == "questioning":
+        q = session.current_question()
+        session.save_current_answer(f"Answer about {q.topic}")
+        session.advance()
+    assert session.phase == "review"
 
     pipeline = InterviewerPipeline(retriever=None)
     events = []

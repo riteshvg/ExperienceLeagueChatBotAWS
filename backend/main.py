@@ -329,6 +329,14 @@ async def lifespan(app: FastAPI):
             f"Google OAuth DB init failed — Google sign-in will be unavailable: {exc}"
         )
 
+    try:
+        from config.interview_profiles import seed_all_questions
+
+        seed_all_questions()
+        logger.info("Interview question bank seeded (PostgreSQL)")
+    except Exception as exc:
+        logger.warning(f"Interview question seeding failed: {exc}")
+
     _restore_chroma_from_s3()
     persist = chroma_persist_dir()
     _fix_chroma_permissions(persist)

@@ -30,7 +30,6 @@ logger = logging.getLogger(__name__)
 
 _MODEL = "claude-sonnet-4-6"
 SessionPhase = Literal["questioning", "review", "complete"]
-_sessions: dict[str, "InterviewSession"] = {}
 
 
 @dataclass
@@ -72,6 +71,9 @@ class InterviewSession:
             raise ValueError("Please provide an answer before saving.")
         self.draft_answers[q.id] = text
         self.awaiting_advance = True
+        from backend.core import google_db
+
+        google_db.save_interview_answer(self.session_id, q.id, text, True)
         is_last = self.current_index >= self.total - 1
         return {
             "question_id": q.id,
@@ -93,6 +95,9 @@ class InterviewSession:
             if q and q.id != question_id:
                 raise ValueError("Can only edit the current question before advancing.")
         self.draft_answers[question_id] = text
+        from backend.core import google_db
+
+        google_db.update_interview_answer_text(self.session_id, question_id, text)
         idx = next(i for i, q in enumerate(self.questions) if q.id == question_id)
         return {
             "question_id": question_id,
@@ -107,12 +112,21 @@ class InterviewSession:
             raise ValueError("Already in review — submit for evaluation when ready.")
         if not self.awaiting_advance:
             raise ValueError("Save an answer before moving to the next question.")
-        self.awaiting_advance = False
         is_last = self.current_index >= self.total - 1
+        new_index = self.current_index if is_last else self.current_index + 1
+        new_phase: SessionPhase = "review" if is_last else "questioning"
+        from backend.core import google_db
+
+        if not google_db.try_advance_interview_session(self.session_id, new_index, new_phase):
+            # Lost a concurrent /advance race — the other request already applied
+            # this exact transition, so from this request's point of view the
+            # precondition (awaiting an answer to advance past) no longer holds.
+            raise ValueError("Save an answer before moving to the next question.")
+        self.awaiting_advance = False
+        self.current_index = new_index
+        self.phase = new_phase
         if is_last:
-            self.phase = "review"
             return {"phase": "review", "review_ready": True}
-        self.current_index += 1
         q = self.current_question()
         return {
             "phase": "questioning",
@@ -168,19 +182,78 @@ def _question_event(q: InterviewQuestion, index: int, total: int) -> dict[str, A
 def create_session(user_id: str, level: str, profile_id: str) -> InterviewSession:
     questions = get_question_set(level, profile_id)
     session_id = str(uuid.uuid4())
-    session = InterviewSession(
+    from backend.core import google_db
+
+    google_db.create_interview_session(
+        session_id, user_id, level, profile_id,
+        [(q.id, q.version) for q in questions],
+    )
+    return InterviewSession(
         session_id=session_id,
         user_id=user_id,
         level=level,
         profile_id=profile_id,
         questions=questions,
     )
-    _sessions[session_id] = session
-    return session
 
 
 def get_session(session_id: str) -> InterviewSession | None:
-    return _sessions.get(session_id)
+    """Rebuilds a session entirely from Postgres — no in-process cache, so this
+    survives a backend restart as long as the session_id is known."""
+    from backend.core import google_db
+
+    row = google_db.get_interview_session_row(session_id)
+    if row is None:
+        return None
+    answer_rows = google_db.get_interview_session_answers(session_id)
+
+    questions = [
+        InterviewQuestion(
+            id=r["question_id"],
+            question=r["prompt_text"],
+            topic=r["topic"],
+            difficulty=r["difficulty"],
+            expected_themes=tuple(r["expected_themes"]),
+            retrieval_hint=r["retrieval_hint"],
+            version=r["question_version"],
+        )
+        for r in answer_rows
+    ]
+    draft_answers = {r["question_id"]: r["answer"] for r in answer_rows if r["answer"]}
+
+    per_question_results: list[dict[str, Any]] = []
+    for i, r in enumerate(answer_rows):
+        if r["score"] is None:
+            continue
+        per_question_results.append({
+            "question_id": r["question_id"],
+            "question_index": i + 1,
+            "question": r["prompt_text"],
+            "topic": r["topic"],
+            "answer": r["answer"],
+            "score": r["score"],
+            "score_pct": r["score_pct"],
+            "strengths": r["strengths"] or [],
+            "gaps": r["gaps"] or [],
+            "model_answer_outline": r["model_answer_outline"] or "",
+            "feedback": r["feedback"] or "",
+            "citations": r["citations"] or [],
+        })
+
+    return InterviewSession(
+        session_id=row["session_id"],
+        user_id=row["user_id"],
+        level=row["level"],
+        profile_id=row["profile_id"],
+        questions=questions,
+        current_index=row["current_index"],
+        phase=row["phase"],
+        awaiting_advance=row["awaiting_advance"],
+        draft_answers=draft_answers,
+        evaluated=row["evaluated"],
+        per_question_results=per_question_results,
+        session_report=row["session_report"],
+    )
 
 
 def _product_filter(profile_id: str) -> str | None:
@@ -376,13 +449,25 @@ class InterviewerPipeline:
             "citations": citations,
         }
 
-    async def stream_submit(self, session: InterviewSession) -> AsyncGenerator[dict[str, Any], None]:
+    async def stream_submit(
+        self, session: InterviewSession, stale_after_seconds: int = 120
+    ) -> AsyncGenerator[dict[str, Any], None]:
         if session.phase != "review":
             yield {"type": "error", "message": "Complete all questions and enter review before submitting."}
             return
         if not session.all_answered():
             yield {"type": "error", "message": "Every question must have an answer before submission."}
             return
+
+        from backend.core import google_db
+
+        claim_token = google_db.try_claim_interview_session_for_evaluation(session.session_id, stale_after_seconds)
+        if claim_token is None:
+            # Lost a concurrent /submit race — another request already claimed this
+            # session for evaluation. Don't re-run the (expensive) LLM evaluation.
+            yield {"type": "error", "message": "Session already evaluated"}
+            return
+        session.evaluated = True
 
         yield {"type": "evaluating", "message": "Evaluating your answers against Experience League documentation…", "total": session.total}
 
@@ -402,6 +487,29 @@ class InterviewerPipeline:
             docs = await self._retrieve_for_question(q, session)
             result = await self._evaluate_single(session, q, answer, docs)
             per_question.append(result)
+            wrote = google_db.record_question_evaluation(
+                session.session_id,
+                result["question_id"],
+                result["score"],
+                result["score_pct"],
+                result["strengths"],
+                result["gaps"],
+                result["model_answer_outline"],
+                result["feedback"],
+                result["citations"],
+                claim_token,
+            )
+            if not wrote:
+                # A stale reclaim took this session's evaluation away from us mid-flight
+                # (e.g. a duplicate /submit fired after we'd been sitting stalled long
+                # enough to look abandoned). Stop burning further LLM calls — whichever
+                # run now holds the claim owns finishing this evaluation.
+                logger.warning(
+                    "Interviewer session %s lost its evaluation claim mid-submit; stopping.",
+                    session.session_id,
+                )
+                yield {"type": "error", "message": "Evaluation was taken over by another request."}
+                return
             yield {
                 "type": "question_evaluation",
                 "question_id": result["question_id"],
@@ -467,6 +575,19 @@ class InterviewerPipeline:
             "per_question": per_question,
             "citations": all_citations[:8],
         }
+        completed = google_db.complete_interview_session(session.session_id, session_report, claim_token)
+        if not completed:
+            # We finished the (expensive) evaluation work, but a stale reclaim took
+            # the claim away from us before we could write the report — some other
+            # run now owns (or already wrote) this session's completion. Discard our
+            # result rather than overwriting whatever that run persisted.
+            logger.warning(
+                "Interviewer session %s lost its evaluation claim before completion; discarding report.",
+                session.session_id,
+            )
+            yield {"type": "error", "message": "Evaluation was taken over by another request."}
+            return
+
         session.session_report = session_report
         session.phase = "complete"
         session.evaluated = True

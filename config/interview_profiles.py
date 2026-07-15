@@ -64,6 +64,7 @@ class InterviewQuestion:
     difficulty: int
     expected_themes: tuple[str, ...]
     retrieval_hint: str
+    version: int = 1
 
 
 def _q(
@@ -260,7 +261,12 @@ _PERSONALIZATION = (
        ("ROI", "frequency caps", "brand safety"), "personalization program KPIs"),
 )
 
-_SINGLE_BANK: dict[tuple[str, str], tuple[InterviewQuestion, ...]] = {
+# Seed bank — the canonical source is now the `interview_questions` table in
+# Postgres (see backend/core/google_db.py). These tuples are only used to seed
+# that table on startup (idempotent — see seed_all_questions below); runtime
+# question lookups (get_question_set, validate_profile, get_profiles_payload)
+# query the database, not this dict.
+_SEED_BANK: dict[tuple[str, str], tuple[InterviewQuestion, ...]] = {
     ("junior", "cja"): _CJA_JUNIOR,
     ("senior", "cja"): _CJA_SENIOR,
     ("architect", "cja"): _CJA_ARCHITECT,
@@ -283,48 +289,84 @@ _SINGLE_SOLUTION_IDS = _VALID_SOLUTIONS - {"all"}
 _SINGLE_COLLECTION_IDS = _VALID_COLLECTIONS - {"all"}
 
 
-def _merge_banks(
-    keys: list[tuple[str, str]],
+def seed_all_questions() -> None:
+    """Insert every seed question into interview_questions (version 1) if it isn't
+    already there. Idempotent — safe to call on every startup."""
+    from backend.core import google_db
+
+    for (level, profile_id), bank in _SEED_BANK.items():
+        for q in bank:
+            google_db.seed_interview_question(
+                question_id=q.id,
+                level=level,
+                profile_id=profile_id,
+                topic=q.topic,
+                difficulty=q.difficulty,
+                prompt_text=q.question,
+                expected_themes=list(q.expected_themes),
+                retrieval_hint=q.retrieval_hint,
+            )
+
+
+def _row_to_question(row: dict) -> InterviewQuestion:
+    return InterviewQuestion(
+        id=row["question_id"],
+        question=row["prompt_text"],
+        topic=row["topic"],
+        difficulty=row["difficulty"],
+        expected_themes=tuple(row["expected_themes"]),
+        retrieval_hint=row["retrieval_hint"],
+        version=row["version"],
+    )
+
+
+def _merge_bank_lists(
+    banks: list[list[InterviewQuestion]],
     *,
-    per_bank: int = 2,
-    max_total: int = 8,
-) -> tuple[InterviewQuestion, ...]:
+    per_bank: int,
+    max_total: int,
+) -> list[InterviewQuestion]:
     merged: list[InterviewQuestion] = []
-    for key in keys:
-        bank = _SINGLE_BANK.get(key)
-        if not bank:
-            continue
+    for bank in banks:
         merged.extend(bank[:per_bank])
         if len(merged) >= max_total:
             break
-    return tuple(merged[:max_total])
+    return merged[:max_total]
 
 
-def _all_solutions_bank(level: str) -> tuple[InterviewQuestion, ...]:
-    keys = [(level, sid) for sid in _SINGLE_SOLUTION_IDS if (level, sid) in _SINGLE_BANK]
-    per_bank = 2 if len(keys) > 2 else 3
-    return _merge_banks(keys, per_bank=per_bank, max_total=8)
+def _fetch_bank(level: str, profile_id: str) -> list[InterviewQuestion]:
+    from backend.core import google_db
 
+    if profile_id == "all":
+        if level == "principal":
+            ids = list(_SINGLE_COLLECTION_IDS)
+            per_bank = 2
+        else:
+            ids = list(_SINGLE_SOLUTION_IDS)
+            per_bank = 2
+        banks: list[list[InterviewQuestion]] = []
+        for pid in ids:
+            rows = google_db.get_active_question_bank(level, pid)
+            if rows:
+                banks.append([_row_to_question(r) for r in rows])
+        if level != "principal" and len(banks) <= 2:
+            per_bank = 3
+        return _merge_bank_lists(banks, per_bank=per_bank, max_total=8)
 
-def _all_collections_bank() -> tuple[InterviewQuestion, ...]:
-    keys = [("principal", cid) for cid in _SINGLE_COLLECTION_IDS]
-    return _merge_banks(keys, per_bank=2, max_total=8)
-
-
-QUESTION_BANK: dict[tuple[str, str], tuple[InterviewQuestion, ...]] = {
-    **_SINGLE_BANK,
-    ("junior", "all"): _all_solutions_bank("junior"),
-    ("senior", "all"): _all_solutions_bank("senior"),
-    ("architect", "all"): _all_solutions_bank("architect"),
-    ("principal", "all"): _all_collections_bank(),
-}
+    rows = google_db.get_active_question_bank(level, profile_id)
+    return [_row_to_question(r) for r in rows]
 
 
 def get_profiles_payload() -> dict:
+    from backend.core import google_db
+
     combinations = [
         {"level": level, "profile_id": profile_id}
-        for (level, profile_id) in QUESTION_BANK.keys()
+        for (level, profile_id) in google_db.list_active_question_combinations()
     ]
+    for level in ("junior", "senior", "architect"):
+        combinations.append({"level": level, "profile_id": "all"})
+    combinations.append({"level": "principal", "profile_id": "all"})
     return {
         "levels": list(LEVELS),
         "solutions": list(SOLUTIONS),
@@ -342,8 +384,7 @@ def validate_profile(level: str, profile_id: str) -> str | None:
             return f"Unknown collection for principal level: {profile_id}"
     elif profile_id not in _VALID_SOLUTIONS:
         return f"Unknown solution: {profile_id}"
-    key = (level, profile_id)
-    if key not in QUESTION_BANK or not QUESTION_BANK[key]:
+    if not _fetch_bank(level, profile_id):
         return f"No question bank for {level} × {profile_id}"
     return None
 
@@ -352,7 +393,7 @@ def get_question_set(level: str, profile_id: str) -> list[InterviewQuestion]:
     err = validate_profile(level, profile_id)
     if err:
         raise ValueError(err)
-    return list(QUESTION_BANK[(level, profile_id)])
+    return _fetch_bank(level, profile_id)
 
 
 def profile_label(level: str, profile_id: str) -> str:

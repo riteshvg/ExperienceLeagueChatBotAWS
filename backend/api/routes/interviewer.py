@@ -208,7 +208,7 @@ async def submit_for_evaluation(
 ):
     _require_feature(user)
     session = _get_owned_session(body.session_id, user)
-    if session.evaluated:
+    if session.phase == "complete":
         raise HTTPException(status_code=400, detail="Session already evaluated")
 
     pipeline = InterviewerPipeline(retriever)
