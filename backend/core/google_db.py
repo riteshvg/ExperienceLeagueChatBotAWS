@@ -871,6 +871,28 @@ def list_query_logs(limit: int = 100) -> list[dict]:
         conn.close()
 
 
+def _attach_seo_slugs(conn, rows: list[dict]) -> None:
+    """Mutate rows in place, adding `seo_slug` for any query that got a published landing page.
+
+    exl_query_logs.message_id is a client-generated id and isn't the messages.id
+    the slug lives on, so the only reliable link back is the deterministic
+    make_slug() hash of the question text itself.
+    """
+    slug_by_query_text = {r["query_text"]: make_slug(r["query_text"]) for r in rows if r.get("query_text")}
+    if not slug_by_query_text:
+        return
+    candidate_slugs = list(set(slug_by_query_text.values()))
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT slug FROM messages WHERE slug = ANY(%s) AND is_published = TRUE",
+            (candidate_slugs,),
+        )
+        published = {r["slug"] for r in cur.fetchall()}
+    for r in rows:
+        slug = slug_by_query_text.get(r.get("query_text"))
+        r["seo_slug"] = slug if slug in published else None
+
+
 def list_query_logs_paginated(
     page: int = 1,
     page_size: int = 25,
@@ -901,9 +923,11 @@ def list_query_logs_paginated(
                 (page_size, offset),
             )
             rows = cur.fetchall()
+        data = _rows_to_query_log_dicts(rows)
+        _attach_seo_slugs(conn, data)
         total_pages = max(1, -(-total // page_size))  # ceiling division
         return {
-            "data": _rows_to_query_log_dicts(rows),
+            "data": data,
             "pagination": {
                 "page": page,
                 "page_size": page_size,
@@ -1266,24 +1290,51 @@ def append_conversation_message(
     is_published: bool = False,
     evidence: Optional[dict] = None,
 ) -> None:
-    """Append one message row (user or assistant turn) to a conversation."""
+    """Append one message row (user or assistant turn) to a conversation.
+
+    make_slug() hashes the question text, so a repeated (popular) question produces
+    the same slug every time — by design, only one published FAQ page per unique
+    question. idx_messages_slug enforces that with a partial unique index. If this
+    exact question was already published, retry without claiming the slug rather
+    than losing the message (and the whole turn's conversation persistence) to a
+    duplicate-key error.
+    """
+    from psycopg2.errors import UniqueViolation
     from psycopg2.extras import Json
 
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO messages (id, conversation_id, role, content, citations, slug, is_published, evidence)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """,
-                (
-                    str(uuid.uuid4()), conversation_id, role, content,
-                    Json(citations) if citations is not None else None,
-                    slug, is_published,
-                    Json(evidence) if evidence is not None else None,
-                ),
-            )
+            try:
+                cur.execute(
+                    """
+                    INSERT INTO messages (id, conversation_id, role, content, citations, slug, is_published, evidence)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        str(uuid.uuid4()), conversation_id, role, content,
+                        Json(citations) if citations is not None else None,
+                        slug, is_published,
+                        Json(evidence) if evidence is not None else None,
+                    ),
+                )
+            except UniqueViolation:
+                if slug is None:
+                    raise
+                conn.rollback()
+                with conn.cursor() as retry_cur:
+                    retry_cur.execute(
+                        """
+                        INSERT INTO messages (id, conversation_id, role, content, citations, slug, is_published, evidence)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            str(uuid.uuid4()), conversation_id, role, content,
+                            Json(citations) if citations is not None else None,
+                            None, False,
+                            Json(evidence) if evidence is not None else None,
+                        ),
+                    )
         conn.commit()
     finally:
         conn.close()
@@ -1294,6 +1345,30 @@ def make_slug(text: str) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:60].rstrip("-")
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()[:6]
     return f"{base}-{digest}" if base else digest
+
+
+def list_published_slugs() -> list[dict]:
+    """Return every published landing-page slug with its last-updated timestamp, for sitemap generation."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT slug, created_at FROM messages
+                WHERE is_published = TRUE AND slug IS NOT NULL AND role = 'assistant'
+                ORDER BY created_at DESC
+                """
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "slug": r["slug"],
+                "created_at": r["created_at"].isoformat() if hasattr(r["created_at"], "isoformat") else r["created_at"],
+            }
+            for r in rows
+        ]
+    finally:
+        conn.close()
 
 
 def get_landing_by_slug(slug: str) -> Optional[dict]:

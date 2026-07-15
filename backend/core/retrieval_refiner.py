@@ -13,11 +13,13 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from backend.core.bm25_index import bm25_search
 from backend.core.query_keywords import (
     QueryKeywords,
     extract_query_keywords,
     hybrid_doc_score,
 )
+from backend.core.rrf import reciprocal_rank_fusion
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,7 @@ _OFF_TOPIC_THRESHOLD = 0.25
 _REFINEMENT_MIN_SCORE = 0.20
 _PROBE_NEIGHBORS = 15
 _MAX_REFINED_QUERIES = 4
+_BM25_POOL_SIZE = 30
 
 _STOPWORDS = frozenset({
     "what", "how", "does", "the", "and", "for", "with", "via", "from", "that",
@@ -293,6 +296,83 @@ def _keyword_retrieval_pass(
     return _merge_docs(batches)
 
 
+_MULTI_HOP_MIN_TERMS = 3
+
+# Procedural verbs (gerund form, as they appear mid-sentence) used to split a
+# compound workflow query into its per-step clauses.
+_CLAUSE_VERB_RE = re.compile(
+    r"\b(creating|building|setting up|configuring|implementing|activating|"
+    r"connecting|integrating|deploying|installing|enabling|migrating)\b",
+    re.IGNORECASE,
+)
+
+
+def _split_into_clauses(query: str) -> list[str]:
+    """Split a compound "do X then Y then Z" query on its procedural verbs."""
+    starts = [m.start() for m in _CLAUSE_VERB_RE.finditer(query)]
+    if len(starts) < 2:
+        return []
+    starts.append(len(query))
+    return [
+        query[starts[i]:starts[i + 1]].strip(" .,;")
+        for i in range(len(starts) - 1)
+    ]
+
+
+def _multi_hop_retrieval_pass(
+    retriever,
+    user_query: str,
+    keywords: QueryKeywords,
+    product_intent: str | None,
+    *,
+    n_results: int,
+    where_filter: dict | None,
+) -> list[dict]:
+    """
+    One embedding call per workflow clause (or per topical noun) for compound,
+    multi-step queries.
+
+    A single dense-vector query for a 3+ hop workflow (e.g. "creating a schema
+    ... to activating a dataset ... to a destination") tends to average toward
+    whichever sub-topic has the largest, most generic doc cluster (destinations,
+    in that example), and never surfaces the other legs at all. Querying each
+    step clause (or, failing that, each significant noun) on its own recovers
+    those legs; _merge_docs + downstream ranking still decide what's relevant.
+    """
+    if len(keywords.match_terms) < _MULTI_HOP_MIN_TERMS:
+        return []
+
+    probes = _split_into_clauses(user_query)
+    if not probes:
+        probes = list(keywords.match_terms[:6])
+
+    batches: list[list[dict]] = []
+    for probe in probes[:6]:
+        q = f"{probe} {product_intent}".strip() if product_intent else probe
+        docs = retriever.retrieve(
+            q,
+            n_results=n_results,
+            similarity_threshold=0.0,
+            where=where_filter,
+        )
+        batches.append(sorted(docs, key=lambda d: float(d.get("score", 0)), reverse=True))
+
+    # Interleave round-robin across probes (rather than one global score sort)
+    # so each clause's best doc survives the later top-n_results truncation —
+    # a global sort lets one densely-clustered clause (e.g. "destination")
+    # crowd out a thinner one (e.g. "schema") entirely.
+    seen: set[str] = set()
+    interleaved: list[dict] = []
+    for i in range(max((len(b) for b in batches), default=0)):
+        for batch in batches:
+            if i < len(batch):
+                key = _doc_key(batch[i])
+                if key not in seen:
+                    seen.add(key)
+                    interleaved.append(batch[i])
+    return interleaved
+
+
 def _rank_hybrid(docs: list[dict], keywords: QueryKeywords, user_query: str) -> list[dict]:
     terms = keywords.match_terms or _extract_terms(user_query)
     return sorted(
@@ -300,6 +380,36 @@ def _rank_hybrid(docs: list[dict], keywords: QueryKeywords, user_query: str) -> 
         key=lambda d: hybrid_doc_score(d, keywords, user_query),
         reverse=True,
     )
+
+
+def _fuse_dense_and_sparse(
+    retriever,
+    dense_docs: list[dict],
+    keywords: QueryKeywords,
+    user_query: str,
+    *,
+    where_filter: dict | None,
+) -> list[dict]:
+    """
+    Combine three independently-ranked views of the candidate pool via
+    reciprocal rank fusion: pure embedding-score order, the existing
+    keyword/phrase-synonym-aware heuristic rerank, and a true BM25 (lexical,
+    IDF-weighted) pass. BM25 runs against the full corpus rather than just
+    `dense_docs`, so it can surface exact-term matches (identifiers, API
+    names, XDM field names) that dense retrieval alone missed — those get
+    merged into the fused pool, not just re-ordered within it.
+    """
+    bm25_docs = bm25_search(
+        retriever, user_query, n_results=_BM25_POOL_SIZE, where=where_filter,
+    )
+    dense_ranked = sorted(dense_docs, key=lambda d: float(d.get("score", 0.0)), reverse=True)
+    keyword_ranked = _rank_hybrid(dense_docs, keywords, user_query)
+
+    # reciprocal_rank_fusion already dedupes by doc key across the three lists,
+    # keeping fused rank order — do not re-sort by raw "score" afterward
+    # (that field is whichever list first produced the doc, not comparable
+    # across embedding/BM25 scales).
+    return reciprocal_rank_fusion([dense_ranked, keyword_ranked, bm25_docs])
 
 
 def retrieve_with_refinement(
@@ -331,11 +441,32 @@ def retrieve_with_refinement(
         n_results=n_results,
         where_filter=where_filter,
     )
-    merged = _merge_docs([initial, keyword_docs])
+    multi_hop_docs = _multi_hop_retrieval_pass(
+        retriever,
+        user_query,
+        keywords,
+        product_filter,
+        n_results=n_results,
+        where_filter=where_filter,
+    )
+    merged = _merge_docs([initial, keyword_docs, multi_hop_docs])
     if merged:
-        merged = _rank_hybrid(merged, keywords, user_query)[:n_results]
-        if not initial or _top_score(merged) > _top_score(initial):
-            initial = merged
+        ranked = _fuse_dense_and_sparse(
+            retriever, merged, keywords, user_query, where_filter=where_filter,
+        )
+        # Reserve each multi-hop clause's best couple of docs regardless of
+        # global hybrid rank — a densely-populated clause (e.g. "destination")
+        # otherwise crowds a thinner one (e.g. "schema") out of the final
+        # n_results slice even though both legs are needed to answer.
+        reserved_keys = {_doc_key(d) for d in multi_hop_docs[:6]}
+        reserved = [d for d in ranked if _doc_key(d) in reserved_keys]
+        fill = [d for d in ranked if _doc_key(d) not in reserved_keys]
+        merged = (reserved + fill)[:n_results]
+        # `merged` is always a superset of `initial` (same docs plus keyword/
+        # multi-hop passes), so its top score is never lower — a strict `>`
+        # comparison silently discards the reserved multi-hop docs whenever
+        # initial's own top-scoring doc happens to already be the global max.
+        initial = merged
 
     meta = RefinementResult(
         original_search=search_query,

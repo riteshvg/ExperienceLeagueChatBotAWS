@@ -348,6 +348,15 @@ async def lifespan(app: FastAPI):
         logger.warning(f"ChromaDB init failed ({e}) — starting with empty retriever")
         retriever = None
 
+    if retriever:
+        try:
+            from backend.core.bm25_index import warm_bm25_index
+            logger.info("Building BM25 index at startup…")
+            warm_bm25_index(retriever)
+            logger.info("BM25 index ready")
+        except Exception as e:
+            logger.warning(f"BM25 index build failed at startup ({e}) — will build lazily on first query")
+
     session_store = SessionStore()
     pipeline = RAGPipeline(retriever=retriever, session_store=session_store) if retriever else None
 

@@ -437,6 +437,34 @@ async def set_kill_switch(body: KillSwitchRequest, _: Annotated[str, Depends(get
     return {"enabled": body.enabled}
 
 
+# ── LLM provider toggle ────────────────────────────────────────────────────────
+
+class LlmProviderRequest(BaseModel):
+    provider: str
+
+
+@router.get("/settings/llm-provider")
+async def get_llm_provider_setting(_: Annotated[str, Depends(get_admin_user)]):
+    from backend.core import llm_provider
+    try:
+        provider = llm_provider.get_llm_provider()
+    except Exception:
+        provider = "anthropic"
+    return {"provider": provider}
+
+
+@router.patch("/settings/llm-provider")
+async def set_llm_provider_setting(body: LlmProviderRequest, _: Annotated[str, Depends(get_admin_user)]):
+    from backend.core import llm_provider
+    try:
+        llm_provider.set_llm_provider(body.provider)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"LLM provider setting unavailable: {exc}")
+    return {"provider": body.provider.strip().lower()}
+
+
 # ── Demo ──────────────────────────────────────────────────────────────────────
 
 @router.post("/demo/reset")

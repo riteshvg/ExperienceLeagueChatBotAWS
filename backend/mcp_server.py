@@ -33,18 +33,21 @@ from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.query_processor import QueryProcessor
 
 _RAILWAY_HOST = "experienceleaguechatbotaws-production.up.railway.app"
+_CUSTOM_HOST = "chatbot.thelearningproject.in"
 
 mcp = FastMCP(
     "experience-league-docs",
     transport_security=TransportSecuritySettings(
         allowed_hosts=[
             _RAILWAY_HOST,
+            _CUSTOM_HOST,
             "localhost",
             "localhost:8000",
             "localhost:8080",
         ],
         allowed_origins=[
             f"https://{_RAILWAY_HOST}",
+            f"https://{_CUSTOM_HOST}",
             "http://localhost:8000",
             "http://localhost:8080",
         ],

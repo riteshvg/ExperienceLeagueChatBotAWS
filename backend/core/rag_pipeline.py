@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from langchain_anthropic import ChatAnthropic
+from langchain_aws import ChatBedrockConverse
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
@@ -24,8 +25,17 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from anthropic import AsyncAnthropic
+
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.evidence import build_evidence
+from backend.core.groundedness import (
+    extract_known_urls,
+    pseudo_chunk,
+    resolve_with_escalation,
+    run_groundedness_check,
+    should_run_groundedness_check,
+)
 from backend.core.retrieval_refiner import (
     RefinementResult,
     refinement_to_evidence_fields,
@@ -49,6 +59,19 @@ logger = logging.getLogger(__name__)
 
 _HAIKU_MODEL  = "claude-haiku-4-5-20251001"
 _SONNET_MODEL = "claude-sonnet-4-6"
+
+# Bedrock equivalents (used when the admin llm_provider toggle is set to
+# "bedrock" instead of the default "anthropic") — same underlying models,
+# with the Bedrock-specific "global.anthropic." prefix / "-v1:0" suffix.
+_HAIKU_MODEL_BEDROCK = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+_SONNET_MODEL_BEDROCK = "global.anthropic.claude-sonnet-4-6"
+
+# Embedding-similarity rescue for the topical gate — a query can score below the
+# lexical topical threshold on vocabulary mismatch alone (business/compliance
+# paraphrase vs. doc terminology) while still being a real match. Stress-test:
+# genuine matches wrongly blocked scored 0.353-0.644; genuinely off-topic queries
+# capped out at 0.125-0.214 — clean separation, so this only rescues real matches.
+_EMBED_RESCUE_THRESHOLD = 0.35
 
 # Returned directly (no LLM) when the query is clearly off-topic
 _OUT_OF_SCOPE_RESPONSE = (
@@ -78,9 +101,21 @@ You ONLY answer questions about Adobe products: Adobe Analytics, Customer Journe
 Adobe Experience Platform (AEP), Adobe Target, Adobe Journey Optimizer (AJO), and Adobe Data Collection \
 (Tags/Launch, Web SDK, Datastreams, Edge Network).
 
-If the question is not about these Adobe products, respond with:
-"I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe Journey Optimizer, \
-and Adobe Data Collection. Please ask about these products."
+Before answering, check the retrieved documentation context below.
+- If the context contains information that addresses the question, answer using it — even if \
+the question's wording doesn't obviously name an Adobe product. The retrieval system has already \
+confirmed this context is relevant; do not re-judge topic relevance from the question's surface \
+phrasing alone.
+- If the context partially addresses the question, answer with what's supported and explicitly \
+note what's missing — don't treat it as all-or-nothing.
+- If the context does NOT address the question (empty, or unrelated to what was asked), say so \
+plainly: "I don't have information on this in Adobe Experience League documentation." Never \
+speculate about what the user might have meant as an alternative to answering — if you're unsure \
+whether the context addresses the question, say what the context does cover and ask a clarifying \
+question instead of guessing.
+- Only use the "I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe \
+Journey Optimizer, and Adobe Data Collection" response if there is no retrieved context at all for \
+this turn.
 
 Guidelines for Adobe questions:
 - Answer as completely as possible using the retrieved context.
@@ -103,9 +138,21 @@ expertise in Adobe Analytics, Customer Journey Analytics (CJA), Adobe Experience
 Adobe Target, Adobe Journey Optimizer (AJO), and Adobe Data Collection (Tags/Launch, Web SDK, \
 Datastreams, Edge Network).
 
-You ONLY answer questions about these Adobe products. If asked about anything unrelated, respond:
-"I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe Journey Optimizer, \
-and Adobe Data Collection."
+Before answering, check the retrieved documentation context below.
+- If the context contains information that addresses the question, answer using it — even if \
+the question's wording doesn't obviously name an Adobe product. The retrieval system has already \
+confirmed this context is relevant; do not re-judge topic relevance from the question's surface \
+phrasing alone.
+- If the context partially addresses the question, answer with what's supported and explicitly \
+note what's missing — don't treat it as all-or-nothing.
+- If the context does NOT address the question (empty, or unrelated to what was asked), say so \
+plainly: "I don't have information on this in Adobe Experience League documentation." Never \
+speculate about what the user might have meant as an alternative to answering — if you're unsure \
+whether the context addresses the question, say what the context does cover and ask a clarifying \
+question instead of guessing.
+- Only use the "I can only answer questions about Adobe Analytics, CJA, AEP, Adobe Target, Adobe \
+Journey Optimizer, and Adobe Data Collection" response if there is no retrieved context at all for \
+this turn.
 
 Guidelines for Adobe questions:
 - Synthesize a complete, accurate answer using the retrieved context below.
@@ -141,14 +188,39 @@ _SONNET_PROMPT = ChatPromptTemplate.from_messages([
 
 # ── LCEL chains ───────────────────────────────────────────────────────────────
 
-def _build_haiku_chain(api_key: str):
-    llm = ChatAnthropic(model=_HAIKU_MODEL, api_key=api_key, max_tokens=2000, streaming=True)
+def _build_haiku_chain(api_key: str, max_tokens: int = 2000, *, provider: str = "anthropic", region_name: str | None = None):
+    if provider == "bedrock":
+        llm = ChatBedrockConverse(model_id=_HAIKU_MODEL_BEDROCK, region_name=region_name, max_tokens=max_tokens)
+    else:
+        llm = ChatAnthropic(model=_HAIKU_MODEL, api_key=api_key, max_tokens=max_tokens, streaming=True)
     return _HAIKU_PROMPT | llm | StrOutputParser()
 
 
-def _build_sonnet_chain(api_key: str):
-    llm = ChatAnthropic(model=_SONNET_MODEL, api_key=api_key, max_tokens=4000, streaming=True)
+def _build_sonnet_chain(api_key: str, max_tokens: int = 4000, *, provider: str = "anthropic", region_name: str | None = None):
+    if provider == "bedrock":
+        llm = ChatBedrockConverse(model_id=_SONNET_MODEL_BEDROCK, region_name=region_name, max_tokens=max_tokens)
+    else:
+        llm = ChatAnthropic(model=_SONNET_MODEL, api_key=api_key, max_tokens=max_tokens, streaming=True)
     return _SONNET_PROMPT | llm | StrOutputParser()
+
+
+def _current_llm_provider() -> str:
+    """Admin-toggleable "anthropic" (default) vs "bedrock" for main-answer generation."""
+    try:
+        from backend.core.llm_provider import get_llm_provider
+        return get_llm_provider()
+    except Exception:
+        return "anthropic"
+
+
+# Tail-latency safety net for the admin-only groundedness-check path: real
+# output lengths are almost always well under this (median ~712 tokens, p90
+# ~1024 across the golden set — see eval/full_pipeline_rerun_v2.json), so this
+# rarely binds. It exists to bound the rare very-long-generation outliers,
+# which also correlate with higher fabrication risk (more room to invent
+# specifics), not to speed up the typical case.
+_ADMIN_TRIGGERED_HAIKU_MAX_TOKENS = 1200
+_ADMIN_TRIGGERED_SONNET_MAX_TOKENS = 1400
 
 
 def _to_lc_history(history: list[dict]) -> list:
@@ -213,6 +285,7 @@ class RAGPipeline:
         query: str,
         session_id: str,
         haiku_only: bool = False,
+        user_email: str | None = None,
     ) -> AsyncGenerator[dict, None]:
         try:
             yield {"type": "status", "stage": "understanding"}
@@ -225,15 +298,24 @@ class RAGPipeline:
             logger.info(f"SmartRouter: '{query[:60]}' → {routed}")
 
             if routed == "sonnet":
-                async for event in self._stream_agent(query, session_id, history, settings):
+                async for event in self._stream_agent(query, session_id, history, settings, user_email):
                     yield event
             else:
-                async for event in self._stream_chain(query, session_id, history, settings):
+                async for event in self._stream_chain(query, session_id, history, settings, user_email):
                     yield event
 
         except Exception as exc:
             logger.exception("RAG pipeline error")
             yield {"type": "error", "message": str(exc)}
+
+    def _is_admin_request(self, user_email: str | None) -> bool:
+        """Gate for the admin-only groundedness-check rollout — reuses the same
+        ADMIN_EMAIL identity mechanism as backend/api/deps.py:get_admin_user()
+        and backend/core/google_db.py, rather than introducing a new one.
+        Empty/unset ADMIN_EMAIL or user_email always returns False (fail closed
+        — no accidental opt-in for everyone if the env var is missing)."""
+        admin_email = (get_settings().admin_email or "").strip().lower()
+        return bool(admin_email) and bool(user_email) and user_email.strip().lower() == admin_email
 
     async def _emit_evidence(
         self,
@@ -296,25 +378,69 @@ class RAGPipeline:
             related = self._fetch_related_docs(search_query, where_filter)
             return [], refinement, related, topical_scores, "no_retrieval"
 
-        if not relevant_docs:
-            related = product_docs or self._fetch_related_docs(search_query, where_filter)
-            related = sorted(related, key=lambda d: float(d.get("score", 0.0)), reverse=True)[:3]
-            related_scores = {
-                (d.get("metadata") or {}).get("s3_key")
-                or (d.get("metadata") or {}).get("url")
-                or d.get("content", "")[:80]: 0.0
-                for d in related
-            }
-            topical_scores = {**topical_scores, **related_scores}
-            return [], refinement, related, topical_scores, "no_direct_match"
+        if not relevant_docs and product_intent and where_filter:
+            # A hard product where-clause can exclude the doc that actually
+            # answers a cross-product concept (e.g. "identityMap" is a shared
+            # Data-Collection/XDM field, not AJO-specific, so an AJO-only pool
+            # never contains it even when AJO-scoped retrieval otherwise looks
+            # healthy). Retry once, unscoped, before giving up — the topical
+            # gate below still applies in full (assess_retrieval runs its
+            # normal, unrelaxed substring/URL check when product_filter is
+            # None), so this only widens the candidate pool, not the gate's
+            # precision bar.
+            unscoped_docs, unscoped_refinement = self._retrieve_docs(
+                search_query, query, settings, None, None,
+            )
+            unscoped_assessment = assess_retrieval(query, unscoped_docs, None)
+            if unscoped_assessment["relevant_docs"]:
+                raw_docs = unscoped_docs
+                refinement = unscoped_refinement
+                relevant_docs = unscoped_assessment["relevant_docs"]
+                product_docs = unscoped_assessment["product_docs"]
+                topical_scores = unscoped_assessment["topical_scores"]
 
-        # Weak topical alignment — treat as no direct match rather than a low-confidence answer.
+        if not relevant_docs:
+            # Pure-lexical topical gate found nothing, but a strong embedding match
+            # can still indicate a real answer the lexical gate missed on vocabulary
+            # (paraphrase/synonym mismatch between query wording and doc wording —
+            # see rag_pipeline investigation, stress-test showed off-topic queries
+            # cap out well below this threshold while genuine paraphrased matches
+            # sit above it). Rescue pool is product-scoped when a product filter
+            # was applied, otherwise the full raw retrieval pool.
+            rescue_pool = product_docs if product_intent else raw_docs
+            embed_rescued = [
+                d for d in rescue_pool
+                if float(d.get("score", 0.0)) >= _EMBED_RESCUE_THRESHOLD
+            ]
+            if embed_rescued:
+                relevant_docs = sorted(
+                    embed_rescued, key=lambda d: float(d.get("score", 0.0)), reverse=True,
+                )
+            else:
+                related = product_docs or self._fetch_related_docs(search_query, where_filter)
+                related = sorted(related, key=lambda d: float(d.get("score", 0.0)), reverse=True)[:3]
+                related_scores = {
+                    (d.get("metadata") or {}).get("s3_key")
+                    or (d.get("metadata") or {}).get("url")
+                    or d.get("content", "")[:80]: 0.0
+                    for d in related
+                }
+                topical_scores = {**topical_scores, **related_scores}
+                return [], refinement, related, topical_scores, "no_direct_match"
+
+        # Weak topical alignment — treat as no direct match rather than a low-confidence
+        # answer, unless a strong embedding match rescues it (same rationale as above).
         # Skipped when product_intent already hard-scoped retrieval (a real Chroma
         # where-clause) and too few significant terms survive to be a meaningful
         # lexical signal — same condition as assess_retrieval's gate relaxation.
         best_topical = max(topical_match_score(query, d) for d in relevant_docs)
+        best_embed = max(float(d.get("score", 0.0)) for d in relevant_docs)
         thin_significant_terms = len(significant_terms(query)) < _MIN_SIGNIFICANT_FOR_URL_CHECK
-        if best_topical < 0.22 and not (product_intent and thin_significant_terms):
+        if (
+            best_topical < 0.22
+            and best_embed < _EMBED_RESCUE_THRESHOLD
+            and not (product_intent and thin_significant_terms)
+        ):
             related = sorted(
                 relevant_docs + (product_docs or []),
                 key=lambda d: float(d.get("score", 0.0)),
@@ -373,12 +499,16 @@ class RAGPipeline:
 
     # ── Haiku: single-pass LCEL chain ─────────────────────────────────────────
 
-    async def _stream_chain(self, query, session_id, history, settings):
+    async def _stream_chain(self, query, session_id, history, settings, user_email=None):
         query_to_use, search_query, product_intent, where_filter = (
             self._resolve_retrieval_inputs(query, history)
         )
+        is_admin = self._is_admin_request(user_email)
 
-        yield {"type": "status", "stage": "searching"}
+        if is_admin:
+            yield {"type": "status", "stage": "searching", "message": "Looking through Adobe's documentation…"}
+        else:
+            yield {"type": "status", "stage": "searching"}
 
         raw_docs, refinement, related, topical_scores, blocked = await self._run_retrieval_path(
             query_to_use, search_query, settings, product_intent, where_filter,
@@ -418,21 +548,54 @@ class RAGPipeline:
             f"[{i+1}] {doc['content']}" for i, doc in enumerate(raw_docs)
         )
         context += _build_media_context(raw_docs)
+        yield {"type": "context", "context": context}
 
         raw_citations = self._extract_citations(raw_docs)
         lc_history = _to_lc_history(history)
-        chain = _build_haiku_chain(settings.anthropic_api_key)
+
+        admin_triggered = is_admin and should_run_groundedness_check(evidence)
+        provider = _current_llm_provider()
+        chain = (
+            _build_haiku_chain(settings.anthropic_api_key, max_tokens=_ADMIN_TRIGGERED_HAIKU_MAX_TOKENS, provider=provider, region_name=settings.bedrock_region)
+            if admin_triggered
+            else _build_haiku_chain(settings.anthropic_api_key, provider=provider, region_name=settings.bedrock_region)
+        )
 
         # Kick off URL validation concurrently while the LLM streams — hides latency
         import asyncio as _asyncio
         validation_task = _asyncio.create_task(filter_valid_citations(raw_citations))
 
-        yield {"type": "status", "stage": "writing"}
+        if is_admin:
+            yield {"type": "status", "stage": "writing", "message": "Drafting your answer…"}
+        else:
+            yield {"type": "status", "stage": "writing"}
 
         full_response = ""
-        async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
-            full_response += chunk
-            yield {"type": "token", "content": chunk}
+        if admin_triggered:
+            async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
+                full_response += chunk
+            yield {
+                "type": "status", "stage": "reviewing",
+                "message": "Double-checking this against the source docs before showing it to you…",
+            }
+            groundedness_task = _asyncio.create_task(
+                self._apply_groundedness_ux(settings, query_to_use, full_response, context, evidence)
+            )
+            done, pending = await _asyncio.wait({groundedness_task}, timeout=15)
+            if pending:
+                yield {
+                    "type": "status", "stage": "still_reviewing",
+                    "message": "Making sure every detail here is actually documented, not just plausible…",
+                }
+            resolved = await groundedness_task
+            full_response = resolved["final_answer"]
+            yield {"type": "groundedness", "ux_action": resolved["ux_action"], "escalated": resolved["escalated"]}
+            for piece in pseudo_chunk(full_response):
+                yield {"type": "token", "content": piece}
+        else:
+            async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
+                full_response += chunk
+                yield {"type": "token", "content": chunk}
 
         citations = await validation_task
         self.session_store.append_turn(session_id, "user", query_to_use)
@@ -447,12 +610,16 @@ class RAGPipeline:
 
     # ── Sonnet: single-pass LCEL chain ───────────────────────────────────────
 
-    async def _stream_agent(self, query, session_id, history, settings):
+    async def _stream_agent(self, query, session_id, history, settings, user_email=None):
         query_to_use, search_query, product_intent, where_filter = (
             self._resolve_retrieval_inputs(query, history)
         )
+        is_admin = self._is_admin_request(user_email)
 
-        yield {"type": "status", "stage": "searching"}
+        if is_admin:
+            yield {"type": "status", "stage": "searching", "message": "Looking through Adobe's documentation…"}
+        else:
+            yield {"type": "status", "stage": "searching"}
 
         raw_docs, refinement, related, topical_scores, blocked = await self._run_retrieval_path(
             query_to_use, search_query, settings, product_intent, where_filter,
@@ -491,20 +658,53 @@ class RAGPipeline:
             f"[{i+1}] {doc['content']}" for i, doc in enumerate(raw_docs)
         )
         context += _build_media_context(raw_docs)
+        yield {"type": "context", "context": context}
 
         raw_citations = self._extract_citations(raw_docs)
         lc_history = _to_lc_history(history)
-        chain = _build_sonnet_chain(settings.anthropic_api_key)
+
+        admin_triggered = is_admin and should_run_groundedness_check(evidence)
+        provider = _current_llm_provider()
+        chain = (
+            _build_sonnet_chain(settings.anthropic_api_key, max_tokens=_ADMIN_TRIGGERED_SONNET_MAX_TOKENS, provider=provider, region_name=settings.bedrock_region)
+            if admin_triggered
+            else _build_sonnet_chain(settings.anthropic_api_key, provider=provider, region_name=settings.bedrock_region)
+        )
 
         import asyncio as _asyncio
         validation_task = _asyncio.create_task(filter_valid_citations(raw_citations))
 
-        yield {"type": "status", "stage": "writing"}
+        if is_admin:
+            yield {"type": "status", "stage": "writing", "message": "Drafting your answer…"}
+        else:
+            yield {"type": "status", "stage": "writing"}
 
         full_response = ""
-        async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
-            full_response += chunk
-            yield {"type": "token", "content": chunk}
+        if admin_triggered:
+            async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
+                full_response += chunk
+            yield {
+                "type": "status", "stage": "reviewing",
+                "message": "Double-checking this against the source docs before showing it to you…",
+            }
+            groundedness_task = _asyncio.create_task(
+                self._apply_groundedness_ux(settings, query_to_use, full_response, context, evidence)
+            )
+            done, pending = await _asyncio.wait({groundedness_task}, timeout=15)
+            if pending:
+                yield {
+                    "type": "status", "stage": "still_reviewing",
+                    "message": "Making sure every detail here is actually documented, not just plausible…",
+                }
+            resolved = await groundedness_task
+            full_response = resolved["final_answer"]
+            yield {"type": "groundedness", "ux_action": resolved["ux_action"], "escalated": resolved["escalated"]}
+            for piece in pseudo_chunk(full_response):
+                yield {"type": "token", "content": piece}
+        else:
+            async for chunk in chain.astream({"context": context, "history": lc_history, "query": query_to_use}):
+                full_response += chunk
+                yield {"type": "token", "content": chunk}
 
         citations = await validation_task
         self.session_store.append_turn(session_id, "user", query_to_use)
@@ -517,6 +717,25 @@ class RAGPipeline:
                "input_tokens": input_tokens, "output_tokens": output_tokens}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
+
+    async def _apply_groundedness_ux(
+        self, settings, query: str, answer: str, context: str, evidence: dict,
+    ) -> dict:
+        """Buffered-path post-processing: check the complete answer against its
+        context, and if it fabricates specifics, surgically remove or replace
+        the response before any of it reaches the client. Only called when
+        should_run_groundedness_check(evidence) is True (see call sites).
+
+        Returns the full resolve_with_escalation() dict (final_answer, ux_action,
+        escalated, reverify_chain) — callers that only need the text should read
+        result["final_answer"]. Exposing the full dict lets callers (production
+        SSE stream, eval harness) observe what the check actually decided instead
+        of having to re-run it, which would trivially find nothing wrong since
+        the answer is already post-UX-layer."""
+        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        known_urls = extract_known_urls(evidence)
+        check_result = await run_groundedness_check(client, context, answer, known_urls=known_urls)
+        return await resolve_with_escalation(client, query, answer, context, evidence, check_result)
 
     # Minimum similarity score for a doc to become a citation.
     # Docs retrieved below this threshold are used for LLM context but not shown as sources.

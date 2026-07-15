@@ -22,6 +22,15 @@ _GENERIC_TERMS = frozenset({
     "optimizer", "target", "collection", "data", "cloud", "real", "time",
     "aep", "ajo", "cja", "aa", "rtcdp", "exl", "docs", "documentation",
     "different", "various", "types", "what", "are", "the", "for", "about",
+    # Procedural/creation verbs — near-universal across how-to docs, so
+    # requiring a URL/title match on these (rather than the real topic
+    # nouns) causes multi-step workflow queries to match the wrong doc
+    # or drop the right ones.
+    "steps", "step", "process", "full", "creating", "create", "created",
+    "building", "build", "built", "setting", "set", "setup", "configuring",
+    "configure", "implementing", "implement", "activating", "activate",
+    "connecting", "connect", "integrating", "integrate", "using", "use",
+    "then",
 })
 
 # Minimum topical score for a doc to be used for answers / sources.
@@ -103,9 +112,38 @@ def topical_match_score(query: str, doc: dict) -> float:
     return min(1.0, score)
 
 
+_STEM_SUFFIXES = ("ing", "ers", "er", "es", "ed", "s")
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def _stem(word: str) -> str:
+    """
+    Minimal suffix-stripping stemmer — just enough to match word-form variants
+    like "testing"/"test" or "activities"/"activity" without pulling in a full
+    NLP stemmer for what's a narrow, low-risk normalization. Only strips when
+    the remainder is still >=3 chars, so short words ("as", "is") are untouched.
+    """
+    lower = word.lower()
+    # "-ies" plural (activity/activities, identity/identities) needs its own
+    # rule before the generic suffix loop below — stripping "es" alone would
+    # leave "activiti", not "activity"; the "y" must be restored.
+    if lower.endswith("ies") and len(lower) - 3 >= 3:
+        return lower[:-3] + "y"
+    for suf in _STEM_SUFFIXES:
+        if lower.endswith(suf) and len(lower) - len(suf) >= 3:
+            return lower[: -len(suf)]
+    return lower
+
+
 def has_direct_url_match(query: str, doc: dict) -> bool:
     """
-    True when at least one significant query term appears in the doc URL path or title.
+    True when at least one significant query term appears in the doc URL path
+    or title, tolerating word-form variants (stem match, not exact substring).
+
+    Falls back to repo_path/s3_key when url metadata is empty — same fallback
+    doc_relevance_text() already uses for topical_match_score(), so a doc
+    isn't penalized on this check alone just for missing a `url` field while
+    still scoring well on the snippet-based topical score.
     """
     sig = significant_terms(query)
     if len(sig) < 1:
@@ -113,13 +151,22 @@ def has_direct_url_match(query: str, doc: dict) -> bool:
 
     meta = doc.get("metadata") or {}
     title = _clean_title(meta.get("title", "")).lower()
-    url_path = _url_path_text(meta.get("url") or "")
+    url_field = meta.get("url") or meta.get("repo_path") or meta.get("s3_key") or ""
+    url_path = _url_path_text(url_field)
+
+    haystack_words = {_stem(w) for w in _WORD_RE.findall(title)} | {
+        _stem(w) for w in _WORD_RE.findall(url_path)
+    }
 
     for term in sig:
-        lower = term.lower()
-        if lower in title or lower in url_path:
-            return True
-        if lower.replace("-", " ") in url_path:
+        term_words = _WORD_RE.findall(term.lower())
+        if not term_words:
+            continue
+        # Multi-word terms (e.g. "AJO journey") require every constituent word
+        # to have a stem match somewhere in the haystack — looser than the old
+        # exact-contiguous-phrase substring check, but still requires the full
+        # concept, not just one word of it, to be present.
+        if all(_stem(w) in haystack_words for w in term_words):
             return True
     return False
 

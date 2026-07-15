@@ -6,6 +6,7 @@ import { useAdmin, type GoogleUser, type GoogleUserSummary } from '@/hooks/useAd
 import { ThemeToggle } from '@/components/ThemeToggle'
 import type { PaginatedQueryLogs, PaginatedGoogleUsers, Pagination } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { appOrigin } from '@/lib/exportConversation'
 import { adminUi as ui } from '@/pages/adminUi'
 import {
   formatAdminValue,
@@ -570,13 +571,14 @@ function QueryLogsTab({ paginatedData, onFetchPage, onExport, exporting }: Query
               {thSort('output_tokens', 'Out', 'right')}
               {thSort('cost_usd', 'Cost', 'right')}
               <th className="text-center px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">FB</th>
+              <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">SEO URL</th>
             </tr>
           </thead>
           <tbody>
             {fetching && logs.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">Loading…</td></tr>
+              <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">Loading…</td></tr>
             ) : logs.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">No queries logged yet.</td></tr>
+              <tr><td colSpan={10} className="px-4 py-8 text-center text-sm text-slate-400 dark:text-slate-500">No queries logged yet.</td></tr>
             ) : logs.map((log, i) => {
               const isExpanded = expanded.has(log.id)
               const isLast = i === logs.length - 1
@@ -620,11 +622,26 @@ function QueryLogsTab({ paginatedData, onFetchPage, onExport, exporting }: Query
                     <td className="px-4 py-2.5 text-center text-base">
                       {log.feedback_rating === 1 ? '👍' : log.feedback_rating === -1 ? '👎' : <span className="text-slate-300 text-xs">—</span>}
                     </td>
+                    <td className="px-4 py-2.5 text-left" onClick={(e) => e.stopPropagation()}>
+                      {log.seo_slug ? (
+                        <a
+                          href={`${appOrigin()}${import.meta.env.BASE_URL}q/${log.seo_slug}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 dark:text-blue-400 text-xs underline underline-offset-2 hover:text-blue-700 whitespace-nowrap"
+                          title={`${appOrigin()}${import.meta.env.BASE_URL}q/${log.seo_slug}`}
+                        >
+                          /q/{log.seo_slug.slice(0, 20)}{log.seo_slug.length > 20 ? '…' : ''}
+                        </a>
+                      ) : (
+                        <span className="text-slate-300 dark:text-slate-600 text-xs">—</span>
+                      )}
+                    </td>
                   </tr>
                   {isExpanded && (
                     <tr key={`${log.id}-exp`} className={cn('border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/80', isLast && 'border-0')}>
                       <td />
-                      <td colSpan={8} className="px-4 pb-3 pt-0 space-y-2">
+                      <td colSpan={9} className="px-4 pb-3 pt-0 space-y-2">
                         <p className="text-xs text-slate-700 dark:text-slate-200 leading-relaxed bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-3">{log.query_text}</p>
                         {log.feedback_rating != null && (
                           <p className="text-xs text-slate-600 px-1">

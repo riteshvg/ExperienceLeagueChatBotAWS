@@ -83,7 +83,23 @@ class QueryProcessor:
             'crm': 'CRM',
             'cms': 'Content Management System'
         }
-        
+
+        # Branded-product-name -> Adobe-internal-platform-naming aliases.
+        # Additive (appended, never replacing) unlike self.abbreviations —
+        # replacing "Real-Time CDP" would both discard the phrase
+        # smart_router.detect_product_intent() matches on for routing, and
+        # discard a phrase some marketing/overview pages do use. Only RT-CDP
+        # is here: verified against actual ingested page text that RT-CDP/AEP
+        # docs consistently say "Experience Platform" in body prose and never
+        # use "RT-CDP"/"Real-Time CDP" as an acronym there — checked AJO and
+        # CJA too and found no equivalent gap (those docs do use their own
+        # acronyms), so they're intentionally not included here.
+        self.platform_aliases: Dict[str, List[str]] = {
+            r'\breal-time cdp\b': ['Experience Platform'],
+            r'\brt-cdp\b': ['Experience Platform'],
+            r'\brtcdp\b': ['Experience Platform'],
+        }
+
         # Contextual enhancement patterns
         self.context_patterns = {
             'how_to': {
@@ -126,7 +142,13 @@ class QueryProcessor:
         
         # Track changes for logging
         changes = []
-        
+
+        # Step 0: Append platform-internal naming aliases for branded product
+        # names (e.g. "Real-Time CDP" -> also add "Experience Platform") before
+        # abbreviation expansion mutates the original phrase.
+        enhanced_query, alias_changes = self._add_platform_aliases(enhanced_query)
+        changes.extend(alias_changes)
+
         # Step 1: Expand abbreviations
         enhanced_query, abbreviation_changes = self._expand_abbreviations(enhanced_query)
         changes.extend(abbreviation_changes)
@@ -147,6 +169,7 @@ class QueryProcessor:
             'original': original_query,
             'enhanced': enhanced_query,
             'changes': changes,
+            'platform_alias_additions': len([c for c in changes if c['type'] == 'platform_alias']),
             'abbreviation_expansions': len([c for c in changes if c['type'] == 'abbreviation']),
             'product_specific_enhancements': len([c for c in changes if c['type'] == 'product_specific']),
             'contextual_enhancements': len([c for c in changes if c['type'] == 'context']),
@@ -159,7 +182,34 @@ class QueryProcessor:
             logger.debug(f"Changes: {changes}")
         
         return enhanced_query, metadata
-    
+
+    def _add_platform_aliases(self, query: str) -> Tuple[str, List[Dict]]:
+        """
+        Append Adobe's internal platform-naming vocabulary alongside branded
+        product names the user typed, so the embedding captures both
+        vocabularies. Additive, not replacing — replacing would both lose a
+        phrase smart_router.detect_product_intent() depends on for routing,
+        and discard a phrase some marketing/overview pages do use.
+        """
+        changes: List[Dict] = []
+        appended: List[str] = []
+        q_lower = query.lower()
+
+        for pattern, aliases in self.platform_aliases.items():
+            if re.search(pattern, q_lower):
+                for alias in aliases:
+                    if alias.lower() not in q_lower and alias not in appended:
+                        appended.append(alias)
+                        changes.append({
+                            'type': 'platform_alias',
+                            'pattern': pattern,
+                            'appended': alias,
+                        })
+
+        if appended:
+            return f"{query} {' '.join(appended)}", changes
+        return query, changes
+
     def _expand_abbreviations(self, query: str) -> Tuple[str, List[Dict]]:
         """
         Expand Adobe-specific abbreviations in the query.

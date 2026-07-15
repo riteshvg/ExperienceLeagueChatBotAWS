@@ -74,6 +74,13 @@ PHRASE_SYNONYMS: dict[str, list[str]] = {
 _ACTION_TERMS = frozenset({
     "implement", "install", "configure", "setup", "set", "create", "use",
     "enable", "add", "deploy", "inside", "within", "using", "how", "walk",
+    # Procedural/creation verbs (incl. gerund/past-tense forms) — near-universal
+    # across how-to docs, so treating them as topical anchors causes multi-step
+    # workflow queries to match on the wrong doc or drop the right ones.
+    "steps", "step", "process", "full", "creating", "created", "building",
+    "built", "setting", "configuring", "configured", "implementing",
+    "implemented", "activating", "activate", "activated", "connecting",
+    "connect", "connected", "integrating", "integrate", "integrated", "then",
 })
 
 _GENERIC_TERMS = frozenset({

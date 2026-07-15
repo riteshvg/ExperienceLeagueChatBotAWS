@@ -30,6 +30,8 @@ REPO_TO_EXL_BASE = {
         "https://experienceleague.adobe.com/en/docs/analytics-learn/tutorials",
     "AdobeDocs/journey-optimizer-learn.en":
         "https://experienceleague.adobe.com/en/docs/journey-optimizer-learn",
+    "AdobeDocs/experience-cloud-ai.en":
+        "https://experienceleague.adobe.com/en/docs/experience-cloud-ai/experience-cloud-ai",
 }
 
 # Data Collection docs live inside experience-platform.en (help/collection,
@@ -63,6 +65,8 @@ S3_PREFIX_TO_REPO = {
         "AdobeDocs/analytics-learn.en",
     "adobe-docs/journey-optimizer-learn/":
         "AdobeDocs/journey-optimizer-learn.en",
+    "adobe-docs/experience-cloud-ai/":
+        "AdobeDocs/experience-cloud-ai.en",
 }
 
 for _prefix, (_repo, _base) in DEVELOPER_ADOBE_S3_MAP.items():

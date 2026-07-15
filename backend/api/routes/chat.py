@@ -185,6 +185,7 @@ async def chat(
             query=body.query,
             session_id=session_id,
             haiku_only=body.haiku_only,
+            user_email=user.get("email"),
         ):
             if event["type"] == "token":
                 full_response += event.get("content", "")
