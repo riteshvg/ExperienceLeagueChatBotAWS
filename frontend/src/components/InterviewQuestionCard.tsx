@@ -16,7 +16,13 @@ export function InterviewQuestionCard({ question, className }: Props) {
     >
       <div className="flex items-center justify-between gap-2 mb-2">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800/80">
-          Practice question
+          {question.is_followup ? (
+            <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-1.5 py-0.5 mr-1 normal-case font-medium">
+              Follow-up
+            </span>
+          ) : (
+            'Practice question'
+          )}
           {question.index != null && question.total != null && (
             <span className="font-normal normal-case ml-1">
               · {question.index} of {question.total}

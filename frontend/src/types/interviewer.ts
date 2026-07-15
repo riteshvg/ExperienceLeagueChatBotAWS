@@ -17,6 +17,17 @@ export type InterviewQuestion = {
   expected_themes: string[]
   index?: number
   total?: number
+  is_followup?: boolean
+}
+
+export type FollowUpQuestion = {
+  question_id: string
+  question_index: number
+  question: string
+  topic: string
+  difficulty: number
+  expected_themes: string[]
+  parent_question_id: string
 }
 
 export type InterviewEvaluation = {
@@ -82,6 +93,7 @@ export type PendingAnswer = {
   questionIndex: number
   answer: string
   isLast: boolean
+  followUp: FollowUpQuestion | null
 }
 
 export type InterviewerMessage = {
@@ -144,6 +156,7 @@ export type SaveAnswerResponse = {
   total_questions: number
   is_last: boolean
   answer: string
+  follow_up?: FollowUpQuestion | null
 } & Partial<InterviewerSessionInfo>
 
 export type AdvanceResponse = {

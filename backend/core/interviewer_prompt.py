@@ -72,6 +72,59 @@ Scoring guide:
 5 = excellent, interview-ready depth for the level"""
 
 
+def build_followup_detection_prompt(
+    *,
+    question: str,
+    topic: str,
+    level: str,
+    candidate_answer: str,
+    doc_context: str,
+) -> str:
+    return f"""You are triaging a mock interview answer to decide if it needs a follow-up question.
+
+**Interview level:** {level}
+**Question topic:** {topic}
+**Question:** {question}
+
+**Candidate answer:**
+{candidate_answer}
+
+**Reference Adobe documentation context:**
+{doc_context}
+
+Is this answer thin (too short/vague to demonstrate understanding) or off-target
+(doesn't address what was asked) for a candidate at the **{level}** level?
+
+Respond with ONLY a single word: WEAK or OK. Do not explain."""
+
+
+def build_followup_generation_prompt(
+    *,
+    question: str,
+    topic: str,
+    level: str,
+    candidate_answer: str,
+    doc_context: str,
+) -> str:
+    return f"""The candidate gave a thin or off-target answer to this mock interview question.
+
+**Interview level:** {level}
+**Question topic:** {topic}
+**Original question:** {question}
+
+**Candidate answer:**
+{candidate_answer}
+
+**Reference Adobe documentation context:**
+{doc_context}
+
+Write ONE targeted follow-up question that probes the same topic more deeply or
+redirects the candidate toward what the original question actually asked. It
+should be answerable from the same subject area — do not introduce a new topic.
+
+Respond with ONLY the follow-up question text, no preamble, no quotes."""
+
+
 def build_session_evaluation_prompt(
     *,
     level: str,

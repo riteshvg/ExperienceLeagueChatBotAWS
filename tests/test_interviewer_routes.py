@@ -100,6 +100,57 @@ def test_full_happy_path_start_to_complete():
         assert final["evaluated"] is True
 
 
+# ── Adaptive follow-ups (Phase 1) ────────────────────────────────────────────
+
+def test_answer_triggers_followup_and_advance_surfaces_it(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import backend.core.interviewer_pipeline as pipeline_module
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+
+    class FakeAsyncAnthropic:
+        def __init__(self, api_key):
+            self.messages = SimpleNamespace(create=AsyncMock(side_effect=[
+                SimpleNamespace(content=[SimpleNamespace(text="WEAK")]),
+                SimpleNamespace(content=[SimpleNamespace(
+                    text="Can you elaborate on what person-centric analytics means?"
+                )]),
+            ]))
+
+    monkeypatch.setattr(pipeline_module, "AsyncAnthropic", FakeAsyncAnthropic)
+
+    with _client("route-user-followup") as client:
+        started = _start(client)
+        session_id = started["session_id"]
+        original_total = started["total_questions"]
+
+        resp = client.post(
+            "/api/interviewer/answer",
+            json={"session_id": session_id, "answer": "it's a tool"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["follow_up"] is not None
+        assert body["follow_up"]["question"] == "Can you elaborate on what person-centric analytics means?"
+        assert body["total_questions"] == original_total + 1
+        assert body["is_last"] is False
+
+        advance_resp = client.post("/api/interviewer/advance", json={"session_id": session_id})
+        assert advance_resp.status_code == 200
+        adv_body = advance_resp.json()
+        assert adv_body["current_question"]["is_followup"] is True
+        assert adv_body["current_question"]["question"] == body["follow_up"]["question"]
+        assert adv_body["total_questions"] == original_total + 1
+
+        # Retrying the answer save (e.g. a duplicate client request) must not
+        # spawn a second follow-up or call the LLM again.
+        review = client.get(f"/api/interviewer/review/{session_id}")
+        assert review.status_code == 200
+        assert review.json()["total_questions"] == original_total + 1
+
+
 # ── Double-advance race ──────────────────────────────────────────────────────
 
 def test_double_advance_race_no_duplicate_skip():

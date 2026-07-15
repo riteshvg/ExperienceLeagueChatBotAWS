@@ -4,6 +4,7 @@ Interviewer Mode pipeline — session management, question delivery, deferred ev
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -16,6 +17,8 @@ from anthropic import AsyncAnthropic
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.interviewer_prompt import (
     build_evaluation_user_prompt,
+    build_followup_detection_prompt,
+    build_followup_generation_prompt,
     build_interviewer_system_prompt,
     build_session_evaluation_prompt,
     build_welcome_message,
@@ -29,6 +32,7 @@ from config.settings import get_settings
 logger = logging.getLogger(__name__)
 
 _MODEL = "claude-sonnet-4-6"
+_FOLLOWUP_MODEL = "claude-haiku-4-5-20251001"
 SessionPhase = Literal["questioning", "review", "complete"]
 
 
@@ -146,6 +150,13 @@ class InterviewSession:
     def all_answered(self) -> bool:
         return all(self.draft_answers.get(q.id, "").strip() for q in self.questions)
 
+    def insert_followup(self, followup: InterviewQuestion) -> None:
+        """Splice a generated follow-up into the in-memory question list right
+        after the current question, mirroring the DB-side index shift. self.total
+        (len(self.questions)) picks this up immediately since it's a property —
+        no separate counter to keep in sync."""
+        self.questions.insert(self.current_index + 1, followup)
+
     def to_dict(self) -> dict[str, Any]:
         q = self.current_question()
         return {
@@ -172,6 +183,7 @@ def _question_to_dict(q: InterviewQuestion, index: int, total: int) -> dict[str,
         "expected_themes": list(q.expected_themes),
         "index": index + 1,
         "total": total,
+        "is_followup": q.is_followup,
     }
 
 
@@ -216,6 +228,7 @@ def get_session(session_id: str) -> InterviewSession | None:
             expected_themes=tuple(r["expected_themes"]),
             retrieval_hint=r["retrieval_hint"],
             version=r["question_version"],
+            is_followup=r["is_followup"],
         )
         for r in answer_rows
     ]
@@ -384,6 +397,77 @@ class InterviewerPipeline:
         except Exception as exc:
             logger.warning("Interviewer retrieval failed: %s", exc)
             return []
+
+    async def maybe_generate_followup(
+        self, session: InterviewSession, q: InterviewQuestion, answer: str
+    ) -> dict[str, Any] | None:
+        """Cheap Haiku check on a just-saved answer: thin or off-target for the
+        candidate's level? If so, generate one targeted follow-up from the same
+        retrieval scope used for grading and persist it immediately after `q`.
+        Fails open on any error — this must never block /answer from returning.
+        Returns a dict describing the follow-up (for the /answer response and for
+        splicing into session.questions), or None if no follow-up was generated.
+        """
+        from backend.core import google_db
+
+        existing = google_db.get_followup_for_parent(session.session_id, q.id)
+        if existing is not None:
+            return self._followup_dict(q, existing)
+
+        if not self._client:
+            return None  # no ANTHROPIC_API_KEY configured — feature silently unavailable
+
+        try:
+            docs = await self._retrieve_for_question(q, session)
+            doc_context = _build_doc_context(docs)
+
+            detection_prompt = build_followup_detection_prompt(
+                question=q.question, topic=q.topic, level=session.level,
+                candidate_answer=answer, doc_context=doc_context,
+            )
+            detect_resp = await asyncio.wait_for(
+                self._client.messages.create(
+                    model=_FOLLOWUP_MODEL, max_tokens=10,
+                    messages=[{"role": "user", "content": detection_prompt}],
+                ),
+                timeout=5.0,
+            )
+            verdict = (detect_resp.content[0].text if detect_resp.content else "").strip().upper()
+            if not verdict.startswith("WEAK"):
+                return None
+
+            gen_prompt = build_followup_generation_prompt(
+                question=q.question, topic=q.topic, level=session.level,
+                candidate_answer=answer, doc_context=doc_context,
+            )
+            gen_resp = await asyncio.wait_for(
+                self._client.messages.create(
+                    model=_FOLLOWUP_MODEL, max_tokens=200,
+                    messages=[{"role": "user", "content": gen_prompt}],
+                ),
+                timeout=5.0,
+            )
+            followup_text = (gen_resp.content[0].text if gen_resp.content else "").strip()
+            if not followup_text:
+                return None
+        except Exception as exc:
+            logger.warning("Interviewer follow-up detection/generation failed for %s: %s", q.id, exc)
+            return None
+
+        persisted = google_db.insert_followup_if_absent(session.session_id, q.id, q.version, followup_text)
+        return self._followup_dict(q, persisted)
+
+    @staticmethod
+    def _followup_dict(parent: InterviewQuestion, persisted: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "question_id": persisted["question_id"],
+            "question_index": persisted["question_index"] + 1,
+            "question": persisted["followup_prompt_text"],
+            "topic": parent.topic,
+            "difficulty": parent.difficulty,
+            "expected_themes": list(parent.expected_themes),
+            "parent_question_id": parent.id,
+        }
 
     async def _evaluate_single(
         self,

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -17,6 +19,10 @@ from config.interview_profiles import (
     get_question_set,
     validate_profile,
 )
+
+
+def _fake_message(text: str):
+    return SimpleNamespace(content=[SimpleNamespace(text=text)])
 
 
 def test_profiles_payload_structure():
@@ -145,3 +151,100 @@ async def test_stream_start_yields_question():
 
     assert any(e["type"] == "question" for e in events)
     assert any(e["type"] == "done" for e in events)
+
+
+# ── Adaptive follow-ups (Phase 1) ────────────────────────────────────────────
+
+def test_maybe_generate_followup_fails_open_without_client():
+    session = create_session("followup-user-noclient", "junior", "cja")
+    q = session.current_question()
+    pipeline = InterviewerPipeline(retriever=None)
+    pipeline._client = None  # simulate no ANTHROPIC_API_KEY configured
+
+    import asyncio
+    result = asyncio.run(pipeline.maybe_generate_followup(session, q, "a thin answer"))
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_maybe_generate_followup_ok_answer_returns_none():
+    session = create_session("followup-user-ok", "junior", "cja")
+    q = session.current_question()
+    pipeline = InterviewerPipeline(retriever=None)
+    pipeline._client = SimpleNamespace(
+        messages=SimpleNamespace(create=AsyncMock(return_value=_fake_message("OK")))
+    )
+
+    result = await pipeline.maybe_generate_followup(session, q, "a solid, complete answer")
+    assert result is None
+    from backend.core import google_db
+    assert google_db.get_followup_for_parent(session.session_id, q.id) is None
+
+
+@pytest.mark.asyncio
+async def test_maybe_generate_followup_weak_answer_generates_and_persists():
+    session = create_session("followup-user-weak", "junior", "cja")
+    q = session.current_question()
+    pipeline = InterviewerPipeline(retriever=None)
+    pipeline._client = SimpleNamespace(
+        messages=SimpleNamespace(create=AsyncMock(side_effect=[
+            _fake_message("WEAK"),
+            _fake_message("Can you say more about person-centric reporting specifically?"),
+        ]))
+    )
+
+    result = await pipeline.maybe_generate_followup(session, q, "it's a tool")
+    assert result is not None
+    assert result["question_id"] == f"{q.id}-fu"
+    assert result["question"] == "Can you say more about person-centric reporting specifically?"
+    assert result["parent_question_id"] == q.id
+
+    from backend.core import google_db
+    persisted = google_db.get_followup_for_parent(session.session_id, q.id)
+    assert persisted is not None
+    assert persisted["followup_prompt_text"] == result["question"]
+
+
+@pytest.mark.asyncio
+async def test_maybe_generate_followup_retry_skips_regeneration():
+    session = create_session("followup-user-retry", "junior", "cja")
+    q = session.current_question()
+    pipeline = InterviewerPipeline(retriever=None)
+    mock_create = AsyncMock(side_effect=[
+        _fake_message("WEAK"),
+        _fake_message("First generated follow-up text"),
+    ])
+    pipeline._client = SimpleNamespace(messages=SimpleNamespace(create=mock_create))
+
+    first = await pipeline.maybe_generate_followup(session, q, "thin answer")
+    assert first is not None
+    assert mock_create.call_count == 2
+
+    # Retry (e.g. a duplicate /answer POST) must not call the LLM again, and
+    # must return the exact same persisted follow-up.
+    second = await pipeline.maybe_generate_followup(session, q, "thin answer (resubmitted)")
+    assert second == first
+    assert mock_create.call_count == 2  # unchanged — short-circuited before any LLM call
+
+
+def test_insert_followup_updates_session_total_and_order():
+    session = create_session("followup-user-splice", "junior", "cja")
+    q = session.current_question()
+    original_total = session.total
+
+    from config.interview_profiles import InterviewQuestion
+    followup = InterviewQuestion(
+        id=f"{q.id}-fu",
+        question="Follow-up question text",
+        topic=q.topic,
+        difficulty=q.difficulty,
+        expected_themes=q.expected_themes,
+        retrieval_hint=q.retrieval_hint,
+        version=q.version,
+        is_followup=True,
+    )
+    session.insert_followup(followup)
+
+    assert session.total == original_total + 1
+    assert session.questions[session.current_index + 1].id == followup.id
+    assert session.questions[session.current_index + 1].is_followup is True

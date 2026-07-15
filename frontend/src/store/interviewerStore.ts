@@ -262,7 +262,9 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
           questionIndex: result.question_index,
           answer: result.answer,
           isLast: result.is_last,
+          followUp: result.follow_up ?? null,
         },
+        totalQuestions: result.total_questions ?? get().totalQuestions,
         answerDraft: '',
         answeredHistory:
           question

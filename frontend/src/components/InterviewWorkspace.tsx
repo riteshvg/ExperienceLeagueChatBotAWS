@@ -109,6 +109,11 @@ export function InterviewWorkspace() {
             </button>
           </div>
           <InterviewAnswerPreview answer={pendingAnswer.answer} />
+          {pendingAnswer.followUp && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              This answer could use more depth — a follow-up question is next.
+            </p>
+          )}
           <div className="flex justify-end">
             <button
               type="button"
@@ -123,7 +128,7 @@ export function InterviewWorkspace() {
                 </>
               ) : (
                 <>
-                  Next question
+                  {pendingAnswer.followUp ? 'Next: follow-up question' : 'Next question'}
                   <NextIcon className="w-4 h-4" />
                 </>
               )}

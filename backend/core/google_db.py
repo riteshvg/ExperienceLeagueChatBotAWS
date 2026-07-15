@@ -189,6 +189,9 @@ def init_tables() -> None:
                     model_answer_outline  TEXT,
                     feedback              TEXT,
                     citations             JSONB,
+                    is_followup           BOOLEAN NOT NULL DEFAULT FALSE,
+                    parent_question_id    TEXT,
+                    followup_prompt_text  TEXT,
                     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     PRIMARY KEY (session_id, question_id)
                 );
@@ -206,6 +209,15 @@ def init_tables() -> None:
             )
             cur.execute(
                 "ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS evaluation_started_at TIMESTAMPTZ"
+            )
+            cur.execute(
+                "ALTER TABLE interview_answers ADD COLUMN IF NOT EXISTS is_followup BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+            cur.execute(
+                "ALTER TABLE interview_answers ADD COLUMN IF NOT EXISTS parent_question_id TEXT"
+            )
+            cur.execute(
+                "ALTER TABLE interview_answers ADD COLUMN IF NOT EXISTS followup_prompt_text TEXT"
             )
             # Safe migrations for existing deployments
             cur.execute(
@@ -1528,7 +1540,14 @@ def get_interview_session_row(session_id: str) -> Optional[dict]:
 def get_interview_session_answers(session_id: str) -> list[dict]:
     """Answers joined with their question content, ordered by question_index —
     resolves each answer to the exact question text/version the candidate saw,
-    even if that question has since been edited or deprecated."""
+    even if that question has since been edited or deprecated.
+
+    A follow-up row (is_followup=TRUE) has no interview_questions row of its own
+    — it inherits topic/difficulty/expected_themes/retrieval_hint from its parent
+    (COALESCE(parent_question_id, question_id) below), since a follow-up probes
+    the same scope more deeply rather than a new domain, and its own generated
+    wording (followup_prompt_text) overrides prompt_text.
+    """
     conn = _connect()
     try:
         with conn.cursor() as cur:
@@ -1536,11 +1555,13 @@ def get_interview_session_answers(session_id: str) -> list[dict]:
                 """
                 SELECT a.question_id, a.question_version, a.question_index, a.answer,
                        a.score, a.score_pct, a.strengths, a.gaps, a.model_answer_outline,
-                       a.feedback, a.citations,
-                       q.topic, q.difficulty, q.prompt_text, q.expected_themes, q.retrieval_hint
+                       a.feedback, a.citations, a.is_followup, a.parent_question_id,
+                       COALESCE(a.followup_prompt_text, q.prompt_text) AS prompt_text,
+                       q.topic, q.difficulty, q.expected_themes, q.retrieval_hint
                 FROM interview_answers a
                 JOIN interview_questions q
-                  ON q.question_id = a.question_id AND q.version = a.question_version
+                  ON q.question_id = COALESCE(a.parent_question_id, a.question_id)
+                 AND q.version = a.question_version
                 WHERE a.session_id = %s
                 ORDER BY a.question_index ASC
                 """,
@@ -1548,6 +1569,98 @@ def get_interview_session_answers(session_id: str) -> list[dict]:
             )
             rows = cur.fetchall()
         return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_followup_for_parent(session_id: str, parent_question_id: str) -> Optional[dict]:
+    """Existing follow-up for a parent question, if one was already generated —
+    used to skip re-running the Haiku detection/generation call on a retried
+    /answer, and as the pre-check that makes insert_followup_if_absent's shift
+    step safe to skip on retry."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT question_id, question_index, followup_prompt_text
+                FROM interview_answers
+                WHERE session_id = %s AND parent_question_id = %s
+                """,
+                (session_id, parent_question_id),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def insert_followup_if_absent(
+    session_id: str,
+    parent_question_id: str,
+    parent_question_version: int,
+    followup_prompt_text: str,
+) -> dict:
+    """Insert a follow-up question row immediately after its parent, shifting
+    every later question_index by one to make room. Idempotent: locks the
+    parent's own answer row (SELECT ... FOR UPDATE) to serialize concurrent
+    /answer calls for the same question, then checks for an existing follow-up
+    before touching anything — the index shift is NOT itself safe to re-run, so
+    the pre-check (not just the INSERT's ON CONFLICT) is what makes retries safe.
+    ON CONFLICT (session_id, question_id) DO NOTHING on the INSERT is kept as a
+    defense-in-depth backstop; the row lock above should make it unreachable in
+    practice. Either way, the returned dict always reflects what's actually
+    persisted, never the just-generated (possibly discarded) text.
+    """
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT question_index FROM interview_answers WHERE session_id = %s AND question_id = %s FOR UPDATE",
+                (session_id, parent_question_id),
+            )
+            parent_row = cur.fetchone()
+            if parent_row is None:
+                raise ValueError(f"Unknown parent question {parent_question_id} for session {session_id}")
+            parent_index = parent_row["question_index"]
+
+            cur.execute(
+                "SELECT question_id, question_index, followup_prompt_text "
+                "FROM interview_answers WHERE session_id = %s AND parent_question_id = %s",
+                (session_id, parent_question_id),
+            )
+            existing = cur.fetchone()
+            if existing is not None:
+                conn.commit()
+                return dict(existing)
+
+            followup_question_id = f"{parent_question_id}-fu"
+            cur.execute(
+                "UPDATE interview_answers SET question_index = question_index + 1 "
+                "WHERE session_id = %s AND question_index > %s",
+                (session_id, parent_index),
+            )
+            cur.execute(
+                """
+                INSERT INTO interview_answers
+                    (session_id, question_id, question_version, question_index,
+                     is_followup, parent_question_id, followup_prompt_text)
+                VALUES (%s, %s, %s, %s, TRUE, %s, %s)
+                ON CONFLICT (session_id, question_id) DO NOTHING
+                RETURNING question_id, question_index, followup_prompt_text
+                """,
+                (session_id, followup_question_id, parent_question_version,
+                 parent_index + 1, parent_question_id, followup_prompt_text),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        if row is None:
+            # Should be unreachable given the row lock above; stay defensive.
+            existing = get_followup_for_parent(session_id, parent_question_id)
+            if existing is None:
+                raise RuntimeError(f"Follow-up insert for {parent_question_id} vanished unexpectedly")
+            return existing
+        return dict(row)
     finally:
         conn.close()
 

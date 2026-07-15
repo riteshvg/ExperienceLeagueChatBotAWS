@@ -65,6 +65,7 @@ class InterviewQuestion:
     expected_themes: tuple[str, ...]
     retrieval_hint: str
     version: int = 1
+    is_followup: bool = False
 
 
 def _q(
