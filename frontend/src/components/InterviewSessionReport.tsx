@@ -1,13 +1,16 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { generateInterviewReportPdf } from '@/lib/generateInterviewReportPdf'
 import type { SessionReport } from '@/types/interviewer'
 
 interface Props {
   report: SessionReport
   debriefContent?: string
   debriefStreaming?: boolean
+  level?: string | null
+  profileLabel?: string | null
   className?: string
 }
 
@@ -36,16 +39,37 @@ function ScoreBar({ score }: { score: number }) {
   )
 }
 
-export function InterviewSessionReport({ report, debriefContent, debriefStreaming, className }: Props) {
+export function InterviewSessionReport({
+  report,
+  debriefContent,
+  debriefStreaming,
+  level,
+  profileLabel,
+  className,
+}: Props) {
   const readinessLabel = READINESS_LABELS[report.readiness] ?? report.readiness
   const feedbackText = debriefContent?.trim() || report.overall_feedback
+
+  const handleDownloadPdf = () => {
+    generateInterviewReportPdf({ report, debriefText: feedbackText, level, profileLabel })
+  }
 
   return (
     <div className={cn('rounded-xl border border-emerald-200 bg-white p-5 not-prose space-y-5 shadow-sm', className)}>
       <div className="border-b border-slate-100 pb-4">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700 mb-1.5">
-          Final summary
-        </p>
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+            Final summary
+          </p>
+          <button
+            type="button"
+            onClick={handleDownloadPdf}
+            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-800 hover:underline"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Download PDF
+          </button>
+        </div>
         <ScoreBar score={report.overall_score} />
         <p className="text-base font-semibold text-slate-900 mt-3">{readinessLabel}</p>
         <p className="text-sm text-slate-600 mt-1">{report.readiness_summary}</p>
@@ -112,7 +136,19 @@ export function InterviewSessionReport({ report, debriefContent, debriefStreamin
           <ul className="text-xs text-slate-700 space-y-1.5">
             {report.topics_to_read.map((t, i) => (
               <li key={i}>
-                <span className="font-medium">{t.topic}</span>
+                {t.url ? (
+                  <a
+                    href={t.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-emerald-700 hover:underline inline-flex items-center gap-1"
+                  >
+                    {t.topic}
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </a>
+                ) : (
+                  <span className="font-medium">{t.topic}</span>
+                )}
                 {t.reason && <span className="text-slate-500"> — {t.reason}</span>}
               </li>
             ))}

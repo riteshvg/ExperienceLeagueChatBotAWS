@@ -28,6 +28,8 @@ export function InterviewWorkspace() {
     debriefStreaming,
     evaluationProgress,
     endedEarly,
+    level,
+    profileLabel,
     submitAnswer,
     startEditAnswer,
     cancelEdit,
@@ -224,6 +226,8 @@ export function InterviewWorkspace() {
           report={sessionReport}
           debriefContent={debriefContent}
           debriefStreaming={debriefStreaming}
+          level={level}
+          profileLabel={profileLabel}
         />
       )}
     </div>

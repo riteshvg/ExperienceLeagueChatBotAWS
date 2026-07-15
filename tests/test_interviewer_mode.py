@@ -12,6 +12,7 @@ from backend.core.interviewer_pipeline import (
     InterviewerPipeline,
     create_session,
     get_session,
+    _docs_to_citations,
     _parse_evaluation_json,
 )
 from config.interview_profiles import (
@@ -342,3 +343,84 @@ async def test_stream_submit_grades_only_answered_questions_after_early_end():
     assert len(report["per_question"]) == 1
     assert report["per_question"][0]["question_id"] == q1.id
     assert "ended early" in report["readiness_summary"].lower() or "skipped" in report["readiness_summary"].lower()
+
+
+# ── Retrieval scoping fix + grounded topics_to_read ──────────────────────────
+
+def test_docs_to_citations_filters_below_min_score():
+    docs = [
+        {"score": 0.9, "metadata": {"url": "https://exl.example/good", "title": "Good Doc"}},
+        {"score": 0.1, "metadata": {"url": "https://exl.example/bad", "title": "Off-topic Doc"}},
+    ]
+    citations = _docs_to_citations(docs, min_score=0.3)
+    urls = [c["url"] for c in citations]
+    assert "https://exl.example/good" in urls
+    assert "https://exl.example/bad" not in urls
+
+
+def test_docs_to_citations_keeps_all_when_no_score():
+    docs = [{"score": None, "metadata": {"url": "https://exl.example/x", "title": "X"}}]
+    citations = _docs_to_citations(docs, min_score=0.3)
+    assert len(citations) == 1
+
+
+@pytest.mark.asyncio
+async def test_retrieve_for_query_passes_product_where_filter():
+    """Regression test for the bug where product scoping was computed but never
+    actually applied to the ChromaDB query — retrieve_with_refinement's
+    where_filter arg was hardcoded to None, so retrieval silently searched the
+    entire KB across all products (root cause of citations pointing to an
+    unrelated product's docs)."""
+    import backend.core.interviewer_pipeline as pipeline_module
+
+    session = create_session("retrieval-fix-user", "junior", "cja")
+    pipeline = InterviewerPipeline(retriever=object())  # truthy, just needs to exist
+
+    captured = {}
+
+    def fake_retrieve_with_refinement(retriever, enhanced, search_query, *, n_results,
+                                       similarity_threshold, product_filter, where_filter):
+        captured["where_filter"] = where_filter
+        captured["product_filter"] = product_filter
+        return [], None
+
+    pipeline._processor.preprocess_query = lambda q: (q, None)
+    original = pipeline_module.retrieve_with_refinement
+    pipeline_module.retrieve_with_refinement = fake_retrieve_with_refinement
+    try:
+        await pipeline._retrieve_for_query("what is a data view in CJA", session)
+    finally:
+        pipeline_module.retrieve_with_refinement = original
+
+    assert captured["product_filter"] == "Customer Journey Analytics"
+    assert captured["where_filter"] == {"product": {"$eq": "Customer Journey Analytics"}}
+
+
+@pytest.mark.asyncio
+async def test_ground_topic_link_uses_scoped_retrieval_and_min_score():
+    session = create_session("grounding-user", "junior", "cja")
+    pipeline = InterviewerPipeline(retriever=None)
+
+    async def fake_retrieve_for_query(search_query, sess):
+        return [
+            {"score": 0.1, "metadata": {"url": "https://exl.example/weak", "title": "Weak"}},
+            {"score": 0.9, "metadata": {"url": "https://exl.example/strong", "title": "CJA Data Views"}},
+        ]
+
+    pipeline._retrieve_for_query = fake_retrieve_for_query
+    link = await pipeline._ground_topic_link("CJA data views", session)
+    assert link is not None
+    assert link["url"] == "https://exl.example/strong"
+
+
+@pytest.mark.asyncio
+async def test_ground_topic_link_returns_none_when_nothing_meets_threshold():
+    session = create_session("grounding-user-none", "junior", "cja")
+    pipeline = InterviewerPipeline(retriever=None)
+
+    async def fake_retrieve_for_query(search_query, sess):
+        return [{"score": 0.05, "metadata": {"url": "https://exl.example/weak", "title": "Weak"}}]
+
+    pipeline._retrieve_for_query = fake_retrieve_for_query
+    link = await pipeline._ground_topic_link("obscure topic", session)
+    assert link is None

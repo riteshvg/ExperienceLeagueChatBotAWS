@@ -70,7 +70,7 @@ export type SessionReport = {
   strengths: string[]
   priority_gaps: string[]
   mistakes_to_avoid: string[]
-  topics_to_read: Array<{ topic: string; reason: string }>
+  topics_to_read: Array<{ topic: string; reason: string; url?: string; title?: string }>
   overall_feedback: string
   per_question: Array<
     InterviewEvaluation & {

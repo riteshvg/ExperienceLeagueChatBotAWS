@@ -311,10 +311,19 @@ def _build_doc_context(docs: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-def _docs_to_citations(docs: list[dict]) -> list[dict[str, Any]]:
+def _docs_to_citations(docs: list[dict], min_score: float = 0.0) -> list[dict[str, Any]]:
+    """`min_score` guards against retrieve_with_refinement's neighbor-probe fallback,
+    which can legitimately ignore the product where_filter and return a cross-product
+    doc when the filtered search comes back too weak — an acceptable tradeoff for the
+    main chat UX ("something beats nothing"), but not for a "Suggested reading" list
+    where a confidently-wrong link (e.g. a CJA question citing a Marketo Engage doc)
+    is worse than citing nothing at all."""
     citations: list[dict[str, Any]] = []
     seen: set[str] = set()
     for doc in docs[:5]:
+        score = doc.get("score")
+        if score is not None and score < min_score:
+            continue
         meta = doc.get("metadata") or {}
         url = meta.get("url") or meta.get("source_url") or ""
         if not url or url in seen:
@@ -324,7 +333,7 @@ def _docs_to_citations(docs: list[dict]) -> list[dict[str, Any]]:
             "url": url,
             "title": meta.get("title") or url,
             "product": meta.get("product"),
-            "score": doc.get("score"),
+            "score": score,
         })
     return citations
 
@@ -396,11 +405,20 @@ class InterviewerPipeline:
             **session.to_dict(),
         }
 
-    async def _retrieve_for_question(self, q: InterviewQuestion, session: InterviewSession) -> list[dict]:
+    async def _retrieve_for_query(self, search_query: str, session: InterviewSession) -> list[dict]:
+        """Shared retrieval helper, scoped to the session's product — used both for
+        per-question grading context and for grounding "topics to study" in real
+        links. Bug fix: `product` was previously only passed to
+        retrieve_with_refinement's `product_filter` arg, which only informs its
+        refinement heuristics — the actual ChromaDB query never had a `where`
+        constraint, so retrieval silently searched the entire KB across all
+        products. Build the same where_filter the main chat pipeline uses
+        (rag_pipeline.py) so a CJA question can't surface an unrelated product's
+        doc (e.g. Marketo Engage) as a citation."""
         if not self.retriever:
             return []
-        search_query = f"{q.retrieval_hint} {q.topic}"
         product = _product_filter(session.profile_id) or detect_product_intent(search_query)
+        where_filter = {"product": {"$eq": product}} if product else None
         settings = get_settings()
         try:
             enhanced, _ = self._processor.preprocess_query(search_query)
@@ -411,12 +429,31 @@ class InterviewerPipeline:
                 n_results=settings.max_retrieval_results,
                 similarity_threshold=settings.similarity_threshold,
                 product_filter=product,
-                where_filter=None,
+                where_filter=where_filter,
             )
             return docs
         except Exception as exc:
             logger.warning("Interviewer retrieval failed: %s", exc)
             return []
+
+    async def _retrieve_for_question(self, q: InterviewQuestion, session: InterviewSession) -> list[dict]:
+        return await self._retrieve_for_query(f"{q.retrieval_hint} {q.topic}", session)
+
+    async def _ground_topic_link(self, topic: str, session: InterviewSession) -> dict[str, str] | None:
+        """Find a real ExL doc for a "topics to study" entry via the same scoped
+        retrieval used for grading — never let the LLM invent a URL, since it will
+        hallucinate plausible-looking but wrong links."""
+        docs = await self._retrieve_for_query(topic, session)
+        settings = get_settings()
+        for doc in docs:
+            score = doc.get("score")
+            if score is not None and score < settings.similarity_threshold:
+                continue
+            meta = doc.get("metadata") or {}
+            url = meta.get("url") or meta.get("source_url") or ""
+            if url:
+                return {"url": url, "title": meta.get("title") or url}
+        return None
 
     async def maybe_generate_followup(
         self, session: InterviewSession, q: InterviewQuestion, answer: str
@@ -506,7 +543,7 @@ class InterviewerPipeline:
         docs: list[dict],
     ) -> dict[str, Any]:
         doc_context = _build_doc_context(docs)
-        citations = _docs_to_citations(docs)
+        citations = _docs_to_citations(docs, min_score=get_settings().similarity_threshold)
 
         if self._client:
             try:
@@ -680,6 +717,16 @@ class InterviewerPipeline:
         else:
             report = {}
 
+        topics_to_read: list[dict[str, Any]] = []
+        for entry in (report.get("topics_to_read") or [])[:8]:
+            topic_text = (entry.get("topic") or "").strip()
+            item = {"topic": topic_text, "reason": entry.get("reason") or ""}
+            link = await self._ground_topic_link(topic_text, session) if topic_text else None
+            if link:
+                item["url"] = link["url"]
+                item["title"] = link["title"]
+            topics_to_read.append(item)
+
         default_summary = f"Average score {avg_score}/5 across {questions_answered} questions."
         if questions_answered < questions_total:
             default_summary += f" ({questions_total - questions_answered} question(s) skipped — interview ended early.)"
@@ -691,7 +738,7 @@ class InterviewerPipeline:
             "strengths": report.get("strengths") or [],
             "priority_gaps": report.get("priority_gaps") or [],
             "mistakes_to_avoid": report.get("mistakes_to_avoid") or [],
-            "topics_to_read": report.get("topics_to_read") or [],
+            "topics_to_read": topics_to_read,
             "overall_feedback": report.get("overall_feedback") or "",
             "per_question": per_question,
             "citations": all_citations[:8],
