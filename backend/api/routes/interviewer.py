@@ -46,11 +46,25 @@ def _user_is_admin(user: dict) -> bool:
     return False
 
 
+def _user_in_interviewer_allowlist(user: dict) -> bool:
+    """Staged-access cohort for Phase 2: a small named group can use Interviewer
+    Mode ahead of general availability without flipping INTERVIEWER_MODE_ADMIN_ONLY
+    off entirely. Comma-separated Google `sub` (uid) or email values — edit the
+    env var and restart to add/remove someone, no deploy or migration needed."""
+    allowlist = os.getenv("INTERVIEWER_MODE_ALLOWLIST", "")
+    if not allowlist.strip():
+        return False
+    allowed = {entry.strip().lower() for entry in allowlist.split(",") if entry.strip()}
+    uid = (user.get("uid") or "").strip().lower()
+    email = (user.get("email") or "").strip().lower()
+    return uid in allowed or email in allowed
+
+
 def _feature_available(user: dict) -> bool:
     s = _settings()
     if not s.interviewer_mode_enabled:
         return False
-    if s.interviewer_mode_admin_only and not _user_is_admin(user):
+    if s.interviewer_mode_admin_only and not _user_is_admin(user) and not _user_in_interviewer_allowlist(user):
         return False
     return True
 

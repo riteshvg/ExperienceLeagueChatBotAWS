@@ -408,6 +408,15 @@ class InterviewerPipeline:
         Returns a dict describing the follow-up (for the /answer response and for
         splicing into session.questions), or None if no follow-up was generated.
         """
+        if q.is_followup:
+            # No chaining: a follow-up's own answer never spawns another follow-up,
+            # no matter how weak it is. This is the sole authoritative guard for the
+            # "one follow-up per weak answer" cap — get_followup_for_parent below
+            # only checks whether q already HAS a follow-up, not whether q itself
+            # IS one, so without this early return a weak answer to a follow-up
+            # would produce a second, chained follow-up.
+            return None
+
         from backend.core import google_db
 
         existing = google_db.get_followup_for_parent(session.session_id, q.id)

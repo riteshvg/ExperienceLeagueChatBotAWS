@@ -151,6 +151,65 @@ def test_answer_triggers_followup_and_advance_surfaces_it(monkeypatch):
         assert review.json()["total_questions"] == original_total + 1
 
 
+def test_weak_answer_to_a_followup_does_not_chain(monkeypatch):
+    """Route-level proof that answering the follow-up itself weakly never
+    produces a second, chained follow-up."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    import backend.core.interviewer_pipeline as pipeline_module
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+
+    call_log = []
+
+    class FakeAsyncAnthropic:
+        def __init__(self, api_key):
+            async def create(**kwargs):
+                call_log.append(kwargs)
+                # First two calls (detect + generate) produce a follow-up for the
+                # *first* question; any further call would only be legitimate if
+                # this were graded, not re-triaged — the chaining bug would show up
+                # as a third call here.
+                if len(call_log) == 1:
+                    return SimpleNamespace(content=[SimpleNamespace(text="WEAK")])
+                return SimpleNamespace(content=[SimpleNamespace(
+                    text="Can you elaborate on what person-centric analytics means?"
+                )])
+            self.messages = SimpleNamespace(create=AsyncMock(side_effect=create))
+
+    monkeypatch.setattr(pipeline_module, "AsyncAnthropic", FakeAsyncAnthropic)
+
+    with _client("route-user-nochain") as client:
+        started = _start(client)
+        session_id = started["session_id"]
+        original_total = started["total_questions"]
+
+        # First answer: weak, spawns exactly one follow-up.
+        resp = client.post(
+            "/api/interviewer/answer",
+            json={"session_id": session_id, "answer": "it's a tool"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["follow_up"] is not None
+        calls_after_first_followup = len(call_log)
+        assert calls_after_first_followup == 2  # detect + generate, exactly once
+
+        client.post("/api/interviewer/advance", json={"session_id": session_id})
+
+        # Second answer: to the follow-up itself, also weak. Must NOT trigger
+        # detection/generation at all (no chaining) — call count stays put.
+        resp2 = client.post(
+            "/api/interviewer/answer",
+            json={"session_id": session_id, "answer": "still a thin answer"},
+        )
+        assert resp2.status_code == 200
+        body2 = resp2.json()
+        assert body2.get("follow_up") is None
+        assert body2["total_questions"] == original_total + 1  # unchanged, no second follow-up
+        assert len(call_log) == calls_after_first_followup  # no new LLM calls at all
+
+
 # ── Double-advance race ──────────────────────────────────────────────────────
 
 def test_double_advance_race_no_duplicate_skip():
@@ -448,3 +507,76 @@ def _find_sessions_for_user(user_id: str) -> list[str]:
         return [str(r["session_id"]) for r in rows]
     finally:
         conn.close()
+
+
+# ── Staged access (Phase 2 allowlist) ────────────────────────────────────────
+
+def test_feature_unavailable_for_non_admin_non_allowlisted_user(monkeypatch):
+    from backend.api.routes.interviewer import _feature_available
+
+    monkeypatch.setenv("INTERVIEWER_MODE_ADMIN_ONLY", "true")
+    monkeypatch.setenv("INTERVIEWER_MODE_ENABLED", "true")
+    monkeypatch.delenv("INTERVIEWER_MODE_ALLOWLIST", raising=False)
+    monkeypatch.delenv("ADMIN_EMAIL", raising=False)
+
+    user = {"uid": "not-on-any-list", "email": "nobody@example.com"}
+    assert _feature_available(user) is False
+
+
+def test_feature_available_for_allowlisted_uid(monkeypatch):
+    from backend.api.routes.interviewer import _feature_available
+
+    monkeypatch.setenv("INTERVIEWER_MODE_ADMIN_ONLY", "true")
+    monkeypatch.setenv("INTERVIEWER_MODE_ENABLED", "true")
+    monkeypatch.delenv("ADMIN_EMAIL", raising=False)
+    monkeypatch.setenv("INTERVIEWER_MODE_ALLOWLIST", "some-other-uid, cohort-user-1 ,another-uid")
+
+    user = {"uid": "cohort-user-1", "email": "cohort1@example.com"}
+    assert _feature_available(user) is True
+
+
+def test_feature_available_for_allowlisted_email(monkeypatch):
+    from backend.api.routes.interviewer import _feature_available
+
+    monkeypatch.setenv("INTERVIEWER_MODE_ADMIN_ONLY", "true")
+    monkeypatch.setenv("INTERVIEWER_MODE_ENABLED", "true")
+    monkeypatch.delenv("ADMIN_EMAIL", raising=False)
+    monkeypatch.setenv("INTERVIEWER_MODE_ALLOWLIST", "Cohort2@Example.com")
+
+    user = {"uid": "some-random-uid", "email": "cohort2@example.com"}
+    assert _feature_available(user) is True
+
+
+def test_feature_unavailable_when_allowlist_set_but_empty(monkeypatch):
+    from backend.api.routes.interviewer import _feature_available
+
+    monkeypatch.setenv("INTERVIEWER_MODE_ADMIN_ONLY", "true")
+    monkeypatch.setenv("INTERVIEWER_MODE_ENABLED", "true")
+    monkeypatch.delenv("ADMIN_EMAIL", raising=False)
+    monkeypatch.setenv("INTERVIEWER_MODE_ALLOWLIST", "   ")
+
+    user = {"uid": "not-on-any-list", "email": "nobody@example.com"}
+    assert _feature_available(user) is False
+
+
+def test_status_endpoint_reflects_allowlist_over_http(monkeypatch):
+    """End-to-end proof: a non-admin user gets `available: True` on
+    GET /interviewer/status once their uid is added to the allowlist env var,
+    with admin_only left untouched (Phase 2 doesn't require full GA)."""
+    monkeypatch.setenv("INTERVIEWER_MODE_ADMIN_ONLY", "true")
+    monkeypatch.setenv("INTERVIEWER_MODE_ENABLED", "true")
+    monkeypatch.delenv("ADMIN_EMAIL", raising=False)
+    monkeypatch.delenv("INTERVIEWER_MODE_ALLOWLIST", raising=False)
+
+    user_id = f"route-user-allowlist-{uuid.uuid4()}"
+    with _client(user_id) as client:
+        resp = client.get("/api/interviewer/status")
+        assert resp.status_code == 200
+        assert resp.json()["available"] is False
+
+        monkeypatch.setenv("INTERVIEWER_MODE_ALLOWLIST", user_id)
+        resp2 = client.get("/api/interviewer/status")
+        assert resp2.status_code == 200
+        body2 = resp2.json()
+        assert body2["available"] is True
+        assert body2["admin_only"] is True  # unchanged — still gated for everyone else

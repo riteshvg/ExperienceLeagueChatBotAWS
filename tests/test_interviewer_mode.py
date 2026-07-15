@@ -248,3 +248,37 @@ def test_insert_followup_updates_session_total_and_order():
     assert session.total == original_total + 1
     assert session.questions[session.current_index + 1].id == followup.id
     assert session.questions[session.current_index + 1].is_followup is True
+
+
+@pytest.mark.asyncio
+async def test_maybe_generate_followup_never_chains_on_a_followup_itself():
+    """A weak answer to a follow-up must never spawn a second, chained follow-up."""
+    session = create_session("followup-user-nochain", "junior", "cja")
+    q = session.current_question()
+
+    from config.interview_profiles import InterviewQuestion
+    followup_question = InterviewQuestion(
+        id=f"{q.id}-fu",
+        question="Generated follow-up",
+        topic=q.topic,
+        difficulty=q.difficulty,
+        expected_themes=q.expected_themes,
+        retrieval_hint=q.retrieval_hint,
+        version=q.version,
+        is_followup=True,
+    )
+
+    pipeline = InterviewerPipeline(retriever=None)
+    mock_create = AsyncMock(side_effect=[
+        _fake_message("WEAK"),
+        _fake_message("This should never be generated"),
+    ])
+    pipeline._client = SimpleNamespace(messages=SimpleNamespace(create=mock_create))
+
+    result = await pipeline.maybe_generate_followup(session, followup_question, "a thin answer to the follow-up")
+
+    assert result is None
+    assert mock_create.call_count == 0  # never even attempted detection
+
+    from backend.core import google_db
+    assert google_db.get_followup_for_parent(session.session_id, followup_question.id) is None
