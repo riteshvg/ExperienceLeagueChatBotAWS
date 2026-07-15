@@ -138,6 +138,26 @@ class InterviewSession:
             "current_question": _question_to_dict(q, self.current_index, self.total) if q else None,
         }
 
+    def end_interview(self) -> dict[str, Any]:
+        """Candidate-initiated early stop: jump straight from 'questioning' to
+        'review' regardless of how many questions have been answered, so /submit
+        can grade whatever's there. Requires at least one answered question —
+        there's nothing to grade otherwise."""
+        if self.phase == "complete":
+            raise ValueError("Session already completed.")
+        if self.phase == "review":
+            raise ValueError("Already in review — submit for evaluation when ready.")
+        if not any(self.draft_answers.get(q.id, "").strip() for q in self.questions):
+            raise ValueError("Answer at least one question before ending the interview.")
+
+        from backend.core import google_db
+
+        if not google_db.try_end_interview_session(self.session_id):
+            raise ValueError("Unable to end the interview — session state changed. Please retry.")
+        self.phase = "review"
+        self.awaiting_advance = False
+        return {"phase": "review", "review_ready": True, "ended_early": True}
+
     def get_review_items(self) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         for i, q in enumerate(self.questions):
@@ -548,8 +568,16 @@ class InterviewerPipeline:
         if session.phase != "review":
             yield {"type": "error", "message": "Complete all questions and enter review before submitting."}
             return
-        if not session.all_answered():
-            yield {"type": "error", "message": "Every question must have an answer before submission."}
+
+        # Grade only the questions that actually have an answer. Normally every
+        # question is answered by the time /advance reaches "review" — but the
+        # candidate-initiated "End interview" path (end_interview()) can land here
+        # early with some questions never answered, and those simply aren't graded.
+        answered_questions = [q for q in session.questions if session.draft_answers.get(q.id, "").strip()]
+        questions_total = session.total
+        questions_answered = len(answered_questions)
+        if questions_answered == 0:
+            yield {"type": "error", "message": "No answered questions to evaluate."}
             return
 
         from backend.core import google_db
@@ -562,21 +590,20 @@ class InterviewerPipeline:
             return
         session.evaluated = True
 
-        yield {"type": "evaluating", "message": "Evaluating your answers against Experience League documentation…", "total": session.total}
+        yield {"type": "evaluating", "message": "Evaluating your answers against Experience League documentation…", "total": questions_answered}
 
         per_question: list[dict[str, Any]] = []
         all_citations: list[dict[str, Any]] = []
         seen_urls: set[str] = set()
-        total = session.total
 
-        for i, q in enumerate(session.questions):
+        for i, q in enumerate(answered_questions):
             yield {
                 "type": "evaluation_progress",
                 "question_index": i + 1,
-                "total": total,
+                "total": questions_answered,
                 "status": "evaluating",
             }
-            answer = session.draft_answers.get(q.id, "")
+            answer = session.draft_answers.get(q.id, "").strip()
             docs = await self._retrieve_for_question(q, session)
             result = await self._evaluate_single(session, q, answer, docs)
             per_question.append(result)
@@ -606,7 +633,7 @@ class InterviewerPipeline:
             yield {
                 "type": "question_evaluation",
                 "question_id": result["question_id"],
-                "question_index": result["question_index"],
+                "question_index": i + 1,
                 "score": result["score"],
                 "score_pct": result["score_pct"],
                 "strengths": result["strengths"],
@@ -617,7 +644,7 @@ class InterviewerPipeline:
             yield {
                 "type": "evaluation_progress",
                 "question_index": i + 1,
-                "total": total,
+                "total": questions_answered,
                 "status": "done",
                 "score": result["score"],
             }
@@ -653,13 +680,14 @@ class InterviewerPipeline:
         else:
             report = {}
 
+        default_summary = f"Average score {avg_score}/5 across {questions_answered} questions."
+        if questions_answered < questions_total:
+            default_summary += f" ({questions_total - questions_answered} question(s) skipped — interview ended early.)"
+
         session_report = {
             "overall_score": float(report.get("overall_score", avg_score)),
             "readiness": report.get("readiness", "needs_work"),
-            "readiness_summary": report.get(
-                "readiness_summary",
-                f"Average score {avg_score}/5 across {len(per_question)} questions.",
-            ),
+            "readiness_summary": report.get("readiness_summary", default_summary),
             "strengths": report.get("strengths") or [],
             "priority_gaps": report.get("priority_gaps") or [],
             "mistakes_to_avoid": report.get("mistakes_to_avoid") or [],
@@ -667,6 +695,8 @@ class InterviewerPipeline:
             "overall_feedback": report.get("overall_feedback") or "",
             "per_question": per_question,
             "citations": all_citations[:8],
+            "questions_answered": questions_answered,
+            "questions_total": questions_total,
         }
         completed = google_db.complete_interview_session(session.session_id, session_report, claim_token)
         if not completed:

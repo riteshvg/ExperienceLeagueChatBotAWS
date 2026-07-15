@@ -49,6 +49,12 @@ export function InterviewSessionReport({ report, debriefContent, debriefStreamin
         <ScoreBar score={report.overall_score} />
         <p className="text-base font-semibold text-slate-900 mt-3">{readinessLabel}</p>
         <p className="text-sm text-slate-600 mt-1">{report.readiness_summary}</p>
+        {report.questions_answered < report.questions_total && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
+            Interview ended early — scored on {report.questions_answered} of {report.questions_total}{' '}
+            questions.
+          </p>
+        )}
       </div>
 
       {feedbackText && (

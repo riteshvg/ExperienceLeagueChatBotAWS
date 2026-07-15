@@ -223,6 +223,24 @@ async def advance_question(
     return payload
 
 
+@router.post("/end")
+async def end_interview(
+    body: SessionRequest,
+    user: Annotated[dict, Depends(get_site_user)],
+):
+    """Candidate-initiated early stop: jump straight to review with whatever's
+    been answered so far, so it can be graded via the normal /submit flow."""
+    _require_feature(user)
+    session = _get_owned_session(body.session_id, user)
+    if session.completed:
+        raise HTTPException(status_code=400, detail="Interview session already completed")
+    try:
+        result = session.end_interview()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {**result, **session.to_dict()}
+
+
 @router.get("/review/{session_id}")
 async def get_review(
     session_id: str,

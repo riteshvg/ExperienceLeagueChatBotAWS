@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import {
   advanceInterviewerSession,
   editInterviewerAnswer,
+  endInterviewerSession,
   getInterviewerProfiles,
   getInterviewerReview,
   getInterviewerStatus,
@@ -38,6 +39,7 @@ interface InterviewerState {
   questionIndex: number
   totalQuestions: number
   completed: boolean
+  endedEarly: boolean
   isStreaming: boolean
   error: string | null
   setupOpen: boolean
@@ -65,6 +67,7 @@ interface InterviewerState {
   cancelEdit: () => void
   startEditReviewAnswer: (questionId: string) => void
   advanceQuestion: () => Promise<void>
+  endInterview: () => Promise<void>
   submitForEvaluation: () => Promise<void>
   exitMode: () => void
 }
@@ -82,6 +85,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
   questionIndex: 0,
   totalQuestions: 0,
   completed: false,
+  endedEarly: false,
   isStreaming: false,
   error: null,
   setupOpen: false,
@@ -141,6 +145,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
       questionIndex: 0,
       totalQuestions: 0,
       completed: false,
+      endedEarly: false,
       isStreaming: false,
       error: null,
       setupOpen: false,
@@ -167,6 +172,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
       profileId,
       phase: 'questioning',
       completed: false,
+      endedEarly: false,
       welcomeText: '',
       currentQuestion: null,
       answerDraft: '',
@@ -339,17 +345,49 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
     }
   },
 
+  async endInterview() {
+    const { sessionId, isStreaming } = get()
+    if (!sessionId || isStreaming) return
+
+    set({ isStreaming: true, error: null })
+
+    try {
+      await endInterviewerSession(sessionId)
+      const review = await getInterviewerReview(sessionId)
+      set({
+        phase: 'review',
+        endedEarly: true,
+        pendingAnswer: null,
+        editingQuestionId: null,
+        answerDraft: '',
+        currentQuestion: null,
+        reviewItems: review.items,
+        questionIndex: review.current_index,
+        totalQuestions: review.total_questions ?? get().totalQuestions,
+      })
+    } catch (e) {
+      set({ error: e instanceof Error ? e.message : 'Failed to end interview' })
+    } finally {
+      set({ isStreaming: false })
+    }
+  },
+
   async submitForEvaluation() {
     const { sessionId, isStreaming, reviewItems } = get()
     if (!sessionId || isStreaming) return
 
+    // The backend grades (and numbers progress events for) only answered
+    // questions, in order — matters when the interview was ended early with
+    // some questions skipped. Mirror that same filter+order here so
+    // question_index in SSE events lines up with this array's positions.
+    const answeredItems = reviewItems.filter((item) => item.answer.trim())
     const initialProgress: EvaluationProgress = {
-      total: reviewItems.length,
+      total: answeredItems.length,
       completed: 0,
       step: 'grading',
-      questionResults: reviewItems.map((item) => ({
+      questionResults: answeredItems.map((item, i) => ({
         question_id: item.question.id,
-        question_index: item.question.index ?? 0,
+        question_index: i + 1,
         status: 'pending' as const,
       })),
     }

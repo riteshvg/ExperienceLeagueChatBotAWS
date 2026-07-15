@@ -857,6 +857,10 @@ export function advanceInterviewerSession(sessionId: string): Promise<AdvanceRes
   return interviewerJson('/api/interviewer/advance', 'POST', { session_id: sessionId })
 }
 
+export function endInterviewerSession(sessionId: string): Promise<AdvanceResponse> {
+  return interviewerJson('/api/interviewer/end', 'POST', { session_id: sessionId })
+}
+
 export async function getInterviewerReview(sessionId: string): Promise<{
   items: ReviewItem[]
   all_answered: boolean

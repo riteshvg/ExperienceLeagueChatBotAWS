@@ -9,6 +9,7 @@ interface Props {
   onSubmit: () => void
   disabled?: boolean
   allAnswered?: boolean
+  endedEarly?: boolean
   className?: string
 }
 
@@ -18,8 +19,12 @@ export function InterviewSessionReview({
   onSubmit,
   disabled,
   allAnswered = true,
+  endedEarly = false,
   className,
 }: Props) {
+  const answeredCount = items.filter((i) => i.answer.trim()).length
+  const canSubmit = allAnswered || endedEarly
+
   return (
     <div
       className={cn(
@@ -68,12 +73,18 @@ export function InterviewSessionReview({
       <button
         type="button"
         onClick={onSubmit}
-        disabled={disabled || !allAnswered}
+        disabled={disabled || !canSubmit}
         className="w-full px-4 py-2.5 rounded-lg bg-emerald-700 text-white text-sm font-medium hover:bg-emerald-800 disabled:opacity-50"
       >
         Submit for evaluation
       </button>
-      {!allAnswered && (
+      {!allAnswered && endedEarly && (
+        <p className="text-xs text-amber-700">
+          Interview ended early — {answeredCount} of {items.length} questions answered. Unanswered
+          questions won&apos;t be scored.
+        </p>
+      )}
+      {!allAnswered && !endedEarly && (
         <p className="text-xs text-amber-700">Every question needs an answer before submitting.</p>
       )}
     </div>

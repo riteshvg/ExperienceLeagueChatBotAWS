@@ -86,6 +86,8 @@ export type SessionReport = {
     product?: string
     score?: number
   }>
+  questions_answered: number
+  questions_total: number
 }
 
 export type PendingAnswer = {
@@ -163,4 +165,5 @@ export type AdvanceResponse = {
   phase: InterviewPhase
   review_ready?: boolean
   current_question?: InterviewQuestion | null
+  ended_early?: boolean
 } & Partial<InterviewerSessionInfo>

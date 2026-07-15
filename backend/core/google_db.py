@@ -1720,6 +1720,31 @@ def try_advance_interview_session(session_id: str, new_index: int, new_phase: st
         conn.close()
 
 
+def try_end_interview_session(session_id: str) -> bool:
+    """Atomically move a session straight from 'questioning' to 'review',
+    regardless of awaiting_advance — the candidate-initiated "End interview"
+    action, which can fire at any point mid-question, not just right after
+    saving an answer. Returns False if the session already left 'questioning'
+    (already ended, already complete, or a concurrent duplicate end/advance)."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE interview_sessions
+                SET phase = 'review', awaiting_advance = FALSE, updated_at = NOW()
+                WHERE session_id = %s AND phase = 'questioning'
+                RETURNING session_id
+                """,
+                (session_id,),
+            )
+            row = cur.fetchone()
+        conn.commit()
+        return row is not None
+    finally:
+        conn.close()
+
+
 def record_question_evaluation(
     session_id: str,
     question_id: str,

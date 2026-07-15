@@ -282,3 +282,63 @@ async def test_maybe_generate_followup_never_chains_on_a_followup_itself():
 
     from backend.core import google_db
     assert google_db.get_followup_for_parent(session.session_id, followup_question.id) is None
+
+
+# ── End interview early ──────────────────────────────────────────────────────
+
+def test_end_interview_requires_at_least_one_answer():
+    session = create_session("end-user-empty", "junior", "cja")
+    with pytest.raises(ValueError, match="Answer at least one question"):
+        session.end_interview()
+    assert session.phase == "questioning"
+
+
+def test_end_interview_moves_to_review_with_partial_answers():
+    session = create_session("end-user-partial", "junior", "cja")
+    q1 = session.current_question()
+    session.save_current_answer("A partial answer to the first question")
+
+    result = session.end_interview()
+    assert result["phase"] == "review"
+    assert result["ended_early"] is True
+    assert session.phase == "review"
+    assert session.awaiting_advance is False
+
+    # Persisted state survives a reload.
+    reloaded = get_session(session.session_id)
+    assert reloaded.phase == "review"
+    assert reloaded.draft_answers.get(q1.id) == "A partial answer to the first question"
+    assert not reloaded.all_answered()  # only one of several questions was answered
+
+
+def test_end_interview_rejects_already_review_or_complete():
+    session = create_session("end-user-already-review", "junior", "cja")
+    session.save_current_answer("answer")
+    session.end_interview()
+    with pytest.raises(ValueError, match="Already in review"):
+        session.end_interview()
+
+
+@pytest.mark.asyncio
+async def test_stream_submit_grades_only_answered_questions_after_early_end():
+    session = create_session("end-user-submit", "junior", "cja")
+    q1 = session.current_question()
+    session.save_current_answer("Only answering the first question")
+    session.end_interview()
+    assert session.phase == "review"
+
+    pipeline = InterviewerPipeline(retriever=None)
+    events = []
+    async for event in pipeline.stream_submit(session):
+        events.append(event)
+
+    types = [e["type"] for e in events]
+    assert "session_report" in types
+    assert "done" in types
+
+    report = next(e for e in events if e["type"] == "session_report")
+    assert report["questions_answered"] == 1
+    assert report["questions_total"] == session.total
+    assert len(report["per_question"]) == 1
+    assert report["per_question"][0]["question_id"] == q1.id
+    assert "ended early" in report["readiness_summary"].lower() or "skipped" in report["readiness_summary"].lower()

@@ -100,6 +100,73 @@ def test_full_happy_path_start_to_complete():
         assert final["evaluated"] is True
 
 
+# ── End interview early ──────────────────────────────────────────────────────
+
+def test_end_interview_early_grades_partial_answers():
+    with _client("route-user-end-early") as client:
+        started = _start(client)
+        session_id = started["session_id"]
+        total = started["total_questions"]
+        assert total > 1  # sanity: there's more than one question to skip
+
+        resp = client.post(
+            "/api/interviewer/answer",
+            json={"session_id": session_id, "answer": "first answer only"},
+        )
+        assert resp.status_code == 200
+
+        end_resp = client.post("/api/interviewer/end", json={"session_id": session_id})
+        assert end_resp.status_code == 200
+        end_body = end_resp.json()
+        assert end_body["phase"] == "review"
+        assert end_body["ended_early"] is True
+
+        review = client.get(f"/api/interviewer/review/{session_id}")
+        assert review.status_code == 200
+        review_body = review.json()
+        assert review_body["phase"] == "review"
+        assert review_body["all_answered"] is False
+        assert len(review_body["items"]) == total  # all questions still listed, most blank
+
+        submit_resp = client.post("/api/interviewer/submit", json={"session_id": session_id})
+        assert submit_resp.status_code == 200
+        events = parse_sse(submit_resp.text)
+        types = [e["type"] for e in events]
+        assert "session_report" in types
+        assert "done" in types
+
+        report = next(e for e in events if e["type"] == "session_report")
+        assert report["questions_answered"] == 1
+        assert report["questions_total"] == total
+        assert len(report["per_question"]) == 1
+
+        final = next(e for e in events if e["type"] == "done")
+        assert final["phase"] == "complete"
+
+
+def test_end_interview_rejects_zero_answers():
+    with _client("route-user-end-noanswers") as client:
+        started = _start(client)
+        session_id = started["session_id"]
+
+        resp = client.post("/api/interviewer/end", json={"session_id": session_id})
+        assert resp.status_code == 400
+        assert "at least one" in resp.json()["detail"].lower()
+
+
+def test_end_interview_rejects_when_already_completed():
+    with _client("route-user-end-completed") as client:
+        started = _start(client)
+        session_id = started["session_id"]
+        total = started["total_questions"]
+
+        _drive_to_review(client, session_id, total)
+        client.post("/api/interviewer/submit", json={"session_id": session_id})
+
+        resp = client.post("/api/interviewer/end", json={"session_id": session_id})
+        assert resp.status_code == 400
+
+
 # ── Adaptive follow-ups (Phase 1) ────────────────────────────────────────────
 
 def test_answer_triggers_followup_and_advance_surfaces_it(monkeypatch):

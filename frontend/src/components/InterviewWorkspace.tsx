@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { ChevronDown, ChevronRight, Pencil, ChevronRight as NextIcon, ClipboardList } from 'lucide-react'
+import { ChevronDown, ChevronRight, Pencil, ChevronRight as NextIcon, ClipboardList, XCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useInterviewerStore } from '@/store/interviewerStore'
 import { InterviewQuestionCard } from './InterviewQuestionCard'
@@ -27,10 +27,12 @@ export function InterviewWorkspace() {
     debriefContent,
     debriefStreaming,
     evaluationProgress,
+    endedEarly,
     submitAnswer,
     startEditAnswer,
     cancelEdit,
     advanceQuestion,
+    endInterview,
     startEditReviewAnswer,
     submitForEvaluation,
   } = useInterviewerStore()
@@ -41,6 +43,16 @@ export function InterviewWorkspace() {
 
   const handleSave = () => {
     void submitAnswer(answerDraft)
+  }
+
+  const handleEndInterview = () => {
+    const hasAnyAnswer = answeredHistory.length > 0 || (pendingAnswer?.answer.trim() ?? '')
+    const confirmMessage = hasAnyAnswer
+      ? "End the interview now? You'll be graded only on the questions you've already answered."
+      : 'End the interview now? You need at least one answered question to get a report.'
+    if (window.confirm(confirmMessage)) {
+      void endInterview()
+    }
   }
 
   const showEditor =
@@ -85,6 +97,20 @@ export function InterviewWorkspace() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {(phase === 'questioning' || phase === 'answer_pending') && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={handleEndInterview}
+            disabled={isStreaming}
+            className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-red-600 disabled:opacity-50"
+          >
+            <XCircle className="w-3.5 h-3.5" />
+            End interview
+          </button>
         </div>
       )}
 
@@ -185,6 +211,7 @@ export function InterviewWorkspace() {
           onSubmit={() => void submitForEvaluation()}
           disabled={isStreaming}
           allAnswered={reviewItems.every((i) => i.answer.trim())}
+          endedEarly={endedEarly}
         />
       )}
 
