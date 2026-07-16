@@ -1,6 +1,6 @@
 chroma_db/
 chroma_db.stale.*/
-data/
+/data/
 venv/
 node_modules/
 frontend/node_modules/
