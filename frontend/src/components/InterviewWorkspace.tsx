@@ -18,6 +18,8 @@ export function InterviewWorkspace() {
     currentQuestion,
     answerDraft,
     setAnswerDraft,
+    markVoiceInputUsed,
+    sessionId,
     phase,
     pendingAnswer,
     answeredHistory,
@@ -225,6 +227,8 @@ export function InterviewWorkspace() {
             value={answerDraft}
             onChange={setAnswerDraft}
             disabled={isStreaming}
+            sessionId={sessionId}
+            onVoiceInputUsed={markVoiceInputUsed}
           />
           <div className="flex flex-wrap items-center justify-between gap-2">
             {canEndInterview ? (

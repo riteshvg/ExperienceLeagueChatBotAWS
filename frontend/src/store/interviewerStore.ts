@@ -48,6 +48,7 @@ interface InterviewerState {
   welcomeText: string
   currentQuestion: InterviewQuestion | null
   answerDraft: string
+  usedVoiceInput: boolean
   pendingAnswer: PendingAnswer | null
   editingQuestionId: string | null
   answeredHistory: AnsweredItem[]
@@ -62,6 +63,7 @@ interface InterviewerState {
   openSetup: () => void
   closeSetup: () => void
   setAnswerDraft: (text: string) => void
+  markVoiceInputUsed: () => void
   startSession: (level: InterviewLevel, profileId: string) => Promise<void>
   submitAnswer: (answer: string) => Promise<void>
   startEditAnswer: () => void
@@ -95,6 +97,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
   welcomeText: '',
   currentQuestion: null,
   answerDraft: '',
+  usedVoiceInput: false,
   pendingAnswer: null,
   editingQuestionId: null,
   answeredHistory: [],
@@ -136,6 +139,10 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
     set({ answerDraft: text })
   },
 
+  markVoiceInputUsed() {
+    set({ usedVoiceInput: true })
+  },
+
   exitMode() {
     set({
       active: false,
@@ -155,6 +162,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
       welcomeText: '',
       currentQuestion: null,
       answerDraft: '',
+      usedVoiceInput: false,
       pendingAnswer: null,
       editingQuestionId: null,
       answeredHistory: [],
@@ -180,6 +188,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
       welcomeText: '',
       currentQuestion: null,
       answerDraft: '',
+      usedVoiceInput: false,
       pendingAnswer: null,
       editingQuestionId: null,
       answeredHistory: [],
@@ -230,6 +239,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
       reviewItems,
       currentQuestion,
       answeredHistory,
+      usedVoiceInput,
     } = get()
     if (!sessionId || isStreaming || completed) return
 
@@ -240,19 +250,20 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
 
     try {
       if (phase === 'review' && editingQuestionId) {
-        const result = await editInterviewerAnswer(sessionId, editingQuestionId, text)
+        const result = await editInterviewerAnswer(sessionId, editingQuestionId, text, usedVoiceInput)
         set({
           reviewItems: reviewItems.map((item) =>
             item.question.id === editingQuestionId ? { ...item, answer: result.answer } : item,
           ),
           editingQuestionId: null,
           answerDraft: '',
+          usedVoiceInput: false,
         })
         return
       }
 
       if (phase === 'answer_pending' && editingQuestionId && pendingAnswer) {
-        const result = await editInterviewerAnswer(sessionId, editingQuestionId, text)
+        const result = await editInterviewerAnswer(sessionId, editingQuestionId, text, usedVoiceInput)
         set({
           pendingAnswer: { ...pendingAnswer, answer: result.answer },
           answeredHistory: answeredHistory.map((item) =>
@@ -260,11 +271,12 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
           ),
           editingQuestionId: null,
           answerDraft: '',
+          usedVoiceInput: false,
         })
         return
       }
 
-      const result = await saveInterviewerAnswer(sessionId, text)
+      const result = await saveInterviewerAnswer(sessionId, text, usedVoiceInput)
       const question = currentQuestion
       set({
         phase: 'answer_pending',
@@ -277,6 +289,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
         },
         totalQuestions: result.total_questions ?? get().totalQuestions,
         answerDraft: '',
+        usedVoiceInput: false,
         answeredHistory:
           question
             ? [...answeredHistory, { question, answer: result.answer }]
@@ -295,11 +308,12 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
     set({
       editingQuestionId: pendingAnswer.questionId,
       answerDraft: pendingAnswer.answer,
+      usedVoiceInput: false,
     })
   },
 
   cancelEdit() {
-    set({ editingQuestionId: null, answerDraft: '' })
+    set({ editingQuestionId: null, answerDraft: '', usedVoiceInput: false })
   },
 
   startEditReviewAnswer(questionId) {
@@ -307,6 +321,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
     set({
       editingQuestionId: questionId,
       answerDraft: item?.answer ?? '',
+      usedVoiceInput: false,
     })
   },
 
@@ -326,6 +341,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
           pendingAnswer: null,
           editingQuestionId: null,
           answerDraft: '',
+          usedVoiceInput: false,
           currentQuestion: null,
           reviewItems: review.items,
           questionIndex: review.current_index,
@@ -339,6 +355,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
           pendingAnswer: null,
           editingQuestionId: null,
           answerDraft: '',
+          usedVoiceInput: false,
           currentQuestion: result.current_question,
           questionIndex: result.current_index ?? get().questionIndex,
         })
@@ -365,6 +382,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
         pendingAnswer: null,
         editingQuestionId: null,
         answerDraft: '',
+        usedVoiceInput: false,
         currentQuestion: null,
         reviewItems: review.items,
         questionIndex: review.current_index,

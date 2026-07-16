@@ -72,6 +72,48 @@ Scoring guide:
 5 = excellent, interview-ready depth for the level"""
 
 
+def build_scenario_evaluation_user_prompt(
+    *,
+    question: str,
+    grading_rubric: dict,
+    level: str,
+    candidate_answer: str,
+    doc_context: str,
+) -> str:
+    """Scenario questions are graded from a structured, weighted rubric rather
+    than a holistic 1-5 self-assessment — the model's only job is to judge
+    which rubric points the answer actually covers; scoring itself is computed
+    deterministically from those judgments (see _score_from_rubric_match)."""
+    points = (grading_rubric.get("required_points") or grading_rubric.get("partial_credit_points") or [])
+    points_list = "\n".join(f"{i+1}. {p['point']}" for i, p in enumerate(points))
+
+    return f"""Evaluate this mock interview answer to a scenario/troubleshooting question against a fixed rubric.
+
+**Interview level:** {level}
+**Question:** {question}
+
+**Rubric points to check for** (does the candidate's answer cover each, even if worded differently?):
+{points_list}
+
+**Candidate answer:**
+{candidate_answer}
+
+**Retrieved Adobe documentation context:**
+{doc_context}
+
+For each numbered rubric point, judge whether the candidate's answer covers it — credit the underlying idea even if phrased differently, don't require exact wording.
+
+Respond with ONLY valid JSON (no markdown fences) using this schema:
+{{
+  "matched_points": [
+    {{"point": "<exact rubric point text>", "matched": <true|false>, "evidence": "<short quote or paraphrase from the answer, or empty string if not matched>"}}
+  ],
+  "feedback": "<2-3 paragraphs of coaching feedback in markdown, referencing which points were covered and which were missed>"
+}}
+
+Include every rubric point listed above in matched_points, in the same order, with the exact same point text."""
+
+
 def build_followup_detection_prompt(
     *,
     question: str,

@@ -846,20 +846,50 @@ async function interviewerJson<T>(
 export function saveInterviewerAnswer(
   sessionId: string,
   answer: string,
+  isVoiceInput = false,
 ): Promise<SaveAnswerResponse> {
-  return interviewerJson('/api/interviewer/answer', 'POST', { session_id: sessionId, answer })
+  return interviewerJson('/api/interviewer/answer', 'POST', {
+    session_id: sessionId,
+    answer,
+    is_voice_input: isVoiceInput,
+  })
 }
 
 export function editInterviewerAnswer(
   sessionId: string,
   questionId: string,
   answer: string,
+  isVoiceInput = false,
 ): Promise<SaveAnswerResponse> {
   return interviewerJson('/api/interviewer/answer', 'PATCH', {
     session_id: sessionId,
     question_id: questionId,
     answer,
+    is_voice_input: isVoiceInput,
   })
+}
+
+export async function transcribeInterviewerAnswer(
+  sessionId: string,
+  audio: Blob,
+): Promise<string> {
+  const form = new FormData()
+  form.append('session_id', sessionId)
+  form.append('audio', audio, 'answer.webm')
+
+  const res = await fetch(`${API_BASE}/api/interviewer/transcribe`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    throw new Error(
+      typeof errBody.detail === 'string' ? errBody.detail : `Transcription failed: ${res.status}`,
+    )
+  }
+  const data = (await res.json()) as { transcript: string }
+  return data.transcript
 }
 
 export function advanceInterviewerSession(sessionId: string): Promise<AdvanceResponse> {

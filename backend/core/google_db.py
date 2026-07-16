@@ -155,6 +155,8 @@ def init_tables() -> None:
                     prompt_text      TEXT NOT NULL,
                     expected_themes  JSONB NOT NULL,
                     retrieval_hint   TEXT NOT NULL,
+                    question_type    TEXT NOT NULL DEFAULT 'standard',
+                    grading_rubric   JSONB,
                     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     deprecated_at    TIMESTAMPTZ,
                     PRIMARY KEY (question_id, version)
@@ -192,10 +194,22 @@ def init_tables() -> None:
                     is_followup           BOOLEAN NOT NULL DEFAULT FALSE,
                     parent_question_id    TEXT,
                     followup_prompt_text  TEXT,
+                    is_voice_input        BOOLEAN NOT NULL DEFAULT FALSE,
                     updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     PRIMARY KEY (session_id, question_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS exl_transcription_ratelimits (
+                    user_id       TEXT NOT NULL,
+                    window_start  TIMESTAMPTZ NOT NULL,
+                    request_count INTEGER NOT NULL DEFAULT 1,
+                    PRIMARY KEY (user_id, window_start)
+                );
             """)
+            cur.execute(
+                "ALTER TABLE interview_answers ADD COLUMN IF NOT EXISTS "
+                "is_voice_input BOOLEAN NOT NULL DEFAULT FALSE"
+            )
             cur.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_interview_questions_active "
                 "ON interview_questions (question_id) WHERE deprecated_at IS NULL"
@@ -218,6 +232,13 @@ def init_tables() -> None:
             )
             cur.execute(
                 "ALTER TABLE interview_answers ADD COLUMN IF NOT EXISTS followup_prompt_text TEXT"
+            )
+            cur.execute(
+                "ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS "
+                "question_type TEXT NOT NULL DEFAULT 'standard'"
+            )
+            cur.execute(
+                "ALTER TABLE interview_questions ADD COLUMN IF NOT EXISTS grading_rubric JSONB"
             )
             # Safe migrations for existing deployments
             cur.execute(
@@ -1479,6 +1500,8 @@ def seed_interview_question(
     prompt_text: str,
     expected_themes: list[str],
     retrieval_hint: str,
+    question_type: str = "standard",
+    grading_rubric: dict | None = None,
 ) -> None:
     """Insert version 1 of a question if it doesn't already exist. Idempotent — safe to
     call on every startup with the same seed data."""
@@ -1491,12 +1514,13 @@ def seed_interview_question(
                 """
                 INSERT INTO interview_questions
                     (question_id, version, level, profile_id, topic, difficulty,
-                     prompt_text, expected_themes, retrieval_hint)
-                VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s)
+                     prompt_text, expected_themes, retrieval_hint, question_type, grading_rubric)
+                VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (question_id, version) DO NOTHING
                 """,
                 (question_id, level, profile_id, topic, difficulty, prompt_text,
-                 Json(expected_themes), retrieval_hint),
+                 Json(expected_themes), retrieval_hint, question_type,
+                 Json(grading_rubric) if grading_rubric is not None else None),
             )
         conn.commit()
     finally:
@@ -1504,16 +1528,18 @@ def seed_interview_question(
 
 
 def get_active_question_bank(level: str, profile_id: str) -> list[dict]:
-    """Active (non-deprecated) questions for a level × profile_id, in insertion order."""
+    """Active (non-deprecated) questions for a level × profile_id, in insertion order.
+    Rows stored with level='multi' (e.g. scenario_troubleshooting) are visible at every
+    level for that profile_id, since they aren't tied to one specific level."""
     conn = _connect()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT question_id, version, level, profile_id, topic, difficulty,
-                       prompt_text, expected_themes, retrieval_hint
+                       prompt_text, expected_themes, retrieval_hint, question_type, grading_rubric
                 FROM interview_questions
-                WHERE level = %s AND profile_id = %s AND deprecated_at IS NULL
+                WHERE (level = %s OR level = 'multi') AND profile_id = %s AND deprecated_at IS NULL
                 ORDER BY question_id
                 """,
                 (level, profile_id),
@@ -1776,14 +1802,17 @@ def insert_followup_if_absent(
         conn.close()
 
 
-def save_interview_answer(session_id: str, question_id: str, answer: str, awaiting_advance: bool) -> None:
+def save_interview_answer(
+    session_id: str, question_id: str, answer: str, awaiting_advance: bool, is_voice_input: bool = False,
+) -> None:
     """Persist a draft answer edit and the session's awaiting_advance flag together."""
     conn = _connect()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE interview_answers SET answer = %s, updated_at = NOW() WHERE session_id = %s AND question_id = %s",
-                (answer, session_id, question_id),
+                "UPDATE interview_answers SET answer = %s, is_voice_input = %s, updated_at = NOW() "
+                "WHERE session_id = %s AND question_id = %s",
+                (answer, is_voice_input, session_id, question_id),
             )
             cur.execute(
                 "UPDATE interview_sessions SET awaiting_advance = %s, updated_at = NOW() WHERE session_id = %s",
@@ -1794,16 +1823,66 @@ def save_interview_answer(session_id: str, question_id: str, answer: str, awaiti
         conn.close()
 
 
-def update_interview_answer_text(session_id: str, question_id: str, answer: str) -> None:
+def update_interview_answer_text(
+    session_id: str, question_id: str, answer: str, is_voice_input: bool = False,
+) -> None:
     """Edit an already-saved draft answer (PATCH /answer) without touching awaiting_advance."""
     conn = _connect()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE interview_answers SET answer = %s, updated_at = NOW() WHERE session_id = %s AND question_id = %s",
-                (answer, session_id, question_id),
+                "UPDATE interview_answers SET answer = %s, is_voice_input = %s, updated_at = NOW() "
+                "WHERE session_id = %s AND question_id = %s",
+                (answer, is_voice_input, session_id, question_id),
             )
         conn.commit()
+    finally:
+        conn.close()
+
+
+_TRANSCRIPTION_RATE_MAX_PER_HOUR = 10
+
+
+def check_transcription_rate_limit(user_id: str) -> bool:
+    """Return True if a voice-transcription call is allowed, False if the per-user
+    hourly cap is exceeded. Separate from the IP-based ratelimit table since this
+    route triggers billed external API usage and is keyed to the authenticated user."""
+    now = datetime.now(tz=timezone.utc)
+    window_start = now.replace(minute=0, second=0, microsecond=0)
+
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM exl_transcription_ratelimits WHERE window_start < NOW() - INTERVAL '2 hours'"
+            )
+            cur.execute(
+                "SELECT request_count FROM exl_transcription_ratelimits WHERE user_id = %s AND window_start = %s",
+                (user_id, window_start),
+            )
+            row = cur.fetchone()
+
+            if row is None:
+                cur.execute(
+                    "INSERT INTO exl_transcription_ratelimits (user_id, window_start, request_count) "
+                    "VALUES (%s, %s, 1)",
+                    (user_id, window_start),
+                )
+                conn.commit()
+                return True
+
+            count = row["request_count"]
+            if count >= _TRANSCRIPTION_RATE_MAX_PER_HOUR:
+                conn.commit()
+                return False
+
+            cur.execute(
+                "UPDATE exl_transcription_ratelimits SET request_count = request_count + 1 "
+                "WHERE user_id = %s AND window_start = %s",
+                (user_id, window_start),
+            )
+        conn.commit()
+        return True
     finally:
         conn.close()
 

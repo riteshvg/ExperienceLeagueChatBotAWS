@@ -9,19 +9,23 @@ import logging
 import os
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from backend.api.deps import get_retriever, get_site_user
+from backend.core import google_db
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.interviewer_pipeline import (
     InterviewerPipeline,
     create_session,
     get_session,
 )
+from backend.core.voice_transcription import TranscriptionError, transcribe_audio
 from config.interview_profiles import get_profiles_payload, validate_profile
 from config.settings import get_settings
+
+_MAX_AUDIO_BYTES = 6 * 1024 * 1024  # ~4 min of webm/opus at typical mic bitrate
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/interviewer", tags=["interviewer"])
@@ -98,12 +102,14 @@ class SessionRequest(BaseModel):
 class AnswerRequest(BaseModel):
     session_id: str
     answer: str
+    is_voice_input: bool = False
 
 
 class EditAnswerRequest(BaseModel):
     session_id: str
     question_id: str
     answer: str
+    is_voice_input: bool = False
 
 
 @router.get("/status")
@@ -161,11 +167,11 @@ async def save_answer(
         raise HTTPException(status_code=400, detail="Interview session already completed")
     parent_question = session.current_question()
     try:
-        result = session.save_current_answer(body.answer)
+        result = session.save_current_answer(body.answer, is_voice_input=body.is_voice_input)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if parent_question is not None:
+    if parent_question is not None and not body.is_voice_input:
         pipeline = InterviewerPipeline(retriever)
         follow_up = await pipeline.maybe_generate_followup(session, parent_question, body.answer)
         if follow_up is not None:
@@ -188,6 +194,39 @@ async def save_answer(
     return {**result, **session.to_dict()}
 
 
+@router.post("/transcribe")
+async def transcribe_answer(
+    session_id: Annotated[str, Form(...)],
+    audio: Annotated[UploadFile, File(...)],
+    user: Annotated[dict, Depends(get_site_user)],
+):
+    _require_feature(user)
+    _get_owned_session(session_id, user)
+
+    user_id = user.get("uid") or user.get("email", "")
+    if not google_db.check_transcription_rate_limit(user_id):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many transcription requests — please slow down and try again shortly.",
+        )
+
+    audio_bytes = await audio.read()
+    if len(audio_bytes) > _MAX_AUDIO_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Recording too long — please keep answers under about 4 minutes.",
+        )
+    if not audio_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No audio received.")
+
+    try:
+        transcript = await transcribe_audio(audio_bytes, filename=audio.filename or "answer.webm")
+    except TranscriptionError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
+
+    return {"transcript": transcript}
+
+
 @router.patch("/answer")
 async def edit_answer(
     body: EditAnswerRequest,
@@ -198,7 +237,7 @@ async def edit_answer(
     if session.completed:
         raise HTTPException(status_code=400, detail="Interview session already completed")
     try:
-        result = session.update_answer(body.question_id, body.answer)
+        result = session.update_answer(body.question_id, body.answer, is_voice_input=body.is_voice_input)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {**result, **session.to_dict()}

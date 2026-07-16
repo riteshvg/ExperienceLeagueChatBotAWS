@@ -144,6 +144,7 @@ Thumbs.db
 
 # Project specific
 data/
+!config/data/
 logs/
 *.db
 *.sqlite

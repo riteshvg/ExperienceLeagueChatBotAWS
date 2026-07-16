@@ -15,24 +15,36 @@ export function InterviewSetupModal({ open, profiles, onClose, onStart, loading 
   const [level, setLevel] = useState<InterviewLevel>('senior')
   const [profileId, setProfileId] = useState('all')
 
+  // A profile_id can be valid at a level via either the solutions list or the
+  // collections list (e.g. scenario_troubleshooting is a collection but is
+  // selectable at senior/architect, not just principal) — resolve each valid
+  // id against both pools instead of assuming one pool per level. "all" is
+  // shared between both lists with different labels ("All solutions" vs "All
+  // collections") — match the backend's profile_label precedence: solutions
+  // first outside principal, collections first at principal.
+  const resolveProfile = (profiles: InterviewerProfiles, currentLevel: InterviewLevel, id: string) => {
+    if (id === 'all') {
+      return currentLevel === 'principal'
+        ? profiles.collections.find((c) => c.id === 'all')
+        : profiles.solutions.find((s) => s.id === 'all')
+    }
+    return profiles.collections.find((c) => c.id === id) ?? profiles.solutions.find((s) => s.id === id)
+  }
+
   const profileOptions = useMemo(() => {
     if (!profiles) return []
-    const pool = level === 'principal' ? profiles.collections : profiles.solutions
-    const validIds = new Set(
-      profiles.combinations
-        ?.filter((c) => c.level === level)
-        .map((c) => c.profile_id) ?? [],
-    )
-    return pool.filter((p) => validIds.has(p.id))
+    const validIds = profiles.combinations?.filter((c) => c.level === level).map((c) => c.profile_id) ?? []
+    return validIds
+      .map((id) => resolveProfile(profiles, level, id))
+      .filter((p): p is NonNullable<typeof p> => Boolean(p))
   }, [profiles, level])
 
   const handleLevelChange = (next: InterviewLevel) => {
     setLevel(next)
     if (!profiles) return
-    const valid = profiles.combinations?.filter((c) => c.level === next).map((c) => c.profile_id) ?? []
-    const pool = next === 'principal' ? profiles.collections : profiles.solutions
-    const first = pool.find((p) => valid.includes(p.id))
-    if (first) setProfileId(first.id)
+    const validIds = profiles.combinations?.filter((c) => c.level === next).map((c) => c.profile_id) ?? []
+    const first = validIds.find((id) => resolveProfile(profiles, next, id))
+    if (first) setProfileId(first)
   }
 
   if (!open) return null
