@@ -76,6 +76,8 @@ def get_local_stats(chroma_dir: Path) -> dict[str, Any]:
     pages: dict[str, set] = defaultdict(set)
     release_notes_chunks = 0
     release_notes_docs: set[str] = set()
+    release_notes_chunks_by_product: dict[str, int] = defaultdict(int)
+    release_notes_docs_by_product: dict[str, set] = defaultdict(set)
 
     for m in metas:
         product = m.get("product") or "Unknown"
@@ -87,9 +89,18 @@ def get_local_stats(chroma_dir: Path) -> dict[str, Any]:
         if "release-notes" in s3_key or "/rn/" in s3_key:
             release_notes_chunks += 1
             release_notes_docs.add(m.get("s3_key", ""))
+            release_notes_chunks_by_product[product] += 1
+            release_notes_docs_by_product[product].add(m.get("s3_key", ""))
 
     breakdown = {
         p: {"chunks": chunks[p], "pages": len(pages[p])} for p in chunks
+    }
+    release_notes_breakdown = {
+        p: {
+            "chunks": release_notes_chunks_by_product[p],
+            "docs": len(release_notes_docs_by_product[p]),
+        }
+        for p in release_notes_chunks_by_product
     }
 
     return {
@@ -99,6 +110,7 @@ def get_local_stats(chroma_dir: Path) -> dict[str, Any]:
         "product_breakdown": breakdown,
         "release_notes_chunks": release_notes_chunks,
         "release_notes_docs": len(release_notes_docs),
+        "release_notes_by_product": release_notes_breakdown,
     }
 
 
@@ -223,6 +235,11 @@ def run_once(chroma_dir: Path, remote_url: str) -> bool:
     if "error" not in local:
         print(f"\n  Local release-notes: {local['release_notes_chunks']} chunks "
               f"across {local['release_notes_docs']} docs")
+        print("  Release notes by solution:")
+        by_product = local["release_notes_by_product"]
+        for product in sorted(by_product, key=lambda p: -by_product[p]["chunks"]):
+            stats = by_product[product]
+            print(f"    {product:30s} chunks={stats['chunks']:5d}  docs={stats['docs']:4d}")
 
     print()
     print("✓ IN SYNC" if in_sync else "✗ OUT OF SYNC — see above")
