@@ -132,6 +132,13 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
   },
 
   closeSetup() {
+    // If no session has been started yet, closing the setup modal should
+    // return the user to normal chat rather than leaving `active: true`
+    // with no session data, which renders a blank Interviewer workspace.
+    if (get().sessionId === null) {
+      get().exitMode()
+      return
+    }
     set({ setupOpen: false })
   },
 
