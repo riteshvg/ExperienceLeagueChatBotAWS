@@ -1,5 +1,34 @@
 import { jsPDF } from 'jspdf'
 import type { SessionReport } from '@/types/interviewer'
+import { DEJAVU_SANS_BOLD_BASE64, DEJAVU_SANS_REGULAR_BASE64 } from './interviewReportFonts'
+
+const FONT_NAME = 'DejaVuSans'
+
+function registerUnicodeFont(doc: jsPDF) {
+  doc.addFileToVFS('DejaVuSans.ttf', DEJAVU_SANS_REGULAR_BASE64)
+  doc.addFont('DejaVuSans.ttf', FONT_NAME, 'normal')
+  doc.addFileToVFS('DejaVuSans-Bold.ttf', DEJAVU_SANS_BOLD_BASE64)
+  doc.addFont('DejaVuSans-Bold.ttf', FONT_NAME, 'bold')
+}
+
+// The embedded font subset only covers Latin-1, General Punctuation, and Arrows
+// (see interviewReportFonts.ts) — anything outside that (e.g. stray emoji or CJK
+// from LLM-generated text) would render as a missing-glyph box, so fall back to
+// '?' rather than let jsPDF silently mis-render it.
+const SAFE_RANGES: [number, number][] = [
+  [0x0020, 0x00ff],
+  [0x2000, 0x206f],
+  [0x2190, 0x21ff],
+]
+
+function sanitizeForPdf(text: string): string {
+  return Array.from(text)
+    .map((ch) => {
+      const code = ch.codePointAt(0) ?? 0
+      return SAFE_RANGES.some(([lo, hi]) => code >= lo && code <= hi) ? ch : '?'
+    })
+    .join('')
+}
 
 const READINESS_LABELS: Record<string, string> = {
   not_ready: 'Not ready',
@@ -26,19 +55,19 @@ function ensureSpace(doc: jsPDF, cursor: Cursor, needed: number) {
 
 function addHeading(doc: jsPDF, cursor: Cursor, text: string) {
   ensureSpace(doc, cursor, 10)
-  doc.setFont('helvetica', 'bold')
+  doc.setFont(FONT_NAME, 'bold')
   doc.setFontSize(12)
   doc.setTextColor(15, 23, 42) // slate-900
-  doc.text(text, MARGIN, cursor.y)
+  doc.text(sanitizeForPdf(text), MARGIN, cursor.y)
   cursor.y += 7
 }
 
 function addParagraph(doc: jsPDF, cursor: Cursor, text: string, opts?: { size?: number; color?: [number, number, number] }) {
-  doc.setFont('helvetica', 'normal')
+  doc.setFont(FONT_NAME, 'normal')
   doc.setFontSize(opts?.size ?? 10)
   const [r, g, b] = opts?.color ?? [30, 41, 59] // slate-800
   doc.setTextColor(r, g, b)
-  const lines = doc.splitTextToSize(text, CONTENT_WIDTH)
+  const lines: string[] = doc.splitTextToSize(sanitizeForPdf(text), CONTENT_WIDTH)
   for (const line of lines) {
     ensureSpace(doc, cursor, 6)
     doc.text(line, MARGIN, cursor.y)
@@ -47,10 +76,10 @@ function addParagraph(doc: jsPDF, cursor: Cursor, text: string, opts?: { size?: 
 }
 
 function addBullet(doc: jsPDF, cursor: Cursor, text: string) {
-  doc.setFont('helvetica', 'normal')
+  doc.setFont(FONT_NAME, 'normal')
   doc.setFontSize(10)
   doc.setTextColor(30, 41, 59)
-  const lines = doc.splitTextToSize(`•  ${text}`, CONTENT_WIDTH - 4)
+  const lines: string[] = doc.splitTextToSize(`•  ${sanitizeForPdf(text)}`, CONTENT_WIDTH - 4)
   for (const line of lines) {
     ensureSpace(doc, cursor, 6)
     doc.text(line, MARGIN + 2, cursor.y)
@@ -60,21 +89,21 @@ function addBullet(doc: jsPDF, cursor: Cursor, text: string) {
 
 function addLink(doc: jsPDF, cursor: Cursor, label: string, url: string) {
   ensureSpace(doc, cursor, 11)
-  doc.setFont('helvetica', 'bold')
+  doc.setFont(FONT_NAME, 'bold')
   doc.setFontSize(10)
   doc.setTextColor(4, 120, 87) // emerald-700
-  const labelLines = doc.splitTextToSize(label, CONTENT_WIDTH)
+  const labelLines: string[] = doc.splitTextToSize(sanitizeForPdf(label), CONTENT_WIDTH)
   for (const line of labelLines) {
     ensureSpace(doc, cursor, 6)
     doc.textWithLink(line, MARGIN, cursor.y, { url })
     cursor.y += 5.5
   }
-  doc.setFont('helvetica', 'normal')
+  doc.setFont(FONT_NAME, 'normal')
   doc.setFontSize(8.5)
   doc.setTextColor(100, 116, 139) // slate-500
   // Print the literal URL as visible text too — the point of this PDF is that
   // the candidate can read/copy the link later even outside a clickable viewer.
-  const urlLines = doc.splitTextToSize(url, CONTENT_WIDTH)
+  const urlLines: string[] = doc.splitTextToSize(url, CONTENT_WIDTH)
   for (const line of urlLines) {
     ensureSpace(doc, cursor, 5)
     doc.text(line, MARGIN, cursor.y)
@@ -91,9 +120,10 @@ export function generateInterviewReportPdf(params: {
 }): void {
   const { report, debriefText, level, profileLabel } = params
   const doc = new jsPDF({ unit: 'mm', format: 'a4' })
+  registerUnicodeFont(doc)
   const cursor: Cursor = { y: MARGIN }
 
-  doc.setFont('helvetica', 'bold')
+  doc.setFont(FONT_NAME, 'bold')
   doc.setFontSize(16)
   doc.setTextColor(4, 120, 87)
   doc.text('Mock Interview Report', MARGIN, cursor.y)
@@ -101,10 +131,10 @@ export function generateInterviewReportPdf(params: {
 
   const subtitleParts = [level, profileLabel].filter(Boolean)
   if (subtitleParts.length > 0) {
-    doc.setFont('helvetica', 'normal')
+    doc.setFont(FONT_NAME, 'normal')
     doc.setFontSize(10)
     doc.setTextColor(100, 116, 139)
-    doc.text(subtitleParts.join(' · '), MARGIN, cursor.y)
+    doc.text(sanitizeForPdf(subtitleParts.join(' · ')), MARGIN, cursor.y)
     cursor.y += 6
   }
   doc.setFontSize(9)

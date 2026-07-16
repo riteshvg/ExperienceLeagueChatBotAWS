@@ -485,7 +485,6 @@ def _parse_session_report_json(text: str) -> dict[str, Any]:
     if data is not None:
         return data
     return {
-        "overall_score": 3,
         "readiness": "needs_work",
         "readiness_summary": "Review the per-question feedback below.",
         "strengths": [],
@@ -553,10 +552,42 @@ class InterviewerPipeline:
     async def _retrieve_for_question(self, q: InterviewQuestion, session: InterviewSession) -> list[dict]:
         return await self._retrieve_for_query(f"{q.retrieval_hint} {q.topic}", session)
 
+    @staticmethod
+    def _citation_from_contributing_questions(
+        source_question_indices: list[Any], per_question: list[dict[str, Any]]
+    ) -> dict[str, str] | None:
+        """Ground a "topics to study" link in the citations that actually backed the
+        grading of the question(s) this topic was synthesized from, instead of
+        re-retrieving from the topic label alone (which drifts to unrelated docs —
+        e.g. a short label like "CJA Architecture" can vector-match a Marketo page).
+        Selection rule: union the citations of every contributing question, dedupe by
+        URL, keep the highest retrieval score seen for each — the top-scored citation
+        wins as the primary link."""
+        indices = {int(i) for i in source_question_indices if isinstance(i, (int, float, str)) and str(i).strip()}
+        if not indices:
+            return None
+        best_by_url: dict[str, dict[str, Any]] = {}
+        for row in per_question:
+            if row.get("question_index") not in indices:
+                continue
+            for c in row.get("citations") or []:
+                url = c.get("url")
+                if not url:
+                    continue
+                score = c.get("score") or 0
+                existing = best_by_url.get(url)
+                if existing is None or score > (existing.get("score") or 0):
+                    best_by_url[url] = c
+        if not best_by_url:
+            return None
+        top = max(best_by_url.values(), key=lambda c: c.get("score") or 0)
+        return {"url": top["url"], "title": top.get("title") or top["url"]}
+
     async def _ground_topic_link(self, topic: str, session: InterviewSession) -> dict[str, str] | None:
-        """Find a real ExL doc for a "topics to study" entry via the same scoped
-        retrieval used for grading — never let the LLM invent a URL, since it will
-        hallucinate plausible-looking but wrong links."""
+        """Fallback only: used when the synthesis step didn't tag a topic with
+        source_question_indices (or those questions had no citations), so there's
+        nothing to ground against — fresh scoped retrieval on the topic label is a
+        last resort, not the primary path."""
         docs = await self._retrieve_for_query(topic, session)
         settings = get_settings()
         for doc in docs:
@@ -852,7 +883,11 @@ class InterviewerPipeline:
         for entry in (report.get("topics_to_read") or [])[:8]:
             topic_text = (entry.get("topic") or "").strip()
             item = {"topic": topic_text, "reason": entry.get("reason") or ""}
-            link = await self._ground_topic_link(topic_text, session) if topic_text else None
+            link = self._citation_from_contributing_questions(
+                entry.get("source_question_indices") or [], per_question
+            )
+            if link is None and topic_text:
+                link = await self._ground_topic_link(topic_text, session)
             if link:
                 item["url"] = link["url"]
                 item["title"] = link["title"]
@@ -863,7 +898,10 @@ class InterviewerPipeline:
             default_summary += f" ({questions_total - questions_answered} question(s) skipped — interview ended early.)"
 
         session_report = {
-            "overall_score": float(report.get("overall_score", avg_score)),
+            # Deterministic mean of per-question scores — never an independent LLM
+            # judgment, which was found to silently diverge from the real numbers
+            # (e.g. reporting 4.0/5 while per-question scores averaged 3.7/5).
+            "overall_score": avg_score,
             "readiness": report.get("readiness", "needs_work"),
             "readiness_summary": report.get("readiness_summary", default_summary),
             "strengths": report.get("strengths") or [],

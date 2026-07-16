@@ -193,17 +193,18 @@ Per-question evaluations:
 
 Respond with ONLY valid JSON (no markdown fences):
 {{
-  "overall_score": <integer 1-5>,
   "readiness": "<one of: not_ready | needs_work | nearly_ready | interview_ready>",
   "readiness_summary": "<1-2 sentences on overall interview readiness>",
   "strengths": [<string>, ...],
   "priority_gaps": [<string>, ...],
   "mistakes_to_avoid": [<string>, ...],
   "topics_to_read": [
-    {{ "topic": "<string>", "reason": "<why study this>" }}
+    {{ "topic": "<string>", "reason": "<why study this>", "source_question_indices": [<the Question N number(s) above that this topic draws from>] }}
   ],
   "overall_feedback": "<3-5 paragraphs of honest, coaching feedback in markdown covering answer quality, depth vs level, and concrete next steps>"
 }}
+
+Note: the numeric overall score is computed separately from your per-question scores above — do not include it here.
 
 Be direct and honest. Call out patterns (e.g. UI-only answers without concepts, missing trade-offs, weak cross-product reasoning)."""
 
