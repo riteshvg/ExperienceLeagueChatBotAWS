@@ -143,8 +143,10 @@ ehthumbs.db
 Thumbs.db
 
 # Project specific
-data/
-!config/data/
+# Anchored to repo root so it doesn't also match config/data/ (tracked seed
+# data for Interviewer Mode) — some build systems (e.g. Railway/Nixpacks)
+# don't honor the "!config/data/" negation that a bare "data/" rule requires.
+/data/
 logs/
 *.db
 *.sqlite
