@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
@@ -34,6 +35,35 @@ ROOT = Path(__file__).parent
 DEFAULT_REMOTE_URL = "https://chatbot.thelearningproject.in"
 DEFAULT_LOCAL_CHROMA_DIR = ROOT / "chroma_db"
 DEFAULT_INTERVAL_SECONDS = 1800  # 30 min
+
+_MONTHS = [
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+]
+_MONTH_RE = re.compile(r"(" + "|".join(_MONTHS) + r")[-_]?(\d{4})")
+_YEAR_RE = re.compile(r"(\d{4})")
+
+
+def parse_release_period(s3_key: str) -> str:
+    """Best-effort month/year label for a release-notes path, e.g.
+    '.../release-notes/2024/april-2024.md' -> '2024-04',
+    '.../release-notes/2020.md' -> '2020',
+    '.../release-notes/2019-earlier.md' -> '2019 & earlier',
+    '.../release-notes/current.md' -> 'undated' (no month/year in the path)."""
+    key = s3_key.lower()
+    month_match = _MONTH_RE.search(key)
+    if month_match:
+        month_name, year = month_match.groups()
+        month_num = _MONTHS.index(month_name) + 1
+        return f"{year}-{month_num:02d}"
+    if "-earlier" in key:
+        year_match = _YEAR_RE.search(key)
+        if year_match:
+            return f"{year_match.group(1)} & earlier"
+    year_match = _YEAR_RE.search(key)
+    if year_match:
+        return year_match.group(1)
+    return "undated"
 
 
 def _load_dotenv(path: Path) -> None:
@@ -78,6 +108,10 @@ def get_local_stats(chroma_dir: Path) -> dict[str, Any]:
     release_notes_docs: set[str] = set()
     release_notes_chunks_by_product: dict[str, int] = defaultdict(int)
     release_notes_docs_by_product: dict[str, set] = defaultdict(set)
+    # product -> period label ("2024-04", "2020", "2019 & earlier", "undated") -> stats
+    release_notes_timeline: dict[str, dict[str, dict[str, Any]]] = defaultdict(
+        lambda: defaultdict(lambda: {"chunks": 0, "docs": set()})
+    )
 
     for m in metas:
         product = m.get("product") or "Unknown"
@@ -85,12 +119,18 @@ def get_local_stats(chroma_dir: Path) -> dict[str, Any]:
         chunks[product] += 1
         if url:
             pages[product].add(url)
-        s3_key = (m.get("s3_key") or "").lower()
+        raw_s3_key = m.get("s3_key", "")
+        s3_key = raw_s3_key.lower()
         if "release-notes" in s3_key or "/rn/" in s3_key:
             release_notes_chunks += 1
-            release_notes_docs.add(m.get("s3_key", ""))
+            release_notes_docs.add(raw_s3_key)
             release_notes_chunks_by_product[product] += 1
-            release_notes_docs_by_product[product].add(m.get("s3_key", ""))
+            release_notes_docs_by_product[product].add(raw_s3_key)
+
+            period = parse_release_period(s3_key)
+            bucket = release_notes_timeline[product][period]
+            bucket["chunks"] += 1
+            bucket["docs"].add(raw_s3_key)
 
     breakdown = {
         p: {"chunks": chunks[p], "pages": len(pages[p])} for p in chunks
@@ -102,6 +142,13 @@ def get_local_stats(chroma_dir: Path) -> dict[str, Any]:
         }
         for p in release_notes_chunks_by_product
     }
+    release_notes_timeline_out = {
+        product: {
+            period: {"chunks": stats["chunks"], "docs": len(stats["docs"])}
+            for period, stats in periods.items()
+        }
+        for product, periods in release_notes_timeline.items()
+    }
 
     return {
         "collection": collections[0].name,
@@ -111,7 +158,20 @@ def get_local_stats(chroma_dir: Path) -> dict[str, Any]:
         "release_notes_chunks": release_notes_chunks,
         "release_notes_docs": len(release_notes_docs),
         "release_notes_by_product": release_notes_breakdown,
+        "release_notes_timeline": release_notes_timeline_out,
     }
+
+
+def _period_sort_key(period: str) -> tuple[int, int]:
+    """Sort periods newest-first; 'undated' always sorts last."""
+    if period == "undated":
+        return (-1, -1)
+    if "& earlier" in period:
+        return (int(period.split()[0]), -1)
+    if "-" in period:
+        year, month = period.split("-")
+        return (int(year), int(month))
+    return (int(period), 0)
 
 
 def get_remote_stats(base_url: str, timeout: float = 15.0) -> dict[str, Any]:
@@ -237,9 +297,13 @@ def run_once(chroma_dir: Path, remote_url: str) -> bool:
               f"across {local['release_notes_docs']} docs")
         print("  Release notes by solution:")
         by_product = local["release_notes_by_product"]
+        timeline = local["release_notes_timeline"]
         for product in sorted(by_product, key=lambda p: -by_product[p]["chunks"]):
             stats = by_product[product]
             print(f"    {product:30s} chunks={stats['chunks']:5d}  docs={stats['docs']:4d}")
+            for period in sorted(timeline.get(product, {}), key=_period_sort_key, reverse=True):
+                p_stats = timeline[product][period]
+                print(f"      {period:16s} chunks={p_stats['chunks']:4d}  docs={p_stats['docs']:3d}")
 
     print()
     print("✓ IN SYNC" if in_sync else "✗ OUT OF SYNC — see above")
