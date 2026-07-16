@@ -20,6 +20,7 @@ from backend.core.interviewer_prompt import (
     build_followup_detection_prompt,
     build_followup_generation_prompt,
     build_interviewer_system_prompt,
+    build_scenario_evaluation_user_prompt,
     build_session_evaluation_prompt,
     build_welcome_message,
 )
@@ -34,6 +35,15 @@ logger = logging.getLogger(__name__)
 _MODEL = "claude-sonnet-4-6"
 _FOLLOWUP_MODEL = "claude-haiku-4-5-20251001"
 SessionPhase = Literal["questioning", "review", "complete"]
+
+# Global per-level strictness applied to scenario questions' deterministic
+# score_pct. Not per-question — the rubric pilot didn't calibrate per-question
+# per-level thresholds, and inventing per-question numbers without real
+# grading data would be guesswork. Senior gets a lenient boost (naming the
+# right mechanism matters more than full remediation depth); principal is
+# held closer to full rubric coverage for the same score. Revisit once real
+# scenario-grading data exists.
+LEVEL_SCENARIO_MULTIPLIER = {"senior": 1.15, "architect": 1.0, "principal": 0.90}
 
 
 @dataclass
@@ -65,7 +75,7 @@ class InterviewSession:
             return None
         return self.questions[self.current_index]
 
-    def save_current_answer(self, answer: str) -> dict[str, Any]:
+    def save_current_answer(self, answer: str, is_voice_input: bool = False) -> dict[str, Any]:
         if self.phase != "questioning":
             raise ValueError("Session is not accepting answers.")
         q = self.current_question()
@@ -78,7 +88,7 @@ class InterviewSession:
         self.awaiting_advance = True
         from backend.core import google_db
 
-        google_db.save_interview_answer(self.session_id, q.id, text, True)
+        google_db.save_interview_answer(self.session_id, q.id, text, True, is_voice_input)
         is_last = self.current_index >= self.total - 1
         return {
             "question_id": q.id,
@@ -88,7 +98,7 @@ class InterviewSession:
             "answer": text,
         }
 
-    def update_answer(self, question_id: str, answer: str) -> dict[str, Any]:
+    def update_answer(self, question_id: str, answer: str, is_voice_input: bool = False) -> dict[str, Any]:
         text = answer.strip()
         if not text:
             raise ValueError("Answer cannot be empty.")
@@ -102,7 +112,7 @@ class InterviewSession:
         self.draft_answers[question_id] = text
         from backend.core import google_db
 
-        google_db.update_interview_answer_text(self.session_id, question_id, text)
+        google_db.update_interview_answer_text(self.session_id, question_id, text, is_voice_input)
         idx = next(i for i, q in enumerate(self.questions) if q.id == question_id)
         return {
             "question_id": question_id,
@@ -415,12 +425,66 @@ def _parse_evaluation_json(text: str) -> dict[str, Any]:
     }
 
 
+def _parse_scenario_evaluation_json(text: str) -> dict[str, Any]:
+    data = _extract_json_object(text)
+    if data is not None and isinstance(data.get("matched_points"), list):
+        return data
+    return {"matched_points": [], "feedback": text.strip()}
+
+
+def _score_from_rubric_match(
+    grading_rubric: dict, matched_points: list[dict], level: str,
+) -> dict[str, Any]:
+    """Deterministic scoring for scenario questions: score_pct is the weighted
+    fraction of rubric points the model judged as matched, then adjusted by a
+    global per-level strictness multiplier and banded into the same 1-5 scale
+    standard questions use, so the two question types stay comparable."""
+    rubric_points = grading_rubric.get("required_points") or grading_rubric.get("partial_credit_points") or []
+    weights_by_point = {p["point"]: p["weight"] for p in rubric_points}
+    total_weight = sum(weights_by_point.values()) or 1.0
+
+    matched_by_point = {m.get("point"): bool(m.get("matched")) for m in matched_points}
+    matched_weight = sum(
+        weight for point, weight in weights_by_point.items() if matched_by_point.get(point)
+    )
+
+    raw_pct = 100 * matched_weight / total_weight
+    multiplier = LEVEL_SCENARIO_MULTIPLIER.get(level, 1.0)
+    score_pct = max(0, min(100, round(raw_pct * multiplier)))
+
+    if score_pct >= 90:
+        score = 5
+    elif score_pct >= 75:
+        score = 4
+    elif score_pct >= 60:
+        score = 3
+    elif score_pct >= 40:
+        score = 2
+    else:
+        score = 1
+
+    strengths = [point for point in weights_by_point if matched_by_point.get(point)]
+    gaps = sorted(
+        (point for point in weights_by_point if not matched_by_point.get(point)),
+        key=lambda p: weights_by_point[p],
+        reverse=True,
+    )
+    model_answer_outline = " · ".join(weights_by_point.keys())
+
+    return {
+        "score": score,
+        "score_pct": score_pct,
+        "strengths": strengths,
+        "gaps": gaps,
+        "model_answer_outline": model_answer_outline,
+    }
+
+
 def _parse_session_report_json(text: str) -> dict[str, Any]:
     data = _extract_json_object(text)
     if data is not None:
         return data
     return {
-        "overall_score": 3,
         "readiness": "needs_work",
         "readiness_summary": "Review the per-question feedback below.",
         "strengths": [],
@@ -488,10 +552,42 @@ class InterviewerPipeline:
     async def _retrieve_for_question(self, q: InterviewQuestion, session: InterviewSession) -> list[dict]:
         return await self._retrieve_for_query(f"{q.retrieval_hint} {q.topic}", session)
 
+    @staticmethod
+    def _citation_from_contributing_questions(
+        source_question_indices: list[Any], per_question: list[dict[str, Any]]
+    ) -> dict[str, str] | None:
+        """Ground a "topics to study" link in the citations that actually backed the
+        grading of the question(s) this topic was synthesized from, instead of
+        re-retrieving from the topic label alone (which drifts to unrelated docs —
+        e.g. a short label like "CJA Architecture" can vector-match a Marketo page).
+        Selection rule: union the citations of every contributing question, dedupe by
+        URL, keep the highest retrieval score seen for each — the top-scored citation
+        wins as the primary link."""
+        indices = {int(i) for i in source_question_indices if isinstance(i, (int, float, str)) and str(i).strip()}
+        if not indices:
+            return None
+        best_by_url: dict[str, dict[str, Any]] = {}
+        for row in per_question:
+            if row.get("question_index") not in indices:
+                continue
+            for c in row.get("citations") or []:
+                url = c.get("url")
+                if not url:
+                    continue
+                score = c.get("score") or 0
+                existing = best_by_url.get(url)
+                if existing is None or score > (existing.get("score") or 0):
+                    best_by_url[url] = c
+        if not best_by_url:
+            return None
+        top = max(best_by_url.values(), key=lambda c: c.get("score") or 0)
+        return {"url": top["url"], "title": top.get("title") or top["url"]}
+
     async def _ground_topic_link(self, topic: str, session: InterviewSession) -> dict[str, str] | None:
-        """Find a real ExL doc for a "topics to study" entry via the same scoped
-        retrieval used for grading — never let the LLM invent a URL, since it will
-        hallucinate plausible-looking but wrong links."""
+        """Fallback only: used when the synthesis step didn't tag a topic with
+        source_question_indices (or those questions had no citations), so there's
+        nothing to ground against — fresh scoped retrieval on the topic label is a
+        last resort, not the primary path."""
         docs = await self._retrieve_for_query(topic, session)
         settings = get_settings()
         for doc in docs:
@@ -593,18 +689,28 @@ class InterviewerPipeline:
     ) -> dict[str, Any]:
         doc_context = _build_doc_context(docs)
         citations = _docs_to_citations(docs, min_score=get_settings().similarity_threshold)
+        is_scenario = q.question_type == "scenario" and q.grading_rubric
 
         if self._client:
             try:
                 system = build_interviewer_system_prompt(session.level, session.profile_id)  # type: ignore[arg-type]
-                user_prompt = build_evaluation_user_prompt(
-                    question=q.question,
-                    topic=q.topic,
-                    expected_themes=q.expected_themes,
-                    level=session.level,
-                    candidate_answer=answer,
-                    doc_context=doc_context,
-                )
+                if is_scenario:
+                    user_prompt = build_scenario_evaluation_user_prompt(
+                        question=q.question,
+                        grading_rubric=q.grading_rubric,
+                        level=session.level,
+                        candidate_answer=answer,
+                        doc_context=doc_context,
+                    )
+                else:
+                    user_prompt = build_evaluation_user_prompt(
+                        question=q.question,
+                        topic=q.topic,
+                        expected_themes=q.expected_themes,
+                        level=session.level,
+                        candidate_answer=answer,
+                        doc_context=doc_context,
+                    )
                 resp = await self._client.messages.create(
                     model=_MODEL,
                     max_tokens=2500,
@@ -612,7 +718,14 @@ class InterviewerPipeline:
                     messages=[{"role": "user", "content": user_prompt}],
                 )
                 raw = resp.content[0].text if resp.content else "{}"
-                evaluation = _parse_evaluation_json(raw)
+                if is_scenario:
+                    scenario_eval = _parse_scenario_evaluation_json(raw)
+                    evaluation = _score_from_rubric_match(
+                        q.grading_rubric, scenario_eval["matched_points"], session.level,
+                    )
+                    evaluation["feedback"] = scenario_eval.get("feedback", "")
+                else:
+                    evaluation = _parse_evaluation_json(raw)
             except Exception as exc:
                 logger.error("Interviewer per-question eval failed: %s", exc)
                 evaluation = {
@@ -770,7 +883,11 @@ class InterviewerPipeline:
         for entry in (report.get("topics_to_read") or [])[:8]:
             topic_text = (entry.get("topic") or "").strip()
             item = {"topic": topic_text, "reason": entry.get("reason") or ""}
-            link = await self._ground_topic_link(topic_text, session) if topic_text else None
+            link = self._citation_from_contributing_questions(
+                entry.get("source_question_indices") or [], per_question
+            )
+            if link is None and topic_text:
+                link = await self._ground_topic_link(topic_text, session)
             if link:
                 item["url"] = link["url"]
                 item["title"] = link["title"]
@@ -781,7 +898,10 @@ class InterviewerPipeline:
             default_summary += f" ({questions_total - questions_answered} question(s) skipped — interview ended early.)"
 
         session_report = {
-            "overall_score": float(report.get("overall_score", avg_score)),
+            # Deterministic mean of per-question scores — never an independent LLM
+            # judgment, which was found to silently diverge from the real numbers
+            # (e.g. reporting 4.0/5 while per-question scores averaged 3.7/5).
+            "overall_score": avg_score,
             "readiness": report.get("readiness", "needs_work"),
             "readiness_summary": report.get("readiness_summary", default_summary),
             "strengths": report.get("strengths") or [],

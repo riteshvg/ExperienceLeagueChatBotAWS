@@ -6,8 +6,10 @@ Levels × solutions (or Principal collections) with topic metadata for retrieval
 
 from __future__ import annotations
 
+import json
 import random
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 InterviewLevel = Literal["junior", "senior", "architect", "principal"]
@@ -33,29 +35,48 @@ SOLUTIONS: tuple[dict[str, str], ...] = (
     {"id": "ajo", "label": "Adobe Journey Optimizer", "short": "AJO"},
 )
 
-# Principal-only multi-solution collections
-COLLECTIONS: tuple[dict[str, str], ...] = (
+# Multi-solution collections. Most are Principal-only, but a collection may
+# declare more than one eligible level via "levels" (e.g. scenario_troubleshooting,
+# which is available at senior, architect, and principal from the same stored
+# question set — see the 'multi' level sentinel in google_db.get_active_question_bank).
+COLLECTIONS: tuple[dict, ...] = (
     {
         "id": "all",
         "label": "All collections",
         "description": "Mixed questions from every Principal cross-solution track",
+        "levels": ("junior", "senior", "architect", "principal"),
     },
     {
         "id": "cross_solution_architecture",
         "label": "Cross-Solution Architecture",
         "description": "AEP → CJA → Activation data flows and governance",
+        "levels": ("principal",),
     },
     {
         "id": "data_foundation",
         "label": "Data Foundation & Identity",
         "description": "Schemas, identity graphs, and stitching across products",
+        "levels": ("principal",),
     },
     {
         "id": "personalization_stack",
         "label": "Personalization Stack",
         "description": "Target, AJO, and Real-Time CDP activation patterns",
+        "levels": ("principal",),
+    },
+    {
+        "id": "scenario_troubleshooting",
+        "label": "Scenario Troubleshooting",
+        "description": "Cross-product incident/design scenarios spanning AJO, AEP, identity, segmentation, governance, and decisioning",
+        "levels": ("principal",),
     },
 )
+
+# Levels where scenario_troubleshooting isn't a standalone selectable focus —
+# its questions are folded into the "All solutions" mix instead (see
+# _fetch_bank), so senior/architect users get scenario questions without a
+# separate card cluttering the solution-focus picker.
+_SCENARIO_FOLDED_LEVELS = ("senior", "architect")
 
 
 @dataclass(frozen=True)
@@ -68,6 +89,8 @@ class InterviewQuestion:
     retrieval_hint: str
     version: int = 1
     is_followup: bool = False
+    question_type: str = "standard"
+    grading_rubric: dict | None = None
 
 
 def _q(
@@ -79,6 +102,23 @@ def _q(
     hint: str,
 ) -> InterviewQuestion:
     return InterviewQuestion(id, question, topic, difficulty, themes, hint)
+
+
+def _scenario_q(
+    id: str,
+    question: str,
+    topic: str,
+    difficulty: int,
+    hint: str,
+    rubric: dict,
+) -> InterviewQuestion:
+    """Scenario question graded from a structured, weighted rubric (see
+    interviewer_pipeline._score_from_rubric_match) instead of the generic
+    expected_themes list used by standard questions."""
+    return InterviewQuestion(
+        id, question, topic, difficulty, (), hint,
+        question_type="scenario", grading_rubric=rubric,
+    )
 
 
 # ── CJA ───────────────────────────────────────────────────────────────────────
@@ -307,6 +347,25 @@ _PERSONALIZATION = (
        ("ROI", "frequency caps", "brand safety"), "personalization program KPIs"),
 )
 
+def _load_scenario_bank() -> tuple[InterviewQuestion, ...]:
+    path = Path(__file__).parent / "data" / "scenario_troubleshooting.json"
+    with path.open() as f:
+        rows = json.load(f)
+    return tuple(
+        _scenario_q(
+            id=row["id"],
+            question=row["question"],
+            topic=row["topic"],
+            difficulty=row["difficulty"],
+            hint=row["retrieval_hint"],
+            rubric=row["grading_rubric"],
+        )
+        for row in rows
+    )
+
+
+_SCENARIO_TROUBLESHOOTING = _load_scenario_bank()
+
 # Seed bank — the canonical source is now the `interview_questions` table in
 # Postgres (see backend/core/google_db.py). These tuples are only used to seed
 # that table on startup (idempotent — see seed_all_questions below); runtime
@@ -329,6 +388,7 @@ _SEED_BANK: dict[tuple[str, str], tuple[InterviewQuestion, ...]] = {
     ("principal", "cross_solution_architecture"): _CROSS_ARCH,
     ("principal", "data_foundation"): _DATA_FOUNDATION,
     ("principal", "personalization_stack"): _PERSONALIZATION,
+    ("multi", "scenario_troubleshooting"): _SCENARIO_TROUBLESHOOTING,
 }
 
 _VALID_LEVELS = {l["id"] for l in LEVELS}
@@ -354,6 +414,8 @@ def seed_all_questions() -> None:
                 prompt_text=q.question,
                 expected_themes=list(q.expected_themes),
                 retrieval_hint=q.retrieval_hint,
+                question_type=q.question_type,
+                grading_rubric=q.grading_rubric,
             )
 
 
@@ -366,6 +428,8 @@ def _row_to_question(row: dict) -> InterviewQuestion:
         expected_themes=tuple(row["expected_themes"]),
         retrieval_hint=row["retrieval_hint"],
         version=row["version"],
+        question_type=row.get("question_type", "standard"),
+        grading_rubric=row.get("grading_rubric"),
     )
 
 
@@ -417,6 +481,10 @@ def _fetch_bank(level: str, profile_id: str, user_id: str = "") -> list[Intervie
             rows = google_db.get_active_question_bank(level, pid)
             if rows:
                 banks.append([_row_to_question(r) for r in rows])
+        if level in _SCENARIO_FOLDED_LEVELS:
+            rows = google_db.get_active_question_bank(level, "scenario_troubleshooting")
+            if rows:
+                banks.append([_row_to_question(r) for r in rows])
         if level != "principal" and len(banks) <= 2:
             per_bank = 3
         return _merge_bank_lists(banks, per_bank=per_bank, max_total=8, exclude_ids=exclude_ids)
@@ -430,10 +498,15 @@ def _fetch_bank(level: str, profile_id: str, user_id: str = "") -> list[Intervie
 def get_profiles_payload() -> dict:
     from backend.core import google_db
 
-    combinations = [
-        {"level": level, "profile_id": profile_id}
-        for (level, profile_id) in google_db.list_active_question_combinations()
-    ]
+    combinations = []
+    for level, profile_id in google_db.list_active_question_combinations():
+        if level == "multi":
+            # Stored once, not tied to a single level — expand into every level
+            # that collection actually declares (see COLLECTIONS[...]["levels"]).
+            for real_level in _collection_levels(profile_id):
+                combinations.append({"level": real_level, "profile_id": profile_id})
+        else:
+            combinations.append({"level": level, "profile_id": profile_id})
     for level in ("junior", "senior", "architect"):
         combinations.append({"level": level, "profile_id": "all"})
     combinations.append({"level": "principal", "profile_id": "all"})
@@ -445,13 +518,20 @@ def get_profiles_payload() -> dict:
     }
 
 
+def _collection_levels(profile_id: str) -> tuple[str, ...]:
+    for c in COLLECTIONS:
+        if c["id"] == profile_id:
+            return c["levels"]
+    return ()
+
+
 def validate_profile(level: str, profile_id: str) -> str | None:
     """Return error message if invalid, else None."""
     if level not in _VALID_LEVELS:
         return f"Unknown level: {level}"
-    if level == "principal":
-        if profile_id not in _VALID_COLLECTIONS:
-            return f"Unknown collection for principal level: {profile_id}"
+    if profile_id in _VALID_COLLECTIONS:
+        if level not in _collection_levels(profile_id):
+            return f"Collection {profile_id} is not available at level {level}"
     elif profile_id not in _VALID_SOLUTIONS:
         return f"Unknown solution: {profile_id}"
     if not _fetch_bank(level, profile_id):
@@ -469,11 +549,9 @@ def get_question_set(level: str, profile_id: str, user_id: str = "") -> list[Int
 def profile_label(level: str, profile_id: str) -> str:
     if profile_id == "all":
         return "All collections" if level == "principal" else "All solutions"
-    if level == "principal":
-        for c in COLLECTIONS:
-            if c["id"] == profile_id:
-                return c["label"]
-        return profile_id
+    for c in COLLECTIONS:
+        if c["id"] == profile_id:
+            return c["label"]
     for s in SOLUTIONS:
         if s["id"] == profile_id:
             return s["label"]

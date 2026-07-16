@@ -1,0 +1,998 @@
+[
+  {
+    "id": "scn-1",
+    "question": "A customer received the same promotional email 5 times in one day from a journey that should only send once per day. What's likely wrong and how do you fix it?",
+    "topic": "journey_troubleshooting",
+    "difficulty": 4,
+    "retrieval_hint": "journey re-entry frequency capping rules",
+    "grading_rubric": {
+      "rubric_shape": "single-diagnosis",
+      "required_points": [
+        {
+          "point": "Identify missing or misconfigured re-entry control (journey set to allow re-entry without a sufficient wait window, or no re-entry restriction) and/or missing frequency capping rule as the root cause \u2014 both answers treat these as facets of the same bug class: the journey lacks a gate preventing the same profile from receiving the message more than once per day",
+          "weight": 0.7
+        },
+        {
+          "point": "Fix by setting no re-entry or a 24-hour re-entry wait, adding a frequency/business capping rule in AJO, and auditing the entry trigger (event dedup via xdm:eventId uniqueness, or unstable segment repeatedly re-qualifying the profile) to eliminate duplicate entry events at the source",
+          "weight": 0.3
+        }
+      ],
+      "partial_credit_points": null
+    }
+  },
+  {
+    "id": "scn-2",
+    "question": "A journey's cart-abandonment email never triggers even though customers clearly abandon carts. What would you check?",
+    "topic": "journey_troubleshooting",
+    "difficulty": 4,
+    "retrieval_hint": "cart abandonment journey trigger event",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Event ingestion/schema mapping: verify the cart abandonment Experience Event is actually being ingested into AEP with the correct schema, dataset, and field mappings",
+          "weight": 0.25
+        },
+        {
+          "point": "Journey entry event configuration and conditions: confirm the entry event is correctly configured and entry conditions/audience qualifiers are not silently filtering out profiles (e.g. namespace mismatches, merge policy conflicts)",
+          "weight": 0.25
+        },
+        {
+          "point": "Re-entry policy: check whether re-entry is enabled on the journey, as customers who previously entered but re-entry is disabled would be silently suppressed on subsequent abandonment events",
+          "weight": 0.2
+        },
+        {
+          "point": "Journey operational state and execution logs: confirm journey is published and not paused, and review execution logs or Assurance tool to verify events are being received and processed",
+          "weight": 0.15
+        },
+        {
+          "point": "Channel-level suppression: check fatigue/frequency cap rules, consent flags, or email validation failures that could block the send after journey entry succeeds",
+          "weight": 0.15
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-3",
+    "question": "Marketing says a journey \"silently stopped sending messages\" after a schema update. What's your diagnosis approach?",
+    "topic": "journey_troubleshooting",
+    "difficulty": 4,
+    "retrieval_hint": "schema field update breaking journey",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Identify schema field breakage as primary suspect: a renamed, removed, or type-changed field used in journey conditions, personalization tokens, or audience definitions causes silent failures \u2014 and schema evolution should be additive-only to avoid this",
+          "weight": 0.35
+        },
+        {
+          "point": "Locate the drop-off point in journey execution logs or canvas error indicators to distinguish whether profiles fail at entry (upstream: audience/trigger) vs fail at message action node (downstream: rendering/channel)",
+          "weight": 0.25
+        },
+        {
+          "point": "Inspect Union Schema and profile-enabled dataset to confirm field mappings and schema version are still aligned post-update, including whether the audience/segment referencing deprecated fields re-evaluated correctly",
+          "weight": 0.2
+        },
+        {
+          "point": "Query AJO Message Execution dataset via Query Service to determine whether sends were attempted-but-suppressed vs never triggered \u2014 distinguishing suppression from no-entry",
+          "weight": 0.2
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-4",
+    "question": "Two customer records that should represent the same person are showing up as separate profiles. What's your troubleshooting path?",
+    "topic": "identity_profile",
+    "difficulty": 4,
+    "retrieval_hint": "identity graph namespace stitching troubleshooting",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Inspect the Identity Graph (via UI or Identity Service API) for both profiles to see what namespaces and identity values are linked \u2014 or not linked \u2014 for each record",
+          "weight": 0.25
+        },
+        {
+          "point": "Verify that identity fields in each dataset's schema are correctly designated as identity fields and mapped to the appropriate namespaces",
+          "weight": 0.2
+        },
+        {
+          "point": "Check that shared stitching identifiers (e.g., email, CRMID) are actually populated/present in both records and not missing from one side",
+          "weight": 0.2
+        },
+        {
+          "point": "Check for identity value mismatches across source systems (e.g., case sensitivity differences, formatting inconsistencies like uppercase vs lowercase email)",
+          "weight": 0.15
+        },
+        {
+          "point": "Inspect the profile merge policy to confirm it references the correct identity graph and uses the expected deterministic vs probabilistic stitching mode",
+          "weight": 0.1
+        },
+        {
+          "point": "Investigate advanced graph fragmentation causes such as ingestion ordering issues, dangling edges, or private graph / shared-device collapse rules artificially splitting profiles",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-5",
+    "question": "A profile suddenly merged with a completely unrelated customer's data after a new dataset was onboarded. What likely caused this and how do you prevent it?",
+    "topic": "identity_profile",
+    "difficulty": 4,
+    "retrieval_hint": "identity stitching field-based merge policy",
+    "grading_rubric": {
+      "rubric_shape": "single-diagnosis",
+      "required_points": [
+        {
+          "point": "Root cause: field-based identity stitching on a non-unique, dirty, or shared identifier (e.g., reused loyalty ID, shared phone, placeholder value like null/guest email) in the newly onboarded dataset caused the Identity Service to collapse unrelated profiles into one identity graph.",
+          "weight": 0.6
+        },
+        {
+          "point": "Prevention: validate identity fields for uniqueness and cleanliness before onboarding (pre-ingestion data quality checks), and review/govern the identity namespace and field mappings of new datasets before enabling Profile merge.",
+          "weight": 0.4
+        }
+      ],
+      "partial_credit_points": null
+    }
+  },
+  {
+    "id": "scn-6",
+    "question": "A dataset was accidentally enabled for Profile and now unwanted records are appearing in segments. What are your immediate steps?",
+    "topic": "identity_profile",
+    "difficulty": 4,
+    "retrieval_hint": "dataset profile toggle merge policy",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Disable the Profile toggle on the dataset immediately to stop further unwanted records from ingesting into Profile store",
+          "weight": 0.3
+        },
+        {
+          "point": "Delete/purge the incorrectly ingested profile records using AEP Privacy Service API or dataset-level delete",
+          "weight": 0.3
+        },
+        {
+          "point": "Audit and refresh affected segments/audiences to assess contamination and validate cleanup",
+          "weight": 0.2
+        },
+        {
+          "point": "Assess downstream impact \u2014 check any journeys or activations that fired against bad profiles and coordinate remediation if needed",
+          "weight": 0.1
+        },
+        {
+          "point": "Add governance guardrails to prevent recurrence (e.g. tighten dataset enablement permissions via access control policies)",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-7",
+    "question": "A segment that should include 50,000 customers is only returning 200 in the destination export. What would you investigate?",
+    "topic": "segmentation_destinations",
+    "difficulty": 4,
+    "retrieval_hint": "segment export destination data governance labels",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Check segment definition logic and whether segmentation job actually ran and evaluated correctly for the full expected population",
+          "weight": 0.25
+        },
+        {
+          "point": "Check merge policy to ensure it is not excluding key datasets or collapsing the identity graph in a way that reduces profile count",
+          "weight": 0.25
+        },
+        {
+          "point": "Check destination/dataflow configuration for export filters, identity namespace mapping issues, or activation errors that drop profiles before they reach the destination",
+          "weight": 0.25
+        },
+        {
+          "point": "Check Data Usage Labels (DULE), consent policies, or governance rules that may be blocking most profiles from being exported to that specific destination",
+          "weight": 0.15
+        },
+        {
+          "point": "Check monitoring/dataflow run logs and activation error reports for pipeline failures, identity stitching failures, or batch vs streaming timing issues",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-8",
+    "question": "Marketing wants a segment to update instantly when a customer abandons a cart on the website \u2014 batch segmentation is too slow. What approach do you recommend?",
+    "topic": "segmentation_destinations",
+    "difficulty": 4,
+    "retrieval_hint": "edge streaming segmentation real-time",
+    "grading_rubric": {
+      "rubric_shape": "single-diagnosis",
+      "required_points": [
+        {
+          "point": "Recommend switching from batch to streaming (and/or Edge) segmentation, which evaluates segment membership in real-time as events are ingested rather than waiting for a batch cycle",
+          "weight": 0.8
+        },
+        {
+          "point": "Ensure the cart abandonment event is captured and streamed in (e.g. via Web SDK / Edge Network datastream) so the segment definition can qualify for real-time evaluation",
+          "weight": 0.2
+        }
+      ],
+      "partial_credit_points": null
+    }
+  },
+  {
+    "id": "scn-9",
+    "question": "A destination activation fails silently for EU customers only. What's the likely cause?",
+    "topic": "segmentation_destinations",
+    "difficulty": 4,
+    "retrieval_hint": "destination activation consent policy data usage labels",
+    "grading_rubric": {
+      "rubric_shape": "single-diagnosis",
+      "required_points": [
+        {
+          "point": "Data governance / DULE label or Consent Policy restriction is blocking activation for EU profiles \u2014 either a DULE label on EU-specific fields conflicts with the destination's configured marketing action, or EU consent flags are not resolving as opted-in, causing those profiles to be suppressed silently at activation.",
+          "weight": 0.8
+        },
+        {
+          "point": "Knows where to verify: Policy Violations dashboard in Data Governance UI and/or Consent and Preferences schema / consent status ingestion, plus Destinations monitoring dataflow runs to confirm the geographic split.",
+          "weight": 0.2
+        }
+      ],
+      "partial_credit_points": null
+    }
+  },
+  {
+    "id": "scn-10",
+    "question": "A retail client wants real-time personalized offers on their website with sub-second response time. What architecture would you design?",
+    "topic": "architecture",
+    "difficulty": 4,
+    "retrieval_hint": "edge network real-time personalization architecture",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Web SDK (Alloy.js) used to stream behavioral events to Edge Network in real-time",
+          "weight": 0.15
+        },
+        {
+          "point": "Edge Network as the core delivery layer to avoid round-trips to central AEP Data Lake/Hub, enabling sub-second response",
+          "weight": 0.2
+        },
+        {
+          "point": "Edge Profile (lightweight projection of Real-Time Profile synced to edge nodes) used for local eligibility evaluation",
+          "weight": 0.2
+        },
+        {
+          "point": "Offer Decisioning / real-time decisioning engine running at the edge (e.g. AJO Offer Decisioning or Adobe Target)",
+          "weight": 0.2
+        },
+        {
+          "point": "Keeping edge-side rules intentionally simple / pushing complex logic to batch-computed profile attributes to minimize latency",
+          "weight": 0.1
+        },
+        {
+          "point": "Fallback/default offers cached at the edge for resilience on cold decisions",
+          "weight": 0.1
+        },
+        {
+          "point": "Monitoring and performance instrumentation (e.g. Analytics/CJA) to track offer performance and feed optimization",
+          "weight": 0.05
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-11",
+    "question": "A B2B client wants to orchestrate journeys not just per contact, but per company account. How would you architect this in AEP/AJO?",
+    "topic": "architecture",
+    "difficulty": 4,
+    "retrieval_hint": "B2B edition account person journey orchestration",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Use AEP/RT-CDP B2B Edition as the foundational platform, which introduces Account and Opportunity as first-class entities alongside Person profiles",
+          "weight": 0.25
+        },
+        {
+          "point": "Model relationships using B2B XDM schemas \u2014 Account, Opportunity, and Account-Person relationship classes \u2014 so segmentation logic can traverse entity relationships",
+          "weight": 0.2
+        },
+        {
+          "point": "Build account-level audiences/segments in Real-Time CDP B2B Edition and trigger AJO journeys at the account level (not just the person level)",
+          "weight": 0.2
+        },
+        {
+          "point": "Fan out journey communications to all associated contacts/persons within the account from the account-level entry",
+          "weight": 0.15
+        },
+        {
+          "point": "Implement suppression or coordination logic to prevent conflicting touchpoints across contacts at the same account (e.g., pause outreach if one contact already responded)",
+          "weight": 0.1
+        },
+        {
+          "point": "Surface account-level journey status and insights to sales teams (e.g., via CJA or similar reporting) for full buying-group visibility",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-12",
+    "question": "A company ingests both real-time web events and nightly CRM batch updates, and wants one unified customer view. How does AEP handle merging these different cadences?",
+    "topic": "architecture",
+    "difficulty": 4,
+    "retrieval_hint": "merge policy batch streaming profile",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Both streaming and batch sources feed into the same Real-Time Customer Profile store \u2014 streaming updates are near-instant, batch updates apply on ingestion completion",
+          "weight": 0.35
+        },
+        {
+          "point": "Merge policies define attribute precedence/conflict resolution when the same attribute exists across datasets (e.g., CRM as system of record for demographics, web stream for behavioral data)",
+          "weight": 0.35
+        },
+        {
+          "point": "Identity stitching via a shared namespace (e.g., email, CRM ID) links records from both sources into one unified identity graph/profile",
+          "weight": 0.3
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-13",
+    "question": "A new streaming dataset is receiving events successfully, but none of the records are appearing in Real-Time Customer Profile. What would you investigate?",
+    "topic": "data_ingestion",
+    "difficulty": 4,
+    "retrieval_hint": "streaming dataset profile enablement identity",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Dataset must be explicitly enabled for Profile ingestion (the dataset-level toggle in AEP UI)",
+          "weight": 0.25
+        },
+        {
+          "point": "Schema must have a primary identity field designated with the correct identity namespace, without which records cannot be stitched to a profile",
+          "weight": 0.3
+        },
+        {
+          "point": "Schema must have the Profile union schema (XDM Individual Profile class or equivalent) enabled/configured correctly",
+          "weight": 0.15
+        },
+        {
+          "point": "Check ingestion monitoring metrics, Profile preview API, or error logs to distinguish between records not ingested vs ingested but not surfacing",
+          "weight": 0.2
+        },
+        {
+          "point": "Review data usage labels or merge policies that could block records from contributing to Profile",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-14",
+    "question": "A developer accidentally changed the datatype of a field already being used in production. What problems could this cause?",
+    "topic": "data_ingestion",
+    "difficulty": 4,
+    "retrieval_hint": "schema evolution datatype change",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Schema validation failures: new data ingested with the old or mismatched type will be rejected at the dataset/ingestion level",
+          "weight": 0.25
+        },
+        {
+          "point": "Existing segments and audiences referencing the field may break or produce evaluation errors",
+          "weight": 0.25
+        },
+        {
+          "point": "Journey conditions, decisioning rules, or personalization using the field may fail silently or produce unexpected behavior",
+          "weight": 0.2
+        },
+        {
+          "point": "Downstream destinations may receive invalid or malformed data",
+          "weight": 0.15
+        },
+        {
+          "point": "Recommended fix: create a new field rather than changing the existing one (AEP does not support breaking datatype changes via schema evolution)",
+          "weight": 0.15
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-15",
+    "question": "A client wants to ingest millions of historical CRM records while continuing real-time web event collection. How would you approach this?",
+    "topic": "data_ingestion",
+    "difficulty": 4,
+    "retrieval_hint": "batch streaming ingestion merge policy",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Use batch ingestion (Sources connector, batch API, or file uploads) for historical CRM records",
+          "weight": 0.25
+        },
+        {
+          "point": "Use streaming ingestion (Streaming API, Web SDK) for real-time web events simultaneously, noting the two pipelines operate independently",
+          "weight": 0.25
+        },
+        {
+          "point": "Apply/configure an appropriate merge policy so older batch data does not overwrite more recent streaming activity in the unified profile",
+          "weight": 0.25
+        },
+        {
+          "point": "Validate data against XDM schema upfront and monitor ingestion health (e.g. Data Monitoring dashboard) to catch failures early during the historical load",
+          "weight": 0.15
+        },
+        {
+          "point": "Leverage Identity Graph / profile stitching on a common identifier (e.g. email or CRM ID) to unify historical and behavioral data into a single customer profile",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-16",
+    "question": "Customers sometimes log in with email and sometimes with loyalty ID. How would you ensure both activities contribute to a single profile?",
+    "topic": "identity_profile",
+    "difficulty": 4,
+    "retrieval_hint": "identity namespace stitching multiple identifiers",
+    "grading_rubric": {
+      "rubric_shape": "single-diagnosis",
+      "required_points": [
+        {
+          "point": "Define both email and loyalty ID as identity namespaces/identities in the schema and rely on AEP Identity Service to stitch them into a unified identity graph/single profile",
+          "weight": 1.0
+        }
+      ],
+      "partial_credit_points": null
+    }
+  },
+  {
+    "id": "scn-17",
+    "question": "A profile attribute updates correctly in the Profile Viewer, but a journey still uses the old value. Why might this happen?",
+    "topic": "identity_profile",
+    "difficulty": 4,
+    "retrieval_hint": "profile update journey snapshot timing",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Journey uses a snapshot of profile attributes captured at entry time, so updates after entry are not reflected mid-journey",
+          "weight": 0.35
+        },
+        {
+          "point": "Propagation/caching latency means the update visible in Profile Viewer may not yet have reached the layer evaluated by the journey node at the moment of execution",
+          "weight": 0.25
+        },
+        {
+          "point": "The update occurred after the journey already passed the relevant activity/node (timing of read vs update within the journey flow)",
+          "weight": 0.2
+        },
+        {
+          "point": "Dataset or merge policy configuration may mean the updated attribute is not surfaced to the journey's evaluation context",
+          "weight": 0.1
+        },
+        {
+          "point": "Fix involves re-entry conditions, a Profile Update event trigger, or redesigning the journey to re-fetch the attribute",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-18",
+    "question": "After onboarding a new mobile app dataset, profile counts suddenly doubled. What would you investigate first?",
+    "topic": "identity_profile",
+    "difficulty": 4,
+    "retrieval_hint": "identity mapping mobile app profile count",
+    "grading_rubric": {
+      "rubric_shape": "single-diagnosis",
+      "required_points": [
+        {
+          "point": "Identify that the profile count doubling is caused by incorrect or missing identity linking between the new mobile dataset and existing profiles \u2014 specifically misconfigured primary identity, wrong namespace, or unauthenticated mobile IDs (e.g. ECIDs) not stitching to known customer profiles in the Identity Graph, resulting in fragmented/duplicate profiles instead of merged ones.",
+          "weight": 1.0
+        }
+      ],
+      "partial_credit_points": null
+    }
+  },
+  {
+    "id": "scn-19",
+    "question": "Marketing reports that a streaming audience is taking several minutes to update after customer activity. What could explain the delay?",
+    "topic": "segmentation",
+    "difficulty": 4,
+    "retrieval_hint": "streaming segmentation evaluation latency",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Event/data ingestion latency \u2014 data arriving via batch connectors or delayed pipelines rather than real-time streaming sources (HTTP API, Kafka, etc.)",
+          "weight": 0.25
+        },
+        {
+          "point": "Segment configured for batch evaluation instead of streaming segmentation, causing scheduled-cadence delays rather than real-time updates",
+          "weight": 0.25
+        },
+        {
+          "point": "Identity stitching delays \u2014 profile assembly across identities adding latency before eligibility can be evaluated",
+          "weight": 0.15
+        },
+        {
+          "point": "Segment rule complexity making it ineligible for streaming evaluation \u2014 e.g. time-window lookbacks, multi-entity relationships forcing batch mode",
+          "weight": 0.2
+        },
+        {
+          "point": "Edge vs Hub evaluation differences \u2014 profile evaluated at Hub rather than Edge, adding propagation latency",
+          "weight": 0.1
+        },
+        {
+          "point": "Platform processing backlog \u2014 general queue or infrastructure delay in the streaming segmentation pipeline",
+          "weight": 0.05
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-20",
+    "question": "A segment includes customers who purchased yesterday, even though it should only include customers who haven't purchased in 30 days. What would you examine?",
+    "topic": "segmentation",
+    "difficulty": 4,
+    "retrieval_hint": "segment date function timezone rolling window",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Review the segment definition's time window and negation/exclusion logic \u2014 verify the 30-day lookback is correctly configured and that recent purchasers are properly excluded",
+          "weight": 0.3
+        },
+        {
+          "point": "Check event timestamp logic and timezone handling \u2014 malformed or timezone-misaligned timestamps on purchase events could cause the 30-day window comparison to evaluate incorrectly",
+          "weight": 0.25
+        },
+        {
+          "point": "Validate the merge policy \u2014 wrong merge policy could pull in data from unexpected datasets or identity graphs, causing incorrect profile evaluation",
+          "weight": 0.2
+        },
+        {
+          "point": "Verify XDM field mapping for purchase events \u2014 incorrect or inconsistently populated field mappings could cause the system to misinterpret when a purchase occurred",
+          "weight": 0.15
+        },
+        {
+          "point": "Check batch vs. streaming evaluation mode \u2014 stale segment membership from improper refresh or evaluation mode mismatch could retain incorrect members",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-21",
+    "question": "A customer receives an SMS but never receives the follow-up email in the same journey. What would you troubleshoot?",
+    "topic": "journey_optimizer",
+    "difficulty": 4,
+    "retrieval_hint": "journey channel delivery consent SMS email",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Check email address validity and presence on the profile (missing or malformed email would silently block delivery)",
+          "weight": 0.15
+        },
+        {
+          "point": "Check channel-level consent and subscription status for email (AJO respects per-channel consent; unconsented profile skips email silently)",
+          "weight": 0.2
+        },
+        {
+          "point": "Check suppression list and exclusion logs for the email address (prior hard bounce, spam complaint, or manual suppression)",
+          "weight": 0.15
+        },
+        {
+          "point": "Inspect journey canvas for wait nodes, branch conditions, or timeout activities between SMS and email steps that could filter the profile out",
+          "weight": 0.2
+        },
+        {
+          "point": "Review journey live report, step events, or message execution logs (AEP Query Service / debugger) to identify exactly where the profile exited and whether the email action was triggered",
+          "weight": 0.2
+        },
+        {
+          "point": "Check email channel configuration (e.g., surface/preset correctly set up, sending domain, IP warm-up issues)",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-22",
+    "question": "A journey experiences a sudden spike in failures immediately after publishing a new version. What is your investigation strategy?",
+    "topic": "journey_optimizer",
+    "difficulty": 4,
+    "retrieval_hint": "journey version publish failure troubleshooting",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Review the journey version diff to identify what changed (new actions, updated conditions, modified field mappings, schema changes)",
+          "weight": 0.25
+        },
+        {
+          "point": "Inspect journey logs, AEP monitoring dashboards, and error logs to identify which step is failing and what error type is occurring",
+          "weight": 0.2
+        },
+        {
+          "point": "Validate personalization fields and expression logic for correctness against current profile/schema state",
+          "weight": 0.15
+        },
+        {
+          "point": "Check schema dependencies and dataset availability that the new version may rely on",
+          "weight": 0.15
+        },
+        {
+          "point": "Verify event mapping and decision rules introduced or modified in the new version",
+          "weight": 0.1
+        },
+        {
+          "point": "Revert to the previous journey version if failures are widespread and critical, to minimize customer impact while investigating",
+          "weight": 0.1
+        },
+        {
+          "point": "Use test mode or a cloned version to reproduce and validate a fix in a controlled environment before re-publishing",
+          "weight": 0.05
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-23",
+    "question": "Multiple journeys trigger simultaneously for the same customer, causing conflicting offers. How would you prevent this?",
+    "topic": "journey_optimizer",
+    "difficulty": 4,
+    "retrieval_hint": "journey conflict prioritization suppression capping",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Journey prioritization / priority scoring so the highest-priority journey or offer wins when conflicts arise",
+          "weight": 0.25
+        },
+        {
+          "point": "Global or channel-level frequency capping to limit how many journeys/messages a profile can enter in a time window",
+          "weight": 0.25
+        },
+        {
+          "point": "Suppression or exclusion audiences / entry condition guardrails to prevent a profile from qualifying for competing journeys simultaneously",
+          "weight": 0.2
+        },
+        {
+          "point": "Decision Management / business rules (offer-level frequency caps, decision policies) to control offer fatigue at the profile level",
+          "weight": 0.2
+        },
+        {
+          "point": "Monitoring mechanisms such as holdout groups or reporting to validate that suppression and conflict logic is functioning correctly",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-24",
+    "question": "An audience activates successfully to Adobe Target but never reaches Facebook. What would you investigate?",
+    "topic": "destinations_activation",
+    "difficulty": 4,
+    "retrieval_hint": "destination export mapping activation schedule",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Check destination configuration and authentication: verify Facebook ad account ID, OAuth/API credentials are valid and not expired, and terms of service acceptance.",
+          "weight": 0.2
+        },
+        {
+          "point": "Review activation/export job logs in the Monitoring dashboard for errors, failures, throttling, or Facebook API-side rejections.",
+          "weight": 0.2
+        },
+        {
+          "point": "Validate identity namespace mappings: Facebook requires specific identity types (hashed email, GAID, IDFA) and any mismatch will silently drop profiles.",
+          "weight": 0.2
+        },
+        {
+          "point": "Check data governance / consent policies and data usage labels that may block export to this specific destination.",
+          "weight": 0.15
+        },
+        {
+          "point": "Verify audience size meets Facebook's minimum threshold (typically 100+ matched users) and that profile hydration/merge policy produces the expected count before export.",
+          "weight": 0.15
+        },
+        {
+          "point": "Review activation schedule and confirm the audience is actually mapped and scheduled to activate to the Facebook destination.",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-25",
+    "question": "A destination suddenly begins exporting duplicate customer records. What could cause this?",
+    "topic": "destinations_activation",
+    "difficulty": 4,
+    "retrieval_hint": "destination duplicate export identity merge",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Duplicate or fragmented identity records / multiple qualifying profile fragments due to identity graph or stitching issues",
+          "weight": 0.25
+        },
+        {
+          "point": "Merge policy conflict or change causing the same identity to resolve to multiple profiles",
+          "weight": 0.2
+        },
+        {
+          "point": "Multiple dataflows or overlapping segment definitions pointing to the same destination",
+          "weight": 0.2
+        },
+        {
+          "point": "Repeated or duplicate audience qualification events triggering multiple export records for the same profile",
+          "weight": 0.15
+        },
+        {
+          "point": "Batch and streaming evaluation overlap causing overlapping/duplicate record sets in export",
+          "weight": 0.1
+        },
+        {
+          "point": "Incorrect destination mapping configuration",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-26",
+    "question": "A healthcare client accidentally labels marketing data as unrestricted, allowing activation to advertising platforms. How would you address this?",
+    "topic": "governance_privacy",
+    "difficulty": 4,
+    "retrieval_hint": "data governance usage labels enforcement healthcare",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Immediately correct/apply appropriate DULE labels (e.g., C1/C2 or PHI-related) to the affected datasets to restrict unauthorized use",
+          "weight": 0.25
+        },
+        {
+          "point": "Stop/suspend active destination activations where the mislabeled data may have been transmitted to advertising platforms",
+          "weight": 0.2
+        },
+        {
+          "point": "Audit and review affected segments, journeys, or audiences that consumed the mislabeled data",
+          "weight": 0.15
+        },
+        {
+          "point": "Enforce AEP data usage policies that block export of healthcare data to advertising destinations and surface policy violations at activation",
+          "weight": 0.15
+        },
+        {
+          "point": "Implement preventive governance controls (e.g., mandatory label review workflows, policy enforcement alerts) to catch violations before activation in the future",
+          "weight": 0.1
+        },
+        {
+          "point": "Coordinate with compliance and legal teams to assess regulatory notification obligations (e.g., HIPAA breach assessment)",
+          "weight": 0.1
+        },
+        {
+          "point": "Reprocess or remediate affected audiences if necessary after labels and policies are corrected",
+          "weight": 0.05
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-27",
+    "question": "A customer requests deletion of all their personal data under GDPR. Which AEP capabilities are involved?",
+    "topic": "governance_privacy",
+    "difficulty": 4,
+    "retrieval_hint": "privacy service GDPR deletion request",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Privacy Service is the central orchestration layer for submitting and tracking GDPR deletion jobs",
+          "weight": 0.25
+        },
+        {
+          "point": "Deletion propagates to Real-Time Customer Profile and Identity Service (identity graph)",
+          "weight": 0.25
+        },
+        {
+          "point": "Deletion propagates to the Data Lake / datasets (with note that batch-nature makes this slower)",
+          "weight": 0.2
+        },
+        {
+          "point": "Identity verification and job monitoring/audit tracking to demonstrate regulatory compliance (e.g., 30-day GDPR window)",
+          "weight": 0.15
+        },
+        {
+          "point": "Additional scope considerations: sandboxes, Journey Optimizer suppression lists, or message execution history where applicable",
+          "weight": 0.15
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-28",
+    "question": "A customer qualifies for three different offers simultaneously, but only one should be shown. How would you configure this?",
+    "topic": "decisioning",
+    "difficulty": 4,
+    "retrieval_hint": "offer decisioning ranking eligibility capping",
+    "grading_rubric": {
+      "rubric_shape": "single-diagnosis",
+      "required_points": [
+        {
+          "point": "Use AJO Decision Management (Offer Decisioning) to configure a Decision/Offer Activity that evaluates all eligible offers and returns only the single highest-ranked one, using priority scores and/or a ranking strategy (priority-based or AI model like Auto-Optimize) plus eligibility rules to filter and rank the three offers.",
+          "weight": 0.7
+        },
+        {
+          "point": "Apply capping rules at the offer or decision level to control frequency/exposure per customer profile.",
+          "weight": 0.3
+        }
+      ],
+      "partial_credit_points": null
+    }
+  },
+  {
+    "id": "scn-29",
+    "question": "A website migration causes all Web SDK events to stop appearing in AEP. What would you check first?",
+    "topic": "data_collection",
+    "difficulty": 4,
+    "retrieval_hint": "web SDK datastream edge network configuration",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Check browser network tab to confirm Web SDK is firing interact/collect calls to the Edge Network",
+          "weight": 0.25
+        },
+        {
+          "point": "Verify alloy.js tag is loading on migrated pages (via hardcode or tag management/Launch)",
+          "weight": 0.2
+        },
+        {
+          "point": "Validate datastream configuration is mapped to correct sandbox with correct datasets and schemas enabled",
+          "weight": 0.2
+        },
+        {
+          "point": "Confirm edgeConfigId in Web SDK config matches the intended datastream (environment-level config change)",
+          "weight": 0.15
+        },
+        {
+          "point": "Check Launch/Tags deployment and environment settings are correctly published and pointing to migrated domain",
+          "weight": 0.1
+        },
+        {
+          "point": "Use AEP Assurance (Project Griffon) to do end-to-end trace and identify where events drop off",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-30",
+    "question": "A business wants to capture user interactions from both web and mobile apps using the same customer profile. How would you design the implementation?",
+    "topic": "data_collection",
+    "difficulty": 4,
+    "retrieval_hint": "web mobile SDK identity namespace profile",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Use Web SDK (Alloy.js) for web properties and AEP Mobile SDK for iOS/Android apps",
+          "weight": 0.15
+        },
+        {
+          "point": "Route both through the Edge Network via a shared datastream into unified datasets",
+          "weight": 0.15
+        },
+        {
+          "point": "Use consistent XDM schemas across web and mobile data collection",
+          "weight": 0.15
+        },
+        {
+          "point": "Define shared identity namespaces (e.g., hashed email or CRM ID) as the primary deterministic identifier across both channels",
+          "weight": 0.2
+        },
+        {
+          "point": "Leverage Identity Service and Identity Graph to stitch ECIDs (anonymous) to deterministic identifiers post-authentication, reconciling pre- and post-login behavior",
+          "weight": 0.2
+        },
+        {
+          "point": "Configure a merge policy in Real-Time Customer Profile to unify profile fragments from web and mobile datasets into a single profile",
+          "weight": 0.15
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-31",
+    "question": "A global organization operates in North America, Europe, and Asia, each with different privacy regulations. How would you architect the solution?",
+    "topic": "architecture",
+    "difficulty": 4,
+    "retrieval_hint": "sandboxes governance consent multi-region",
+    "grading_rubric": {
+      "rubric_shape": "checklist",
+      "required_points": null,
+      "partial_credit_points": [
+        {
+          "point": "Multi-sandbox architecture: deploy regional sandboxes for North America, Europe, and Asia to enforce data residency and regulatory isolation (GDPR, CCPA, APAC/PDPA)",
+          "weight": 0.25
+        },
+        {
+          "point": "Data governance and DULE labels: apply data usage labeling and enforcement policies to tag sensitive fields and restrict data activation to compliant channels per region",
+          "weight": 0.2
+        },
+        {
+          "point": "Consent management: integrate a CMP with AEP's consent framework so profile-level consent attributes are honored in real time across journey executions in each region",
+          "weight": 0.2
+        },
+        {
+          "point": "Destination restrictions and regional data handling strategies: configure destination-level controls to prevent regulated data from flowing to non-compliant channels or cross-border transfers",
+          "weight": 0.15
+        },
+        {
+          "point": "Identity graph configuration with regional namespaces: avoid cross-border identity stitching where regulations prohibit it",
+          "weight": 0.1
+        },
+        {
+          "point": "Global development/governance sandbox: centralize schema governance and shared assets while promoting region-specific configurations downstream for operational efficiency",
+          "weight": 0.1
+        }
+      ]
+    }
+  },
+  {
+    "id": "scn-32",
+    "question": "A customer wants recommendations generated in under one second while also maintaining a complete historical customer profile. How would you balance both requirements?",
+    "topic": "architecture",
+    "difficulty": 4,
+    "retrieval_hint": "edge profile segmentation data lake latency",
+    "grading_rubric": {
+      "rubric_shape": "single-diagnosis",
+      "required_points": [
+        {
+          "point": "Use Edge Profile (and Edge/streaming segmentation) to serve sub-second personalization/recommendations, while full event history continues to be ingested into the central Real-Time Customer Profile and/or Data Lake for long-term analytics \u2014 i.e., a two-tier architecture where edge holds a lean, pre-processed snapshot and the hub holds complete history",
+          "weight": 1.0
+        }
+      ],
+      "partial_credit_points": null
+    }
+  }
+]

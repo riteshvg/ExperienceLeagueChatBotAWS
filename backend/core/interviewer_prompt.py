@@ -72,6 +72,48 @@ Scoring guide:
 5 = excellent, interview-ready depth for the level"""
 
 
+def build_scenario_evaluation_user_prompt(
+    *,
+    question: str,
+    grading_rubric: dict,
+    level: str,
+    candidate_answer: str,
+    doc_context: str,
+) -> str:
+    """Scenario questions are graded from a structured, weighted rubric rather
+    than a holistic 1-5 self-assessment — the model's only job is to judge
+    which rubric points the answer actually covers; scoring itself is computed
+    deterministically from those judgments (see _score_from_rubric_match)."""
+    points = (grading_rubric.get("required_points") or grading_rubric.get("partial_credit_points") or [])
+    points_list = "\n".join(f"{i+1}. {p['point']}" for i, p in enumerate(points))
+
+    return f"""Evaluate this mock interview answer to a scenario/troubleshooting question against a fixed rubric.
+
+**Interview level:** {level}
+**Question:** {question}
+
+**Rubric points to check for** (does the candidate's answer cover each, even if worded differently?):
+{points_list}
+
+**Candidate answer:**
+{candidate_answer}
+
+**Retrieved Adobe documentation context:**
+{doc_context}
+
+For each numbered rubric point, judge whether the candidate's answer covers it — credit the underlying idea even if phrased differently, don't require exact wording.
+
+Respond with ONLY valid JSON (no markdown fences) using this schema:
+{{
+  "matched_points": [
+    {{"point": "<exact rubric point text>", "matched": <true|false>, "evidence": "<short quote or paraphrase from the answer, or empty string if not matched>"}}
+  ],
+  "feedback": "<2-3 paragraphs of coaching feedback in markdown, referencing which points were covered and which were missed>"
+}}
+
+Include every rubric point listed above in matched_points, in the same order, with the exact same point text."""
+
+
 def build_followup_detection_prompt(
     *,
     question: str,
@@ -151,17 +193,18 @@ Per-question evaluations:
 
 Respond with ONLY valid JSON (no markdown fences):
 {{
-  "overall_score": <integer 1-5>,
   "readiness": "<one of: not_ready | needs_work | nearly_ready | interview_ready>",
   "readiness_summary": "<1-2 sentences on overall interview readiness>",
   "strengths": [<string>, ...],
   "priority_gaps": [<string>, ...],
   "mistakes_to_avoid": [<string>, ...],
   "topics_to_read": [
-    {{ "topic": "<string>", "reason": "<why study this>" }}
+    {{ "topic": "<string>", "reason": "<why study this>", "source_question_indices": [<the Question N number(s) above that this topic draws from>] }}
   ],
   "overall_feedback": "<3-5 paragraphs of honest, coaching feedback in markdown covering answer quality, depth vs level, and concrete next steps>"
 }}
+
+Note: the numeric overall score is computed separately from your per-question scores above — do not include it here.
 
 Be direct and honest. Call out patterns (e.g. UI-only answers without concepts, missing trade-offs, weak cross-product reasoning)."""
 
@@ -173,8 +216,10 @@ def build_welcome_message(level: str, profile_id: str, question_count: int) -> s
         f"I'll ask you **{question_count}** practice questions tailored to this profile. "
         "Answer each in your own words as you would in a real interview.\n\n"
         "**How this works:**\n"
-        "1. Read the question and write your answer in the editor.\n"
-        "2. Use **Markdown** for structure — headings, bullets, and **bold** for key terms.\n"
+        "1. Read the question, then answer in the editor — type it out, or click the mic to dictate and have it "
+        "transcribed for you.\n"
+        "2. Use **Markdown** for structure — headings, bullets, and **bold** for key terms. If you dictated your "
+        "answer, skim the transcript first — it can misspell product names or miss words — and fix it up before saving.\n"
         "3. Click **Save answer**, then review — you can **edit** before moving on.\n"
         "4. After all questions, you'll **review every answer** once more, then submit for evaluation.\n"
         "5. You'll receive an honest debrief: scores, interview readiness, topics to read, and mistakes to avoid.\n\n"
