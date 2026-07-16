@@ -68,9 +68,15 @@ COLLECTIONS: tuple[dict, ...] = (
         "id": "scenario_troubleshooting",
         "label": "Scenario Troubleshooting",
         "description": "Cross-product incident/design scenarios spanning AJO, AEP, identity, segmentation, governance, and decisioning",
-        "levels": ("senior", "architect", "principal"),
+        "levels": ("principal",),
     },
 )
+
+# Levels where scenario_troubleshooting isn't a standalone selectable focus —
+# its questions are folded into the "All solutions" mix instead (see
+# _fetch_bank), so senior/architect users get scenario questions without a
+# separate card cluttering the solution-focus picker.
+_SCENARIO_FOLDED_LEVELS = ("senior", "architect")
 
 
 @dataclass(frozen=True)
@@ -473,6 +479,10 @@ def _fetch_bank(level: str, profile_id: str, user_id: str = "") -> list[Intervie
         banks: list[list[InterviewQuestion]] = []
         for pid in ids:
             rows = google_db.get_active_question_bank(level, pid)
+            if rows:
+                banks.append([_row_to_question(r) for r in rows])
+        if level in _SCENARIO_FOLDED_LEVELS:
+            rows = google_db.get_active_question_bank(level, "scenario_troubleshooting")
             if rows:
                 banks.append([_row_to_question(r) for r in rows])
         if level != "principal" and len(banks) <= 2:

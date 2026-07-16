@@ -214,6 +214,16 @@ export function generateInterviewReportPdf(params: {
     }
   }
 
+  cursor.y += 4
+  addParagraph(
+    doc,
+    cursor,
+    'This is AI-generated interview guidance for practice purposes only — questions, feedback, and scoring '
+      + 'may be imperfect and should not be taken as a literal or authoritative assessment.',
+    { size: 8, color: [148, 163, 184] },
+  )
+  addParagraph(doc, cursor, 'Generated via Rovr', { size: 8, color: [148, 163, 184] })
+
   const dateStamp = new Date().toISOString().slice(0, 10)
   doc.save(`interview-report-${dateStamp}.pdf`)
 }

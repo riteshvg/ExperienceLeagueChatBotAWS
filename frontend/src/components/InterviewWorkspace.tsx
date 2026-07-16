@@ -91,8 +91,11 @@ export function InterviewWorkspace() {
 
   const canEndInterview = phase === 'questioning' || phase === 'answer_pending'
 
+  const showHowThisWorks = Boolean(welcomeText) && phase !== 'complete'
+
   return (
-    <div className="space-y-4 max-w-3xl mx-auto w-full">
+    <div className="max-w-5xl mx-auto w-full grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_260px] gap-4 items-start">
+      <div className="space-y-4 min-w-0">
       <InterviewHeaderBar
         level={level}
         profileLabel={profileLabel}
@@ -102,11 +105,11 @@ export function InterviewWorkspace() {
         totalQuestions={totalQuestions}
       />
 
-      {welcomeText && phase !== 'complete' && (
+      {showHowThisWorks && (
         <details
           open={introOpen}
           onToggle={(e) => setIntroOpen(e.currentTarget.open)}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5"
+          className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 lg:hidden"
         >
           <summary className="flex items-center gap-1.5 text-sm font-medium text-slate-600 cursor-pointer select-none [&::-webkit-details-marker]:hidden">
             <Info className="w-3.5 h-3.5 text-slate-400" />
@@ -297,6 +300,30 @@ export function InterviewWorkspace() {
           level={level}
           profileLabel={profileLabel}
         />
+      )}
+      </div>
+
+      {showHowThisWorks && (
+        <div className="hidden lg:flex lg:flex-col lg:gap-2 sticky top-4">
+          <details className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+            <summary className="flex items-center gap-1.5 text-sm font-medium text-slate-600 cursor-pointer select-none [&::-webkit-details-marker]:hidden">
+              <Info className="w-3.5 h-3.5 text-slate-400" />
+              How this works
+            </summary>
+            <div className="prose prose-sm max-w-none text-slate-700 mt-3">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{welcomeText}</ReactMarkdown>
+            </div>
+          </details>
+          <details className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-[11px] text-slate-400">
+            <summary className="cursor-pointer select-none hover:text-slate-500 [&::-webkit-details-marker]:hidden">
+              Disclaimer
+            </summary>
+            <p className="mt-1 leading-snug">
+              This is AI-generated interview guidance for practice purposes only — questions, feedback, and
+              scoring may be imperfect and should not be taken as a literal or authoritative assessment.
+            </p>
+          </details>
+        </div>
       )}
     </div>
   )
