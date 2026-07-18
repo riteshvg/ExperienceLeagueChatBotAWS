@@ -690,7 +690,7 @@ export function AdminPage() {
     setGoogleUserAdmin, setUserDisabled,
     killSwitchEnabled, toggleKillSwitch,
     defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,
-    defaultMonthlyLimit, updateUserMonthlyLimit, updateDefaultMonthlyLimit,
+    defaultMonthlyLimit, updateUserMonthlyLimit, updateDefaultMonthlyLimit, bulkApplyDefaultMonthlyLimit,
     loading, analyticsLoading, error,
   } = useAdmin()
   const [refreshing, setRefreshing] = useState(false)
@@ -706,6 +706,9 @@ export function AdminPage() {
   const [bulkApplyResult, setBulkApplyResult] = useState<string | null>(null)
   const [defaultMonthlyLimitInput, setDefaultMonthlyLimitInput] = useState<number>(defaultMonthlyLimit)
   const [savingDefaultMonthlyLimit, setSavingDefaultMonthlyLimit] = useState(false)
+  const [showBulkMonthlyConfirm, setShowBulkMonthlyConfirm] = useState(false)
+  const [applyingBulkMonthly, setApplyingBulkMonthly] = useState(false)
+  const [bulkApplyMonthlyResult, setBulkApplyMonthlyResult] = useState<string | null>(null)
 
   const handleSaveDefaultLimit = async () => {
     setSavingDefaultLimit(true)
@@ -732,6 +735,17 @@ export function AdminPage() {
       setShowBulkConfirm(false)
     } catch { /* ignore */ }
     setApplyingBulk(false)
+  }
+
+  const handleBulkApplyMonthly = async () => {
+    setApplyingBulkMonthly(true)
+    try {
+      const result = await bulkApplyDefaultMonthlyLimit()
+      setBulkApplyMonthlyResult(`Updated ${result.users_updated} users to ${result.applied_limit} queries/month.`)
+      setTimeout(() => setBulkApplyMonthlyResult(null), 5000)
+      setShowBulkMonthlyConfirm(false)
+    } catch { /* ignore */ }
+    setApplyingBulkMonthly(false)
   }
 
   const handleKillSwitch = async (enable: boolean) => {
@@ -1197,6 +1211,38 @@ export function AdminPage() {
               </div>
               {bulkApplyResult && (
                 <p className="text-sm text-emerald-700">{bulkApplyResult}</p>
+              )}
+              <div className="flex items-center gap-3">
+                {showBulkMonthlyConfirm ? (
+                  <>
+                    <span className="text-sm text-amber-700">
+                      Apply {defaultMonthlyLimitInput} to all users&apos; monthly limit?
+                    </span>
+                    <button
+                      onClick={handleBulkApplyMonthly}
+                      disabled={applyingBulkMonthly}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+                    >
+                      {applyingBulkMonthly ? 'Applying…' : 'Confirm'}
+                    </button>
+                    <button
+                      onClick={() => setShowBulkMonthlyConfirm(false)}
+                      className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setShowBulkMonthlyConfirm(true)}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  >
+                    Apply monthly default to all users
+                  </button>
+                )}
+              </div>
+              {bulkApplyMonthlyResult && (
+                <p className="text-sm text-emerald-700">{bulkApplyMonthlyResult}</p>
               )}
             </div>
           </div>

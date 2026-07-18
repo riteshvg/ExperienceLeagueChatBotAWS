@@ -11,6 +11,7 @@ import { InterviewAnswerPreview } from './InterviewAnswerPreview'
 import { InterviewSessionReview } from './InterviewSessionReview'
 import { InterviewSessionReport } from './InterviewSessionReport'
 import { InterviewEvaluationProgress } from './InterviewEvaluationProgress'
+import { InterviewFeedbackForm } from './InterviewFeedbackForm'
 
 export function InterviewWorkspace() {
   const {
@@ -301,6 +302,8 @@ export function InterviewWorkspace() {
           profileLabel={profileLabel}
         />
       )}
+
+      {sessionReport && !debriefStreaming && <InterviewFeedbackForm />}
       </div>
 
       {showHowThisWorks && (

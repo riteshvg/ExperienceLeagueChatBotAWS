@@ -112,6 +112,15 @@ class EditAnswerRequest(BaseModel):
     is_voice_input: bool = False
 
 
+class InterviewFeedbackRequest(BaseModel):
+    session_id: str
+    status: str = Field("submitted", description="'submitted' or 'dismissed'")
+    questions_match_level: Optional[int] = None
+    feedback_quality: Optional[int] = None
+    suggestions: Optional[str] = None
+    would_recommend: Optional[bool] = None
+
+
 @router.get("/status")
 async def interviewer_status(user: Annotated[dict, Depends(get_site_user)]):
     s = _settings()
@@ -287,11 +296,38 @@ async def get_review(
 ):
     _require_feature(user)
     session = _get_owned_session(session_id, user)
+    feedback = google_db.get_interview_feedback(session_id)
     return {
         "items": session.get_review_items(),
         "all_answered": session.all_answered(),
+        "feedback_status": feedback["status"] if feedback else None,
         **session.to_dict(),
     }
+
+
+@router.post("/feedback")
+async def submit_interview_feedback(
+    body: InterviewFeedbackRequest,
+    user: Annotated[dict, Depends(get_site_user)],
+):
+    """Beta-tester feedback for a completed interview's debrief. Covers both
+    an actual submission and a dismiss (status='dismissed', all ratings
+    None) — the dismiss case exists so the form doesn't reappear if the
+    candidate revisits this session's debrief later. No LLM call involved."""
+    _require_feature(user)
+    if body.status not in ("submitted", "dismissed"):
+        raise HTTPException(status_code=400, detail="status must be 'submitted' or 'dismissed'")
+    session = _get_owned_session(body.session_id, user)
+    google_db.save_interview_feedback(
+        session.session_id,
+        session.user_id,
+        status=body.status,
+        questions_match_level=body.questions_match_level,
+        feedback_quality=body.feedback_quality,
+        suggestions=body.suggestions,
+        would_recommend=body.would_recommend,
+    )
+    return {"status": "ok"}
 
 
 @router.post("/submit")

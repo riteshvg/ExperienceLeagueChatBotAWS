@@ -19,6 +19,15 @@ from typing import Optional
 
 _ADMIN_EMAIL_ENV = "ADMIN_EMAIL"
 
+# Single source of truth for new-user query allowances. Only takes effect for
+# users created after a change (system_config 'default_daily_limit' /
+# 'default_monthly_limit' are the live, admin-editable values — see
+# backend/api/routes/admin.py's /settings/default-limit and
+# /settings/default-monthly-limit endpoints); these constants are just the
+# seed value for those system_config rows and the fallback if a read fails.
+DEFAULT_DAILY_QUERY_LIMIT = 50
+DEFAULT_MONTHLY_QUERY_LIMIT = 50
+
 _TTL_DAYS = 30
 _RATE_WINDOW_MINUTES = 1
 _RATE_MAX_REQUESTS = 20  # per minute per IP
@@ -61,7 +70,7 @@ def init_tables() -> None:
     conn = _connect()
     try:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 CREATE TABLE IF NOT EXISTS exl_users (
                     user_id               TEXT PRIMARY KEY,
                     email                 TEXT NOT NULL UNIQUE,
@@ -72,10 +81,10 @@ def init_tables() -> None:
                     total_queries         INTEGER NOT NULL DEFAULT 0,
                     is_admin              BOOLEAN NOT NULL DEFAULT FALSE,
                     is_disabled           BOOLEAN NOT NULL DEFAULT FALSE,
-                    daily_query_limit     INTEGER NOT NULL DEFAULT 20,
+                    daily_query_limit     INTEGER NOT NULL DEFAULT {DEFAULT_DAILY_QUERY_LIMIT},
                     daily_query_count     INTEGER NOT NULL DEFAULT 0,
                     daily_reset_at        TIMESTAMPTZ,
-                    monthly_query_limit   INTEGER NOT NULL DEFAULT 999999,
+                    monthly_query_limit   INTEGER NOT NULL DEFAULT {DEFAULT_MONTHLY_QUERY_LIMIT},
                     monthly_queries_used  INTEGER NOT NULL DEFAULT 0,
                     quota_reset_date      DATE NOT NULL DEFAULT DATE_TRUNC('month', NOW())::DATE
                 );
@@ -205,6 +214,18 @@ def init_tables() -> None:
                     request_count INTEGER NOT NULL DEFAULT 1,
                     PRIMARY KEY (user_id, window_start)
                 );
+
+                CREATE TABLE IF NOT EXISTS interview_feedback (
+                    session_id            UUID PRIMARY KEY REFERENCES interview_sessions(session_id) ON DELETE CASCADE,
+                    user_id               TEXT NOT NULL DEFAULT '',
+                    status                TEXT NOT NULL DEFAULT 'submitted'
+                                            CHECK (status IN ('submitted', 'dismissed')),
+                    questions_match_level SMALLINT,
+                    feedback_quality      SMALLINT,
+                    suggestions           TEXT,
+                    would_recommend       BOOLEAN,
+                    submitted_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
             """)
             cur.execute(
                 "ALTER TABLE interview_answers ADD COLUMN IF NOT EXISTS "
@@ -220,6 +241,9 @@ def init_tables() -> None:
             )
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_interview_sessions_user_id ON interview_sessions (user_id)"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_interview_feedback_user_id ON interview_feedback (user_id)"
             )
             cur.execute(
                 "ALTER TABLE interview_sessions ADD COLUMN IF NOT EXISTS evaluation_started_at TIMESTAMPTZ"
@@ -245,7 +269,8 @@ def init_tables() -> None:
                 "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT FALSE"
             )
             cur.execute(
-                "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS daily_query_limit INTEGER NOT NULL DEFAULT 20"
+                f"ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS daily_query_limit "
+                f"INTEGER NOT NULL DEFAULT {DEFAULT_DAILY_QUERY_LIMIT}"
             )
             cur.execute(
                 "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS daily_query_count INTEGER NOT NULL DEFAULT 0"
@@ -254,7 +279,8 @@ def init_tables() -> None:
                 "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS daily_reset_at TIMESTAMPTZ"
             )
             cur.execute(
-                "INSERT INTO system_config (key, value) VALUES ('default_daily_limit', '20') ON CONFLICT (key) DO NOTHING"
+                "INSERT INTO system_config (key, value) VALUES ('default_daily_limit', %s) ON CONFLICT (key) DO NOTHING",
+                (str(DEFAULT_DAILY_QUERY_LIMIT),),
             )
             cur.execute(
                 "ALTER TABLE exl_query_logs ADD COLUMN IF NOT EXISTS message_id TEXT NOT NULL DEFAULT ''"
@@ -275,9 +301,9 @@ def init_tables() -> None:
             cur.execute(
                 "INSERT INTO system_config (key, value) VALUES ('api_enabled', 'true') ON CONFLICT (key) DO NOTHING"
             )
-            # Monthly quota columns (999999 = effectively unlimited for existing users)
             cur.execute(
-                "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS monthly_query_limit INTEGER NOT NULL DEFAULT 999999"
+                f"ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS monthly_query_limit "
+                f"INTEGER NOT NULL DEFAULT {DEFAULT_MONTHLY_QUERY_LIMIT}"
             )
             cur.execute(
                 "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS monthly_queries_used INTEGER NOT NULL DEFAULT 0"
@@ -286,7 +312,8 @@ def init_tables() -> None:
                 "ALTER TABLE exl_users ADD COLUMN IF NOT EXISTS quota_reset_date DATE NOT NULL DEFAULT DATE_TRUNC('month', NOW())::DATE"
             )
             cur.execute(
-                "INSERT INTO system_config (key, value) VALUES ('default_monthly_limit', '20') ON CONFLICT (key) DO NOTHING"
+                "INSERT INTO system_config (key, value) VALUES ('default_monthly_limit', %s) ON CONFLICT (key) DO NOTHING",
+                (str(DEFAULT_MONTHLY_QUERY_LIMIT),),
             )
             cur.execute(
                 "CREATE INDEX IF NOT EXISTS idx_conversations_user_created ON conversations (user_id, created_at DESC)"
@@ -327,7 +354,7 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
     is_admin_value = email.strip().lower() == admin_email if admin_email else False
 
     # Read default limits for new users
-    default_limit = 20
+    default_limit = DEFAULT_DAILY_QUERY_LIMIT
     try:
         raw = get_system_config("default_daily_limit")
         if raw and raw.isdigit():
@@ -335,7 +362,7 @@ def upsert_user(user_id: str, email: str, name: str, picture: str) -> dict:
     except Exception:
         pass
 
-    default_monthly_limit = 20
+    default_monthly_limit = DEFAULT_MONTHLY_QUERY_LIMIT
     try:
         raw_monthly = get_system_config("default_monthly_limit")
         if raw_monthly and raw_monthly.isdigit():
@@ -626,7 +653,7 @@ def check_rate_limit(user_id: str) -> dict:
             )
             row = cur.fetchone()
             if row is None:
-                return {"allowed": True, "count": 0, "limit": 20}
+                return {"allowed": True, "count": 0, "limit": DEFAULT_DAILY_QUERY_LIMIT}
 
             count = row["daily_query_count"]
             limit = row["daily_query_limit"]
@@ -664,7 +691,7 @@ def increment_daily_count(user_id: str) -> dict:
             row = cur.fetchone()
         conn.commit()
         if row is None:
-            return {"count": 0, "limit": 20}
+            return {"count": 0, "limit": DEFAULT_DAILY_QUERY_LIMIT}
         return {"count": row["daily_query_count"], "limit": row["daily_query_limit"]}
     finally:
         conn.close()
@@ -718,7 +745,7 @@ def set_user_daily_limit(user_id: str, limit: int) -> Optional[dict]:
 
 def apply_default_limit_to_all() -> int:
     """Apply the default_daily_limit from system_config to all users. Returns rows updated."""
-    default_limit = 20
+    default_limit = DEFAULT_DAILY_QUERY_LIMIT
     try:
         raw = get_system_config("default_daily_limit")
         if raw and raw.isdigit():
@@ -730,6 +757,27 @@ def apply_default_limit_to_all() -> int:
     try:
         with conn.cursor() as cur:
             cur.execute("UPDATE exl_users SET daily_query_limit = %s", (default_limit,))
+            count = cur.rowcount
+        conn.commit()
+        return count
+    finally:
+        conn.close()
+
+
+def apply_default_monthly_limit_to_all() -> int:
+    """Apply the default_monthly_limit from system_config to all users. Returns rows updated."""
+    default_limit = DEFAULT_MONTHLY_QUERY_LIMIT
+    try:
+        raw = get_system_config("default_monthly_limit")
+        if raw and raw.isdigit():
+            default_limit = int(raw)
+    except Exception:
+        pass
+
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE exl_users SET monthly_query_limit = %s", (default_limit,))
             count = cur.rowcount
         conn.commit()
         return count
@@ -1043,6 +1091,91 @@ def list_feedback(limit: int = 100) -> list[dict]:
                 d["created_at"] = d["created_at"].isoformat()
             if d.get("rating") is not None:
                 d["rating"] = int(d["rating"])
+            result.append(d)
+        return result
+    finally:
+        conn.close()
+
+
+def save_interview_feedback(
+    session_id: str,
+    user_id: str,
+    status: str = "submitted",
+    questions_match_level: Optional[int] = None,
+    feedback_quality: Optional[int] = None,
+    suggestions: Optional[str] = None,
+    would_recommend: Optional[bool] = None,
+) -> None:
+    """Upsert the one feedback row for a session — one row per session_id,
+    covering both an actual submission (status='submitted') and a dismiss
+    with no ratings (status='dismissed'). Re-submitting overwrites the prior
+    row and refreshes submitted_at."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO interview_feedback
+                    (session_id, user_id, status, questions_match_level,
+                     feedback_quality, suggestions, would_recommend, submitted_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (session_id) DO UPDATE SET
+                    status                 = EXCLUDED.status,
+                    questions_match_level  = EXCLUDED.questions_match_level,
+                    feedback_quality       = EXCLUDED.feedback_quality,
+                    suggestions            = EXCLUDED.suggestions,
+                    would_recommend        = EXCLUDED.would_recommend,
+                    submitted_at           = NOW()
+                """,
+                (session_id, user_id, status, questions_match_level,
+                 feedback_quality, suggestions, would_recommend),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_interview_feedback(session_id: str) -> Optional[dict]:
+    """Return the feedback row for a session, or None if not yet seen."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT session_id, user_id, status, questions_match_level, feedback_quality, "
+                "suggestions, would_recommend, submitted_at "
+                "FROM interview_feedback WHERE session_id = %s",
+                (session_id,),
+            )
+            row = cur.fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        if hasattr(d.get("submitted_at"), "isoformat"):
+            d["submitted_at"] = d["submitted_at"].isoformat()
+        return d
+    finally:
+        conn.close()
+
+
+def list_interview_feedback(limit: int = 200) -> list[dict]:
+    """Return recent interview feedback rows (submitted and dismissed) for
+    manual review — e.g. `python -c "from backend.core.google_db import
+    list_interview_feedback as f; import json; print(json.dumps(f(), indent=2))"`."""
+    conn = _connect()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT session_id, user_id, status, questions_match_level, feedback_quality, "
+                "suggestions, would_recommend, submitted_at "
+                "FROM interview_feedback ORDER BY submitted_at DESC LIMIT %s",
+                (limit,),
+            )
+            rows = cur.fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            if hasattr(d.get("submitted_at"), "isoformat"):
+                d["submitted_at"] = d["submitted_at"].isoformat()
             result.append(d)
         return result
     finally:
