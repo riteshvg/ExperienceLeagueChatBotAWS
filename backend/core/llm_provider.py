@@ -2,10 +2,15 @@
 LLM provider toggle — in-memory cache with 30s TTL backed by system_config
 PostgreSQL table. Same pattern as kill_switch.py.
 
-Switches the main answer-generation chain (Haiku/Sonnet) between the direct
-Anthropic API (ChatAnthropic, default) and AWS Bedrock (ChatBedrockConverse).
+Switches the main answer-generation chain (Haiku/Sonnet) between AWS Bedrock
+(ChatBedrockConverse, default) and the direct Anthropic API (ChatAnthropic).
 Retrieval (Titan embeddings) is unaffected either way — this only changes
 generation.
+
+Only consulted for admin requests (see rag_pipeline._current_llm_provider) —
+non-admin traffic always uses Bedrock regardless of this setting, so this
+toggle exists purely to let the admin flip back to direct Anthropic for
+testing/debugging.
 
 Usage:
   get_llm_provider()      → "anthropic" | "bedrock" (cached, 30s TTL)
@@ -17,7 +22,7 @@ import time
 _CACHE_TTL = 30.0
 _KEY = "llm_provider"
 _VALID = ("anthropic", "bedrock")
-_DEFAULT = "anthropic"
+_DEFAULT = "bedrock"
 
 _cache: dict = {"provider": _DEFAULT, "expires_at": 0.0}
 

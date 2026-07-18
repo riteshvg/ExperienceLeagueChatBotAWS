@@ -12,16 +12,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Annotated, Optional
 
-from anthropic import AsyncAnthropic
 from fastapi import APIRouter, Depends, HTTPException, Request, status as http_status
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from backend.api.deps import get_pipeline, get_session_store, get_site_user
 from backend.core import google_db
+from backend.core.bedrock_messages import BedrockMessagesClient
 from backend.core.landing_questions import build_landing_payload, classify_solution
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
+from config.settings import get_settings
 
 _ROOT = Path(__file__).parent.parent.parent.parent
 FEEDBACK_FILE = _ROOT / "data" / "feedback.jsonl"
@@ -315,14 +316,7 @@ class FollowUpsRequest(BaseModel):
 
 @router.post("/chat/follow-ups")
 async def get_follow_ups(body: FollowUpsRequest, _user: Annotated[dict, Depends(get_site_user)]):
-    import os
-    from dotenv import load_dotenv
-    load_dotenv()
-    api_key = os.getenv("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return {"follow_ups": []}
-
-    client = AsyncAnthropic(api_key=api_key)
+    client = BedrockMessagesClient(region_name=get_settings().bedrock_region)
     prompt = (
         f"Based on this question and answer, suggest exactly 3 concise follow-up questions "
         f"a user might ask next. Return only the 3 questions as a JSON array of strings, "
