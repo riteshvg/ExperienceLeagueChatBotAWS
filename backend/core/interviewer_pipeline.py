@@ -12,8 +12,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Literal
 
-from anthropic import AsyncAnthropic
-
+from backend.core.bedrock_messages import BedrockMessagesClient
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.interviewer_prompt import (
     build_evaluation_user_prompt,
@@ -500,7 +499,7 @@ class InterviewerPipeline:
         self.retriever = retriever
         self._processor = QueryProcessor()
         settings = get_settings()
-        self._client = AsyncAnthropic(api_key=settings.anthropic_api_key) if settings.anthropic_api_key else None
+        self._client = BedrockMessagesClient(region_name=settings.bedrock_region)
 
     async def stream_start(self, session: InterviewSession) -> AsyncGenerator[dict[str, Any], None]:
         welcome = build_welcome_message(session.level, session.profile_id, session.total)

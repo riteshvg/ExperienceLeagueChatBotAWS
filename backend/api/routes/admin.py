@@ -312,7 +312,7 @@ async def export_users_excel(
             r.get("total_queries", 0),
             "Yes" if r.get("is_admin") else "No",
             "Yes" if r.get("is_disabled") else "No",
-            r.get("daily_query_limit", 20),
+            r.get("daily_query_limit", _google_db.DEFAULT_DAILY_QUERY_LIMIT),
             r.get("daily_query_count", 0),
             _fmt_ts(r.get("daily_reset_at")),
             monthly_display,
@@ -555,7 +555,7 @@ class DefaultLimitRequest(BaseModel):
 async def get_default_limit(_: Annotated[str, Depends(get_admin_user)]):
     """Return the current default daily query limit from system_config."""
     raw = _google_db.get_system_config("default_daily_limit")
-    return {"default_daily_limit": int(raw) if raw and raw.isdigit() else 20}
+    return {"default_daily_limit": int(raw) if raw and raw.isdigit() else _google_db.DEFAULT_DAILY_QUERY_LIMIT}
 
 
 @router.patch("/settings/default-limit")
@@ -570,7 +570,10 @@ async def apply_default_limit(_: Annotated[str, Depends(get_admin_user)]):
     """Apply the default_daily_limit to all existing users."""
     count = _google_db.apply_default_limit_to_all()
     raw = _google_db.get_system_config("default_daily_limit")
-    return {"users_updated": count, "applied_limit": int(raw) if raw and raw.isdigit() else 20}
+    return {
+        "users_updated": count,
+        "applied_limit": int(raw) if raw and raw.isdigit() else _google_db.DEFAULT_DAILY_QUERY_LIMIT,
+    }
 
 
 class DefaultMonthlyLimitRequest(BaseModel):
@@ -581,7 +584,9 @@ class DefaultMonthlyLimitRequest(BaseModel):
 async def get_default_monthly_limit(_: Annotated[str, Depends(get_admin_user)]):
     """Return the current default monthly query limit from system_config."""
     raw = _google_db.get_system_config("default_monthly_limit")
-    return {"default_monthly_limit": int(raw) if raw and raw.isdigit() else 20}
+    return {
+        "default_monthly_limit": int(raw) if raw and raw.isdigit() else _google_db.DEFAULT_MONTHLY_QUERY_LIMIT,
+    }
 
 
 @router.patch("/settings/default-monthly-limit")
@@ -589,6 +594,17 @@ async def update_default_monthly_limit(body: DefaultMonthlyLimitRequest, _: Anno
     """Update the default monthly limit for new users."""
     _google_db.set_system_config("default_monthly_limit", str(body.default_monthly_limit))
     return {"default_monthly_limit": body.default_monthly_limit}
+
+
+@router.post("/settings/apply-default-monthly-limit")
+async def apply_default_monthly_limit(_: Annotated[str, Depends(get_admin_user)]):
+    """Apply the default_monthly_limit to all existing users."""
+    count = _google_db.apply_default_monthly_limit_to_all()
+    raw = _google_db.get_system_config("default_monthly_limit")
+    return {
+        "users_updated": count,
+        "applied_limit": int(raw) if raw and raw.isdigit() else _google_db.DEFAULT_MONTHLY_QUERY_LIMIT,
+    }
 
 
 @router.get("/analytics")

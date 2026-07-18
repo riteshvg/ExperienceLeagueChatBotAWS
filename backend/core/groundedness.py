@@ -20,8 +20,7 @@ overhead, not a safety measure.
 from __future__ import annotations
 
 import json
-
-from anthropic import AsyncAnthropic
+from typing import Any
 
 _CHECK_MODEL = "claude-haiku-4-5-20251001"
 
@@ -154,7 +153,7 @@ def _format_source_docs(evidence: dict) -> str:
     return "\n".join(lines)
 
 
-async def _call(client: AsyncAnthropic, prompt: str, max_tokens: int = 2000) -> str:
+async def _call(client: Any, prompt: str, max_tokens: int = 2000) -> str:
     resp = await client.messages.create(
         model=_CHECK_MODEL,
         max_tokens=max_tokens,
@@ -164,7 +163,7 @@ async def _call(client: AsyncAnthropic, prompt: str, max_tokens: int = 2000) -> 
 
 
 async def run_groundedness_check(
-    client: AsyncAnthropic,
+    client: Any,
     context: str,
     answer: str,
     known_urls: list[str] | None = None,
@@ -191,7 +190,7 @@ async def run_groundedness_check(
         return {"has_unsupported_specifics": None, "unsupported_claims": [], "reasoning": f"PARSE_ERROR: {raw[:300]}"}
 
 
-async def _build_surgical(client: AsyncAnthropic, answer: str, check_result: dict, evidence: dict) -> str:
+async def _build_surgical(client: Any, answer: str, check_result: dict, evidence: dict) -> str:
     return await _call(
         client,
         _SURGICAL_PROMPT.format(
@@ -202,7 +201,7 @@ async def _build_surgical(client: AsyncAnthropic, answer: str, check_result: dic
     )
 
 
-async def _build_llm_fallback(client: AsyncAnthropic, query: str, context: str, check_result: dict, evidence: dict) -> str:
+async def _build_llm_fallback(client: Any, query: str, context: str, check_result: dict, evidence: dict) -> str:
     return await _call(
         client,
         _FALLBACK_PROMPT.format(
@@ -237,7 +236,7 @@ def _build_hard_fallback(query: str, evidence: dict) -> str:
 
 
 async def resolve_with_escalation(
-    client: AsyncAnthropic,
+    client: Any,
     query: str,
     answer: str,
     context: str,

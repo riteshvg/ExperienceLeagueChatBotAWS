@@ -631,6 +631,9 @@ export const getDefaultMonthlyLimit = (token: string): Promise<{ default_monthly
 export const setDefaultMonthlyLimit = (token: string, limit: number): Promise<{ default_monthly_limit: number }> =>
   adminMutate('/api/admin/settings/default-monthly-limit', token, 'PATCH', { default_monthly_limit: limit })
 
+export const applyDefaultMonthlyLimitToAll = (token: string): Promise<{ users_updated: number; applied_limit: number }> =>
+  adminMutate('/api/admin/settings/apply-default-monthly-limit', token, 'POST')
+
 export async function getUserQuota(): Promise<UserQuota> {
   try {
     const res = await fetch(`${API_BASE}/api/auth/quota`, { headers: authHeaders() })
@@ -903,6 +906,7 @@ export function endInterviewerSession(sessionId: string): Promise<AdvanceRespons
 export async function getInterviewerReview(sessionId: string): Promise<{
   items: ReviewItem[]
   all_answered: boolean
+  feedback_status: 'submitted' | 'dismissed' | null
 } & InterviewerSessionInfo> {
   const res = await fetch(`${API_BASE}/api/interviewer/review/${sessionId}`, {
     headers: authHeaders(),
@@ -918,6 +922,21 @@ export async function* streamInterviewerSubmit(
   sessionId: string,
 ): AsyncGenerator<InterviewerSSEEvent> {
   yield* streamInterviewerSSE('/api/interviewer/submit', { session_id: sessionId })
+}
+
+export interface InterviewFeedbackPayload {
+  session_id: string
+  status: 'submitted' | 'dismissed'
+  questions_match_level?: number | null
+  feedback_quality?: number | null
+  suggestions?: string | null
+  would_recommend?: boolean | null
+}
+
+export function submitInterviewerFeedback(
+  payload: InterviewFeedbackPayload,
+): Promise<{ status: string }> {
+  return interviewerJson('/api/interviewer/feedback', 'POST', payload)
 }
 
 export type { InterviewerSessionInfo }

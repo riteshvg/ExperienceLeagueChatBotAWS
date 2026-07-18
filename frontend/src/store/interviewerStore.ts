@@ -9,6 +9,7 @@ import {
   saveInterviewerAnswer,
   streamInterviewerStart,
   streamInterviewerSubmit,
+  submitInterviewerFeedback,
 } from '@/lib/api'
 import type {
   InterviewLevel,
@@ -57,6 +58,7 @@ interface InterviewerState {
   debriefContent: string
   debriefStreaming: boolean
   evaluationProgress: EvaluationProgress | null
+  debriefFeedbackStatus: 'idle' | 'submitted' | 'dismissed'
 
   init: () => Promise<void>
   toggle: () => void
@@ -72,6 +74,13 @@ interface InterviewerState {
   advanceQuestion: () => Promise<void>
   endInterview: () => Promise<void>
   submitForEvaluation: () => Promise<void>
+  submitDebriefFeedback: (payload: {
+    questions_match_level?: number | null
+    feedback_quality?: number | null
+    suggestions?: string | null
+    would_recommend?: boolean | null
+  }) => Promise<void>
+  dismissDebriefFeedback: () => Promise<void>
   exitMode: () => void
 }
 
@@ -106,6 +115,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
   debriefContent: '',
   debriefStreaming: false,
   evaluationProgress: null,
+  debriefFeedbackStatus: 'idle',
 
   async init() {
     try {
@@ -178,6 +188,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
       debriefContent: '',
       debriefStreaming: false,
       evaluationProgress: null,
+      debriefFeedbackStatus: 'idle',
     })
   },
 
@@ -204,6 +215,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
       debriefContent: '',
       debriefStreaming: false,
       evaluationProgress: null,
+      debriefFeedbackStatus: 'idle',
     })
 
     let welcome = ''
@@ -352,6 +364,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
           currentQuestion: null,
           reviewItems: review.items,
           questionIndex: review.current_index,
+          debriefFeedbackStatus: review.feedback_status ?? 'idle',
         })
         return
       }
@@ -394,6 +407,7 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
         reviewItems: review.items,
         questionIndex: review.current_index,
         totalQuestions: review.total_questions ?? get().totalQuestions,
+        debriefFeedbackStatus: review.feedback_status ?? 'idle',
       })
     } catch (e) {
       set({ error: e instanceof Error ? e.message : 'Failed to end interview' })
@@ -502,6 +516,31 @@ export const useInterviewerStore = create<InterviewerState>()((set, get) => ({
         debriefStreaming: false,
         sessionReport: report ?? get().sessionReport,
       })
+    }
+  },
+
+  async submitDebriefFeedback(payload) {
+    const { sessionId } = get()
+    if (!sessionId) return
+    // Optimistic — this is low-stakes beta feedback, not worth blocking the
+    // debrief UI on the network round trip.
+    set({ debriefFeedbackStatus: 'submitted' })
+    try {
+      await submitInterviewerFeedback({ session_id: sessionId, status: 'submitted', ...payload })
+    } catch {
+      // Non-critical: leave the form collapsed even if the write failed —
+      // retrying would re-prompt the candidate for feedback they already gave.
+    }
+  },
+
+  async dismissDebriefFeedback() {
+    const { sessionId } = get()
+    set({ debriefFeedbackStatus: 'dismissed' })
+    if (!sessionId) return
+    try {
+      await submitInterviewerFeedback({ session_id: sessionId, status: 'dismissed' })
+    } catch {
+      // Non-critical — see submitDebriefFeedback.
     }
   },
 }))

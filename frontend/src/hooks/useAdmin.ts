@@ -5,7 +5,7 @@ import {
   exportQueriesExcel, exportUsersExcel,
   getKillSwitchStatus, setKillSwitch as apiSetKillSwitch,
   setUserDailyLimit, setDefaultDailyLimit, applyDefaultLimitToAll, getDefaultDailyLimit,
-  setUserMonthlyLimit, getDefaultMonthlyLimit, setDefaultMonthlyLimit,
+  setUserMonthlyLimit, getDefaultMonthlyLimit, setDefaultMonthlyLimit, applyDefaultMonthlyLimitToAll,
   type GoogleUser, type GoogleUserSummary, type QueryLog,
   type PaginatedQueryLogs, type PaginatedGoogleUsers,
 } from '@/lib/api'
@@ -285,6 +285,11 @@ export function useAdmin() {
     return applyDefaultLimitToAll(token)
   }, [token])
 
+  const bulkApplyDefaultMonthlyLimit = useCallback(async () => {
+    if (!token) throw new Error('Not authenticated')
+    return applyDefaultMonthlyLimitToAll(token)
+  }, [token])
+
   return {
     isAuthenticated: !!token,
     login, logout, refresh, refreshAnalytics, resetDemo,
@@ -296,7 +301,7 @@ export function useAdmin() {
     setGoogleUserAdmin, setUserDisabled,
     killSwitchEnabled, toggleKillSwitch,
     defaultDailyLimit, updateUserDailyLimit, updateDefaultLimit, bulkApplyDefaultLimit,
-    defaultMonthlyLimit, updateUserMonthlyLimit, updateDefaultMonthlyLimit,
+    defaultMonthlyLimit, updateUserMonthlyLimit, updateDefaultMonthlyLimit, bulkApplyDefaultMonthlyLimit,
     loading, analyticsLoading, error,
   }
 }

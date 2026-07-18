@@ -25,8 +25,7 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from anthropic import AsyncAnthropic
-
+from backend.core.bedrock_messages import BedrockMessagesClient
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.evidence import build_evidence
 from backend.core.groundedness import (
@@ -204,13 +203,17 @@ def _build_sonnet_chain(api_key: str, max_tokens: int = 4000, *, provider: str =
     return _SONNET_PROMPT | llm | StrOutputParser()
 
 
-def _current_llm_provider() -> str:
-    """Admin-toggleable "anthropic" (default) vs "bedrock" for main-answer generation."""
+def _current_llm_provider(is_admin: bool) -> str:
+    """"bedrock" for everyone by default. Only the admin request can still get
+    "anthropic" direct-API, via the admin-panel toggle (backend/core/llm_provider.py) —
+    non-admin traffic always uses Bedrock regardless of that toggle's value."""
+    if not is_admin:
+        return "bedrock"
     try:
         from backend.core.llm_provider import get_llm_provider
         return get_llm_provider()
     except Exception:
-        return "anthropic"
+        return "bedrock"
 
 
 # Tail-latency safety net for the admin-only groundedness-check path: real
@@ -554,7 +557,7 @@ class RAGPipeline:
         lc_history = _to_lc_history(history)
 
         admin_triggered = is_admin and should_run_groundedness_check(evidence)
-        provider = _current_llm_provider()
+        provider = _current_llm_provider(is_admin)
         chain = (
             _build_haiku_chain(settings.anthropic_api_key, max_tokens=_ADMIN_TRIGGERED_HAIKU_MAX_TOKENS, provider=provider, region_name=settings.bedrock_region)
             if admin_triggered
@@ -664,7 +667,7 @@ class RAGPipeline:
         lc_history = _to_lc_history(history)
 
         admin_triggered = is_admin and should_run_groundedness_check(evidence)
-        provider = _current_llm_provider()
+        provider = _current_llm_provider(is_admin)
         chain = (
             _build_sonnet_chain(settings.anthropic_api_key, max_tokens=_ADMIN_TRIGGERED_SONNET_MAX_TOKENS, provider=provider, region_name=settings.bedrock_region)
             if admin_triggered
@@ -732,7 +735,7 @@ class RAGPipeline:
         SSE stream, eval harness) observe what the check actually decided instead
         of having to re-run it, which would trivially find nothing wrong since
         the answer is already post-UX-layer."""
-        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        client = BedrockMessagesClient(region_name=settings.bedrock_region)
         known_urls = extract_known_urls(evidence)
         check_result = await run_groundedness_check(client, context, answer, known_urls=known_urls)
         return await resolve_with_escalation(client, query, answer, context, evidence, check_result)
