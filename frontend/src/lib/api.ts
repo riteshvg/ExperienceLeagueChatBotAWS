@@ -830,7 +830,7 @@ export async function* streamInterviewerStart(
 async function interviewerJson<T>(
   path: string,
   method: 'POST' | 'PATCH',
-  body: Record<string, unknown>,
+  body: object,
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
