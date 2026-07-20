@@ -45,9 +45,7 @@ def significant_terms(query: str) -> list[str]:
     from backend.core.query_keywords import extract_query_keywords
 
     kw = extract_query_keywords(query)
-    if kw.match_terms:
-        return kw.match_terms[:10]
-    terms = extract_terms(query)
+    terms = kw.match_terms[:10] if kw.match_terms else extract_terms(query)
     return [t for t in terms if t.lower() not in _GENERIC_TERMS]
 
 
@@ -177,12 +175,16 @@ def is_topically_relevant(
     *,
     threshold: float = TOPICAL_THRESHOLD,
 ) -> bool:
-    if topical_match_score(query, doc) < threshold:
-        return False
-    sig = significant_terms(query)
-    if len(sig) >= _MIN_SIGNIFICANT_FOR_URL_CHECK and not has_direct_url_match(query, doc):
-        return False
-    return True
+    """
+    A doc that clears the base topical score already has enough term/URL/lex
+    overlap to count as relevant. has_direct_url_match() is no longer a second
+    rejection gate on top of that — a doc whose title/URL happens to be generic
+    (e.g. "Audience evaluation methods" for a "batch/streaming/edge" query) was
+    being dropped here despite a comfortably passing topical_match_score. Kept
+    available for callers that want it as a signal (e.g. future ranking/logging),
+    not as a pass/fail check.
+    """
+    return topical_match_score(query, doc) >= threshold
 
 
 def filter_by_product(docs: list[dict], product: str | None) -> list[dict]:
