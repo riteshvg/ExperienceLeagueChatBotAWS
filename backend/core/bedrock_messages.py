@@ -12,12 +12,17 @@ from types import SimpleNamespace
 from typing import Any
 
 import boto3
+from botocore.exceptions import BotoCoreError, ClientError
+
+from backend.core.llm_exceptions import ContentFilterError, ProviderError, RateLimitError
 
 # The only two Anthropic model ids referenced anywhere in this codebase.
 _MODEL_MAP = {
     "claude-sonnet-4-6": "global.anthropic.claude-sonnet-4-6",
     "claude-haiku-4-5-20251001": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
 }
+
+_THROTTLING_CODES = {"ThrottlingException", "TooManyRequestsException"}
 
 
 class _Messages:
@@ -43,9 +48,34 @@ class _Messages:
         }
         if system:
             kwargs["system"] = [{"text": system}]
-        resp = await asyncio.to_thread(self._bedrock.converse, **kwargs)
+        try:
+            resp = await asyncio.to_thread(self._bedrock.converse, **kwargs)
+        except ClientError as exc:
+            # Server-side rejection (the request reached Bedrock) — includes
+            # throttling.
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in _THROTTLING_CODES:
+                raise RateLimitError(f"Bedrock throttled: {exc}", original=exc) from exc
+            raise ProviderError(f"Bedrock Converse error: {exc}", original=exc) from exc
+        except BotoCoreError as exc:
+            # Client-side rejection before any request was sent (e.g.
+            # ParamValidationError, NoCredentialsError) — does not inherit
+            # from ClientError, so needs its own translation, not just a
+            # narrower except clause.
+            raise ProviderError(f"Bedrock request error: {exc}", original=exc) from exc
+
+        if resp.get("stopReason") == "content_filtered":
+            raise ContentFilterError("Bedrock response blocked by content filtering (stopReason=content_filtered)")
+
         text = resp["output"]["message"]["content"][0]["text"]
-        return SimpleNamespace(content=[SimpleNamespace(text=text)])
+        usage = resp.get("usage", {})
+        return SimpleNamespace(
+            content=[SimpleNamespace(text=text)],
+            usage=SimpleNamespace(
+                input_tokens=usage.get("inputTokens", 0),
+                output_tokens=usage.get("outputTokens", 0),
+            ),
+        )
 
 
 class BedrockMessagesClient:

@@ -12,7 +12,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncGenerator, Literal
 
-from backend.core.bedrock_messages import BedrockMessagesClient
+from backend.core.llm_exceptions import ContentFilterError, RateLimitError
+from backend.core.llm_factory import get_messages_client
 from backend.core.chroma_retriever import ChromaRetriever
 from backend.core.interviewer_prompt import (
     build_evaluation_user_prompt,
@@ -498,8 +499,7 @@ class InterviewerPipeline:
     def __init__(self, retriever: ChromaRetriever | None):
         self.retriever = retriever
         self._processor = QueryProcessor()
-        settings = get_settings()
-        self._client = BedrockMessagesClient(region_name=settings.bedrock_region)
+        self._client = get_messages_client(get_settings())
 
     async def stream_start(self, session: InterviewSession) -> AsyncGenerator[dict[str, Any], None]:
         welcome = build_welcome_message(session.level, session.profile_id, session.total)
@@ -725,6 +725,26 @@ class InterviewerPipeline:
                     evaluation["feedback"] = scenario_eval.get("feedback", "")
                 else:
                     evaluation = _parse_evaluation_json(raw)
+            except RateLimitError as exc:
+                logger.warning("Interviewer per-question eval rate-limited: %s", exc)
+                evaluation = {
+                    "score": 3,
+                    "score_pct": 60,
+                    "strengths": [],
+                    "gaps": ["Evaluation service is busy right now — this answer wasn't scored in detail."],
+                    "model_answer_outline": "",
+                    "feedback": "",
+                }
+            except ContentFilterError as exc:
+                logger.warning("Interviewer per-question eval content-filtered: %s", exc)
+                evaluation = {
+                    "score": 3,
+                    "score_pct": 60,
+                    "strengths": [],
+                    "gaps": ["Evaluation response was blocked by content filtering."],
+                    "model_answer_outline": "",
+                    "feedback": "",
+                }
             except Exception as exc:
                 logger.error("Interviewer per-question eval failed: %s", exc)
                 evaluation = {

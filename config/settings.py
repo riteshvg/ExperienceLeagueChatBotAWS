@@ -85,8 +85,14 @@ class Settings(BaseSettings):
     langchain_project: str = Field(default="experienceleague-chatbot", env="LANGCHAIN_PROJECT")
     langchain_endpoint: str = Field(default="https://api.smith.langchain.com", env="LANGCHAIN_ENDPOINT")
 
+    # Single source of truth for which LLM backend every call site uses, read
+    # once at startup. "anthropic" = direct Anthropic API (local/dev default
+    # use case), "bedrock" = AWS Bedrock Converse (production). See
+    # backend/core/llm_factory.py.
+    llm_provider: str = Field(default="bedrock", env="LLM_PROVIDER")
+
     # Option 3: AWS Bedrock (recommended for AWS-native setup)
-    bedrock_model_id: str = Field(default="us.anthropic.claude-sonnet-4-20250514-v1:0", env="BEDROCK_MODEL_ID")
+    bedrock_model_id: str = Field(default="global.anthropic.claude-sonnet-4-6", env="BEDROCK_MODEL_ID")
     bedrock_region: str = Field(default="us-east-1", env="BEDROCK_REGION")
     bedrock_embedding_model_id: str = Field(default="amazon.titan-embed-text-v2:0", env="BEDROCK_EMBEDDING_MODEL_ID")
     bedrock_knowledge_base_id: Optional[str] = Field(None, env="BEDROCK_KNOWLEDGE_BASE_ID")

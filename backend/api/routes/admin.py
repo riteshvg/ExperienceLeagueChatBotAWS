@@ -437,31 +437,6 @@ async def set_kill_switch(body: KillSwitchRequest, _: Annotated[str, Depends(get
     return {"enabled": body.enabled}
 
 
-# ── LLM provider toggle ────────────────────────────────────────────────────────
-
-class LlmProviderRequest(BaseModel):
-    provider: str
-
-
-@router.get("/settings/llm-provider")
-async def get_llm_provider_setting(_: Annotated[str, Depends(get_admin_user)]):
-    from backend.core import llm_provider
-    try:
-        provider = llm_provider.get_llm_provider()
-    except Exception:
-        provider = "anthropic"
-    return {"provider": provider}
-
-
-@router.patch("/settings/llm-provider")
-async def set_llm_provider_setting(body: LlmProviderRequest, _: Annotated[str, Depends(get_admin_user)]):
-    from backend.core import llm_provider
-    try:
-        llm_provider.set_llm_provider(body.provider)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"LLM provider setting unavailable: {exc}")
     return {"provider": body.provider.strip().lower()}
 
 
@@ -537,7 +512,8 @@ async def cja_readiness(request: Request, _: Annotated[str, Depends(get_admin_us
 @router.get("/settings")
 async def get_settings_view(_: Annotated[str, Depends(get_admin_user)]):
     return {
-        "bedrock_model_id": os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-20250514-v1:0"),
+        "llm_provider": os.getenv("LLM_PROVIDER", "bedrock"),
+        "bedrock_model_id": os.getenv("BEDROCK_MODEL_ID", "global.anthropic.claude-sonnet-4-6"),
         "bedrock_region": os.getenv("BEDROCK_REGION", "us-east-1"),
         "similarity_threshold": float(os.getenv("SIMILARITY_THRESHOLD", "0.6")),
         "max_retrieval_results": int(os.getenv("MAX_RETRIEVAL_RESULTS", "8")),
