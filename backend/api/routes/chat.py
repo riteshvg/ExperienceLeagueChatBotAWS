@@ -18,7 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from backend.api.deps import get_pipeline, get_session_store, get_site_user
 from backend.core import google_db
-from backend.core.bedrock_messages import BedrockMessagesClient
+from backend.core.llm_factory import get_messages_client
 from backend.core.landing_questions import build_landing_payload, classify_solution
 from backend.core.rag_pipeline import RAGPipeline
 from backend.core.session_store import SessionStore
@@ -316,7 +316,7 @@ class FollowUpsRequest(BaseModel):
 
 @router.post("/chat/follow-ups")
 async def get_follow_ups(body: FollowUpsRequest, _user: Annotated[dict, Depends(get_site_user)]):
-    client = BedrockMessagesClient(region_name=get_settings().bedrock_region)
+    client = get_messages_client(get_settings())
     prompt = (
         f"Based on this question and answer, suggest exactly 3 concise follow-up questions "
         f"a user might ask next. Return only the 3 questions as a JSON array of strings, "

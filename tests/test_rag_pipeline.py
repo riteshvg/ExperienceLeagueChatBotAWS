@@ -25,10 +25,10 @@ def _doc(title: str, score: float = 0.7) -> dict:
     }
 
 
-def _run_retrieval_path(query, product_intent, sig_terms, best_topical):
+def _run_retrieval_path(query, product_intent, sig_terms, best_topical, doc_score=0.7):
     docs = [
-        _doc("Introduction to Customer Journey Analytics"),
-        _doc("Understanding Customer Journey Analytics"),
+        _doc("Introduction to Customer Journey Analytics", score=doc_score),
+        _doc("Understanding Customer Journey Analytics", score=doc_score),
     ]
     pipeline = RAGPipeline(retriever=MagicMock(), session_store=MagicMock())
     with (
@@ -72,6 +72,7 @@ class TestWeakTopicalAlignmentGate:
             product_intent="Customer Journey Analytics",
             sig_terms=["ingestion", "guardrails"],
             best_topical=0.0,
+            doc_score=0.1,
         )
         assert blocked == "no_direct_match"
 
@@ -83,5 +84,6 @@ class TestWeakTopicalAlignmentGate:
             product_intent=None,
             sig_terms=["step"],
             best_topical=0.0,
+            doc_score=0.1,
         )
         assert blocked == "no_direct_match"

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { CalendarX, ChevronDown, Clock, LogOut, Menu, Ban, Plus, WifiOff } from 'lucide-react';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { LlmProviderToggle } from '@/components/LlmProviderToggle';
 import { useChatStore } from '@/store/chatStore';
 import { useAuthStore } from '@/store/authStore';
 import { useQuotaStore } from '@/store/quotaStore';
@@ -422,12 +421,6 @@ export function ChatPage() {
                     showLabel
                     className="w-full justify-start px-2.5 py-2 text-sm"
                   />
-                  {session?.is_admin && (
-                    <>
-                      <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-                      <LlmProviderToggle />
-                    </>
-                  )}
                   <button
                     type="button"
                     onClick={handleLogout}
