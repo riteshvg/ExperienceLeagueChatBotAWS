@@ -81,6 +81,7 @@ _ACTION_TERMS = frozenset({
     "built", "setting", "configuring", "configured", "implementing",
     "implemented", "activating", "activate", "activated", "connecting",
     "connect", "connected", "integrating", "integrate", "integrated", "then",
+    "calculate", "calculated", "calculating", "calculates",
 })
 
 _GENERIC_TERMS = frozenset({
