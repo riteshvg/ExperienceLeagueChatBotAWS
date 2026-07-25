@@ -3,6 +3,10 @@ Topical relevance — gate retrieval results before LLM synthesis.
 
 Ensures query terms (especially topic keywords) appear in doc title, URL path,
 or snippet before a chunk is used for answers or shown as a source.
+
+Before adding a bonus/threshold here, see RETRIEVAL_SCORING_PRINCIPLES.md —
+flat "any match" bonuses and small-denominator ratios have both caused real
+docs to be mis-ranked or wrongly blocked in this file.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ _GENERIC_TERMS = frozenset({
     "adobe", "experience", "platform", "analytics", "customer", "journey",
     "optimizer", "target", "collection", "data", "cloud", "real", "time",
     "aep", "ajo", "cja", "aa", "rtcdp", "exl", "docs", "documentation",
+    "api", "apis",
     "different", "various", "types", "what", "are", "the", "for", "about",
     # Procedural/creation verbs — near-universal across how-to docs, so
     # requiring a URL/title match on these (rather than the real topic
@@ -98,8 +103,11 @@ def topical_match_score(query: str, doc: dict) -> float:
 
     # URL/title alignment weighted higher than incidental snippet mentions.
     score = term_ratio * 0.45 + url_ratio * 0.35 + lex * 0.20
-    if url_hits > 0:
-        score = min(1.0, score + 0.15)
+    if url_ratio > 0:
+        # Scaled by url_ratio rather than a flat award — a single incidental
+        # term matching the URL slug (e.g. one word out of five) must not
+        # earn the same bonus as a query where most terms hit the URL path.
+        score = min(1.0, score + 0.15 * url_ratio)
 
     for phrase in kw.topic_phrases:
         pl = phrase.lower()

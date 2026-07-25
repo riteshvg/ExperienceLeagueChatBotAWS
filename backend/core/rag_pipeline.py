@@ -421,12 +421,21 @@ class RAGPipeline:
             )[:5]
             return [], refinement, related, topical_scores, "no_direct_match"
 
-        if self._is_off_topic(relevant_docs, product_intent=product_intent):
+        if self._is_off_topic(relevant_docs):
+            # API-product queries often retrieve real docs with weak embedding
+            # scores (terse reference content vs. a conversational query), so a
+            # bare off-topic block would wrongly drop them. The bypass is gated
+            # on topical_match_score, not on the product name alone — "api"/
+            # "apis" are generic terms (see topical_relevance._GENERIC_TERMS),
+            # so this score reflects real shared vocabulary, not just the
+            # product's own name appearing in the query. Empirically, off-topic
+            # queries that merely namedrop an API product cap out at ~0.23;
+            # genuine matches clear 0.30 with margin (see test_rag_pipeline.py).
             best_topical = max(topical_match_score(query, d) for d in relevant_docs)
             if not (
                 product_intent
                 and product_intent.endswith(" APIs")
-                and best_topical >= 0.35
+                and best_topical >= 0.30
             ):
                 return relevant_docs, refinement, None, topical_scores, "off_topic"
 
@@ -749,17 +758,10 @@ class RAGPipeline:
         return citations
 
     @staticmethod
-    def _is_off_topic(
-        raw_docs: list,
-        threshold: float = 0.25,
-        *,
-        product_intent: str | None = None,
-    ) -> bool:
+    def _is_off_topic(raw_docs: list, threshold: float = 0.25) -> bool:
         """Return True if the retrieved docs are too dissimilar — off-topic query."""
         if not raw_docs:
             return True
-        if product_intent and product_intent.endswith(" APIs"):
-            threshold = min(threshold, 0.05)
         return max(d.get("score", 0) for d in raw_docs) < threshold
 
     def _fetch_related_docs(self, search_query: str, where_filter: dict | None) -> list:

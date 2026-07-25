@@ -87,3 +87,97 @@ class TestWeakTopicalAlignmentGate:
             doc_score=0.1,
         )
         assert blocked == "no_direct_match"
+
+
+def _api_doc(score: float) -> dict:
+    """A real API-reference doc: terse content, low embedding similarity to
+    conversational phrasing is expected for this class of doc."""
+    return {
+        "content": (
+            "Learn how to authenticate calls to the Analytics 2.0 Reporting "
+            "API using OAuth Server-to-Server credentials."
+        ),
+        "score": score,
+        "metadata": {
+            "title": "Analytics 2.0 API Authentication",
+            "url": "https://experienceleague.adobe.com/docs/analytics-apis/2-0/guides/authenticate.html",
+            "product": "Analytics APIs",
+        },
+    }
+
+
+def _run_api_override(query, product_intent, docs):
+    """Like _run_retrieval_path, but does NOT mock topical_match_score or
+    significant_terms — this exercises the real scoring the " APIs" override
+    in rag_pipeline._run_retrieval_path depends on."""
+    pipeline = RAGPipeline(retriever=MagicMock(), session_store=MagicMock())
+    with (
+        patch("backend.core.rag_pipeline.retrieve_with_refinement", return_value=(docs, None)),
+        patch(
+            "backend.core.rag_pipeline.assess_retrieval",
+            return_value={"relevant_docs": docs, "product_docs": docs, "topical_scores": {}},
+        ),
+    ):
+        return asyncio.run(
+            pipeline._run_retrieval_path(
+                query=query,
+                search_query=query,
+                settings=SETTINGS,
+                product_intent=product_intent,
+                where_filter=None,
+            )
+        )
+
+
+class TestApiProductOffTopicOverride:
+    """The " APIs"-suffix bypass in _is_off_topic/_run_retrieval_path used to
+    blindly drop the off-topic threshold to 0.05 for any product_intent ending
+    in " APIs" (rag_pipeline.py, formerly ~L761), regardless of whether the
+    retrieved docs actually matched the query topic — the same shape as the
+    fixed generic-title/URL override (topical_relevance.has_direct_url_match).
+    It's now demoted to a scoring input: the bypass only fires when
+    topical_match_score (with "api"/"apis" excluded as generic terms, and the
+    URL-hit bonus scaled by url_ratio rather than flat) clears 0.30, which real
+    off-topic queries that merely namedrop the API product name do not reach.
+    """
+
+    def test_genuine_direct_api_query_bypasses_off_topic_block(self):
+        _, _, _, _, blocked = _run_api_override(
+            query="How do I authenticate requests to the Analytics 2.0 API?",
+            product_intent="Analytics APIs",
+            docs=[_api_doc(score=0.1)],
+        )
+        assert blocked is None
+
+    def test_off_topic_query_namedropping_api_product_stays_blocked(self):
+        """Shares exactly one real (non-generic) term with the doc
+        ("authenticate") but is otherwise unrelated — must not bypass just
+        because it mentions "Analytics API"."""
+        _, _, _, _, blocked = _run_api_override(
+            query=(
+                "How do I authenticate my identity at passport control, "
+                "unrelated to Analytics API"
+            ),
+            product_intent="Analytics APIs",
+            docs=[_api_doc(score=0.1)],
+        )
+        assert blocked == "off_topic"
+
+    def test_non_api_product_off_topic_query_still_blocked(self):
+        """Regression: removing the internal API-suffix threshold relaxation
+        from _is_off_topic must not change behavior for non-"APIs" products."""
+        docs = [{
+            "content": "CJA overview content.",
+            "score": 0.1,
+            "metadata": {
+                "title": "Introduction to Customer Journey Analytics",
+                "url": "https://experienceleague.adobe.com/docs/cja/intro.html",
+                "product": "Customer Journey Analytics",
+            },
+        }]
+        _, _, _, _, blocked = _run_api_override(
+            query="What is the best pizza recipe",
+            product_intent="Customer Journey Analytics",
+            docs=docs,
+        )
+        assert blocked is not None

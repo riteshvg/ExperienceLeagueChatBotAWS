@@ -4,6 +4,10 @@ Structured keyword extraction and hybrid retrieval support.
 Extracts topic phrases (e.g. "Trade Desk scripts", "ADV pixels"), expands
 Adobe/vendor synonyms, and builds embedding + document-contains search passes
 to complement pure vector retrieval.
+
+Before adding a bonus/threshold here, see RETRIEVAL_SCORING_PRINCIPLES.md —
+flat "any match" bonuses and small-denominator ratios have both caused real
+docs to be mis-ranked or wrongly blocked in this file.
 """
 
 from __future__ import annotations
@@ -275,6 +279,15 @@ def keyword_match_score(keywords: QueryKeywords, doc: dict) -> float:
     return min(1.0, score)
 
 
+# Below this many match_terms, keyword_match_score's term_hits/term_total ratio
+# is unreliable — a single incidental term match saturates it to 1.0 regardless
+# of true relevance (e.g. "segment"/"profile"/"identity" as the sole surviving
+# term). Calibrated empirically: the minimum value that closes that collision
+# without also suppressing genuine single-term rescue signal when the
+# embedding score is weak or misleading (see test_query_keywords.py).
+_MIN_RELIABLE_TERM_TOTAL = 2
+
+
 def hybrid_doc_score(
     doc: dict,
     keywords: QueryKeywords,
@@ -287,4 +300,8 @@ def hybrid_doc_score(
     kw = keyword_match_score(keywords, doc)
     if embed < 0.15:
         embed_weight = 0.25
+    term_total = len(keywords.match_terms)
+    if term_total < _MIN_RELIABLE_TERM_TOTAL:
+        confidence = term_total / _MIN_RELIABLE_TERM_TOTAL
+        embed_weight = embed_weight + (1.0 - embed_weight) * (1.0 - confidence)
     return embed * embed_weight + kw * (1.0 - embed_weight)
